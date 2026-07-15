@@ -1,0 +1,12 @@
+# Virtual environment
+flashbang/
+
+# Secrets
+.env
+
+# Local database
+*.db
+
+# Python artifacts
+__pycache__/
+*.pyc
