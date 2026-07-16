@@ -1,11 +1,12 @@
-"""Terminal front-end. The agent logic now lives in agent_core.py so the
-Streamlit dashboard can share it. This file is just the read-eval-print loop."""
+"""Terminal front-end. The agent logic lives in orchestrator.py (routing +
+specialists) so the Streamlit dashboard can share it. This file is just the
+read-eval-print loop."""
 
-from agent_core import run_turn
+from orchestrator import Orchestrator
 
-messages = []  # the running API conversation history
+orchestrator = Orchestrator()
 
-print("Calendar agent ready. Type 'quit' to exit.\n")
+print("Flashbang ready. Type 'quit' to exit.\n")
 
 while True:
     user_input = input("You: ").strip()
@@ -14,7 +15,6 @@ while True:
     if not user_input:
         continue
 
-    messages.append({"role": "user", "content": user_input})
-    text = run_turn(messages, on_event=print)  # on_event=print keeps your debug logs
+    text = orchestrator.handle(user_input, on_event=print)  # on_event=print keeps debug logs
     if text:
         print(f"Claude: {text}\n")

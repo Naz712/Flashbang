@@ -81,8 +81,38 @@ Still missing: search.py, app.py (Streamlit), .env, calendar.db.
 
 ### Environment
 - venv: `flashbang/` (Python 3.13.7). Activate: `.\flashbang\Scripts\activate`
-- Deps in requirements.txt: anthropic, openai, python-dotenv, pypdf, streamlit
+- Deps in requirements.txt: anthropic, openai, python-dotenv, pypdf, streamlit, numpy
 - Needs `.env` with ANTHROPIC_API_KEY and OPENAI_API_KEY (embeddings).
+
+## Architecture (v2 — implemented 2026-07-16)
+
+**Run it:** `streamlit run app.py` (chat + dashboard) or `python agent.py` (terminal).
+
+- `orchestrator.py` — one conversation, routes each message to a specialist;
+  session pinning rides on the study-session tools.
+- `router.py` — pin fast-path → keyword heuristics → Haiku classifier.
+- `agents.py` — 4 specialists (ingestion / review / organizer / planner),
+  each a system prompt + tool subset.
+- `agent_core.py` — generic run_turn loop + TOOL_HANDLERS registry.
+- `tools.py` — TOOL_SCHEMAS dict; tools_for(names) builds per-agent subsets.
+- `database.py` — flashbang.db: courses → pdfs → pdf_pages → topics →
+  notes/cards → insights, plus study_sessions/session_topics (auto study log).
+  FKs enforced, full ISO timestamps, card FKs derived server-side from topic.
+- `pdf_ingest.py` — per-page pypdf extraction, Claude-vision fallback for
+  sparse pages (batched sub-PDFs, no silent truncation), topic segmentation
+  with page ranges + per-topic minute estimates (chunked for long PDFs).
+- `mastery.py` — Ebbinghaus decay: R = exp(-t/S), S ≈ 3.476 × SM-2 interval
+  (card at its due date = 75% retention; never-reviewed = 0). Topic mastery =
+  mean retention; PDF completion % = est_minutes-weighted topic mastery.
+  Computed at read time, nothing stored.
+- `generation.py` / `grading.py` — per-topic concept extraction and card
+  generation; Haiku answer grading with JSON prefill.
+- `llm_utils.py` — shared client + robust JSON parsing (retry once, refuse
+  truncated output).
+- `tests/` — check_db, check_mastery, check_search, check_router (offline),
+  check_ingest (needs API key + a real PDF).
+
+Old calendar CRUD is gone: the calendar is now the auto-written study log.
 
 ### Gaps vs new spec
 1. No Course/Pdf/Topic entities — cards tagged with strings, not IDs.

@@ -1,444 +1,441 @@
-tools = [
-    {
-        "name": "insert_event",
-        "description": "Create a new calendar event. Use this when the user wants to schedule, add, or book something.",
+"""Tool schemas for all agents, keyed by name. Each AgentSpec picks its subset
+via tools_for(). Calendar CRUD tools are gone — the study log is written
+automatically by the session tools and only read by the planner."""
+
+TOOL_SCHEMAS = {
+    # ------------------------------------------------------------ courses & library
+    "create_course": {
+        "name": "create_course",
+        "description": "Create a new course (e.g. 'Machine Learning', 'Databases'). Courses are the top level of organization; every pdf, topic, and card belongs to one.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Short title of the event, e.g. 'Lunch with Sarah'"
-                },
-                "start_time": {
-                    "type": "string",
-                    "description": "ISO 8601 format, e.g. '2026-05-13T14:00'"
-                },
-                "end_time": {
-                    "type": "string",
-                    "description": "ISO 8601 format, e.g. '2026-05-13T15:00'"
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Optional extra info about the event"
-                },
-                "recurrence": {
-                    "type": "string",
-                    "description": "Optional. 'daily', 'weekly', 'monthly', or null for one-time."
-                }
+                "name": {"type": "string", "description": "Course name, e.g. 'Machine Learning'"}
             },
-            "required": ["title", "start_time", "end_time"]
-        }
+            "required": ["name"],
+        },
     },
-    
-    {
-        "name": "get_events",
-        "description": "Retrieve calendar events within a date range. Use this when the user asks what's on their schedule, what's coming up, or about specific days/weeks.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "start_date": {
-                    "type": "string",
-                    "description": "The start date for the range (inclusive), in ISO 8601 format."
-                },
-                "end_date": {
-                    "type": "string",
-                    "description": "The end date for the range (inclusive), in ISO 8601 format."
-                }
-            },
-            "required": ["start_date", "end_date"]
-        }
+    "get_courses": {
+        "name": "get_courses",
+        "description": "List all courses with their ids. Call this before any operation that needs a course_id.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
-    {
-        "name": "delete_event",
-        "description": "Delete a calendar event by its ID. Use this when the user wants to cancel, remove, or delete an event. You may need to call get_events first to find the right event_id.",
+    "delete_course": {
+        "name": "delete_course",
+        "description": "Delete a course AND everything under it (pdfs, topics, notes, cards, insights) via cascade. Destructive — confirm with the user first.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "event_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the event to delete."
-                }
+                "course_id": {"type": "integer", "description": "The course to delete."}
             },
-            "required": ["event_id"]
-        }
+            "required": ["course_id"],
+        },
     },
-    {  
-        "name": "update_event",
-        "description": "Update an existing calendar event by its ID. Use this when the user wants to change the details of an event. You may need to call get_events first to find the right event_id. Only provide the fields that need to be updated.",
+    "get_pdfs": {
+        "name": "get_pdfs",
+        "description": "List ingested documents (pdfs and pasted-text sources), optionally filtered by course. Shows filename, total pages, estimated total minutes, and status.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "event_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the event to update."
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Updated title of the event, e.g. 'Lunch with Sarah'"
-                },
-                "start_time": {
-                    "type": "string",
-                    "description": "Updated start time in ISO 8601 format, e.g. '2026-05-13T14:00'"
-                },
-                "end_time": {
-                    "type": "string",
-                    "description": "Updated end time in ISO 8601 format, e.g. '2026-05-13T15:00'"
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Updated extra info about the event"
-                },
-                "recurrence": {
-                    "type": "string",
-                    "description": "Updated recurrence pattern: 'daily', 'weekly', 'monthly', 'bi-weekly', or one-time."
-                }
+                "course_id": {"type": "integer", "description": "Optional course filter."}
             },
-            "required": ["event_id"]
-        }
+            "required": [],
+        },
+    },
+    "delete_pdf": {
+        "name": "delete_pdf",
+        "description": "Delete an ingested document and everything under it (topics, notes, cards) via cascade. Destructive — confirm with the user first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pdf_id": {"type": "integer", "description": "The pdf to delete."}
+            },
+            "required": ["pdf_id"],
+        },
     },
 
-    {
-    "name": "insert_card",
-    "description": "Create a new flashcard for spaced repetition learning. Use this when the user wants to add a new fact or concept to their study deck. For cards generated from notes, pass the notes_id from the card dict to link it to its source chunk.",
+    # ------------------------------------------------------------ ingestion
+    "read_pdf": {
+        "name": "read_pdf",
+        "description": "Ingest a PDF file: extracts every page (locally where possible, Claude vision for scanned/diagram pages) and stores the text per page. First step of ingestion — call propose_topics after this. Requires an existing course_id (call get_courses / create_course first).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "subject": {
-                    "type": "string",
-                    "description": "The subject of the flashcard, e.g. 'Java', 'Python'"
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "The topic within the subject, e.g. 'basics', 'advanced'"
-                },
-                "question": {
-                    "type": "string",
-                    "description": "The question or prompt for the flashcard"
-                },
-                "answer": {
-                    "type": "string",
-                    "description": "The answer or explanation for the flashcard"
-                },
-                "notes_id": {
-                    "type": "integer",
-                    "description": "Optional. The id of the source note chunk this card was derived from. Only used for cards generated via the notes-to-cards flow; omit for manually created cards."
-                }
+                "pdf_path": {"type": "string", "description": "Absolute or relative path to the PDF file."},
+                "course_id": {"type": "integer", "description": "The course this document belongs to."},
             },
-            "required": ["subject", "topic", "question", "answer"]
-        }
+            "required": ["pdf_path", "course_id"],
+        },
     },
-
-    {
-        "name": "review_card",
-        "description": "Review a flashcard and update its spaced repetition parameters using the SM-2 algorithm. Use this when the user has just attempted to recall a card and tells you how well they did. Quality is a 0–5 score: 0=blackout, 1=wrong but recognized answer, 2=wrong but easy to remember once seen, 3=correct with serious effort, 4=correct with hesitation, 5=perfect instant recall. Scores 0–2 are failures (card resets). Scores 3–5 are passes (interval grows).",
+    "create_text_source": {
+        "name": "create_text_source",
+        "description": "Ingest pasted text notes (instead of a PDF file). Stores the text as a one-page document; then use propose_topics exactly like a pdf.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "card_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the flashcard to review."
-                },
-                "quality": {
-                    "type": "integer",
-                    "description": "Recall quality score from 0 to 5 (5 = perfect recall, 0 = complete blackout)."
-                }
+                "course_id": {"type": "integer", "description": "The course this belongs to."},
+                "title": {"type": "string", "description": "A short title for these notes."},
+                "text": {"type": "string", "description": "The full pasted notes text."},
             },
-            "required": ["card_id", "quality"]
-        }
+            "required": ["course_id", "title", "text"],
+        },
     },
-
-    {
-        "name": "get_due_cards",
-        "description": "Retrieve all flashcards that are due for review today. Use this when the user wants to see which cards they need to review. This will return a list of cards where next_review is today or earlier.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-
-    {
-        "name": "delete_card",
-        "description": "Delete a flashcard by its ID. Use this when the user wants to remove a card permanently from their study deck.",
+    "propose_topics": {
+        "name": "propose_topics",
+        "description": "Analyze an ingested document's pages and propose a split into real content topics, each with a page range, summary, and estimated study minutes (plus the document total). Saves NOTHING — show the proposal to the user for approval/edits before calling save_topics.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "card_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the flashcard to delete."
-                }
+                "pdf_id": {"type": "integer", "description": "The ingested document to segment."}
             },
-            "required": ["card_id"]
-        }
+            "required": ["pdf_id"],
+        },
     },
-
-    {
-        "name": "grade_answer",
-        "description": "Grade a user's recalled answer to a flashcard. Use this AFTER the user has typed their attempt at recalling the answer, and BEFORE calling review_card. Returns a dict with 'quality' (0-5 SM-2 score) and 'feedback' (explanation of what was right/missed). Use the returned quality value when calling review_card.",
+    "save_topics": {
+        "name": "save_topics",
+        "description": "Persist the approved topic list for a document. Call ONCE after the user approves (possibly edited) topics from propose_topics. Sets the document's total time estimate and marks it ready. Returns topic ids in order.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The flashcard question."
+                "pdf_id": {"type": "integer", "description": "The document these topics belong to."},
+                "topics": {
+                    "type": "array",
+                    "description": "The approved topics, each with title, summary, page_start, page_end, est_minutes.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "page_start": {"type": "integer"},
+                            "page_end": {"type": "integer"},
+                            "est_minutes": {"type": "integer"},
+                        },
+                        "required": ["title", "page_start", "page_end", "est_minutes"],
+                    },
                 },
-                "correct_answer": {
-                    "type": "string",
-                    "description": "The flashcard's stored correct answer."
-                },
-                "user_answer": {
-                    "type": "string",
-                    "description": "The user's attempted recall, in their own words."
-                }
             },
-            "required": ["question", "correct_answer", "user_answer"]
-        }
+            "required": ["pdf_id", "topics"],
+        },
     },
-
-    {
-        "name": "update_card",
-        "description": "Update the content of an existing flashcard by its ID. Use this when the user wants to edit the subject, topic, question, or answer of a card they already have — for example, fixing a typo or rewording an answer. Only provide the fields that need to change. This does not affect the card's spaced repetition schedule.",
+    "get_topics": {
+        "name": "get_topics",
+        "description": "List topics, filtered by pdf and/or course. Shows title, page range, estimated minutes, and position.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "card_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the flashcard to update."
+                "pdf_id": {"type": "integer", "description": "Optional pdf filter."},
+                "course_id": {"type": "integer", "description": "Optional course filter."},
+            },
+            "required": [],
+        },
+    },
+    "update_topic": {
+        "name": "update_topic",
+        "description": "Edit a topic's title, summary, or time estimate (the document's total estimate is kept in sync automatically). Only provide fields that change.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "integer", "description": "The topic to update."},
+                "title": {"type": "string", "description": "New title."},
+                "summary": {"type": "string", "description": "New summary."},
+                "est_minutes": {"type": "integer", "description": "New estimated study minutes."},
+            },
+            "required": ["topic_id"],
+        },
+    },
+    "extract_topic_concepts": {
+        "name": "extract_topic_concepts",
+        "description": "Extract key concepts (with verbatim source text) from a topic's pages. First step of making cards for a topic — show the concepts to the user for approval before save_topic_concepts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "integer", "description": "The topic to extract concepts from."}
+            },
+            "required": ["topic_id"],
+        },
+    },
+    "save_topic_concepts": {
+        "name": "save_topic_concepts",
+        "description": "Save the approved concepts for a topic into the notes corpus (embedded for semantic search). Call ONCE after user approval. Returns note ids in the same order as the concepts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "integer", "description": "The topic these concepts belong to."},
+                "concepts": {
+                    "type": "array",
+                    "description": "Approved concepts from extract_topic_concepts, each with 'name' and 'content'.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["name", "content"],
+                    },
                 },
-                "subject": {
-                    "type": "string",
-                    "description": "Updated subject of the flashcard, e.g. 'Java', 'Python'"
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "Updated topic within the subject, e.g. 'basics', 'advanced'"
-                },
-                "question": {
-                    "type": "string",
-                    "description": "Updated question or prompt for the flashcard"
-                },
-                "answer": {
-                    "type": "string",
-                    "description": "Updated answer or explanation for the flashcard"
+            },
+            "required": ["topic_id", "concepts"],
+        },
+    },
+    "generate_cards_for_topic": {
+        "name": "generate_cards_for_topic",
+        "description": "Generate flashcards for a topic's approved concepts (up to 5 per concept, 80 total). Call after save_topic_concepts, passing its note_ids in the same order as the concepts. Returns the card batch for user review — get approval before bulk_insert_cards.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "integer", "description": "The topic the cards belong to."},
+                "concepts": {"type": "array", "description": "The approved concepts, same order as note_ids."},
+                "note_ids": {"type": "array", "description": "Note ids returned by save_topic_concepts, same order as concepts."},
+            },
+            "required": ["topic_id", "concepts", "note_ids"],
+        },
+    },
+    "bulk_insert_cards": {
+        "name": "bulk_insert_cards",
+        "description": "Insert multiple approved flashcards at once, AFTER the user approves the batch from generate_cards_for_topic (drop any rejected cards first). Each card dict carries question, answer, topic_id, note_id — pass them through unchanged.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cards": {
+                    "type": "array",
+                    "description": "Approved card dicts from generate_cards_for_topic (minus any the user dropped).",
                 }
             },
-            "required": ["card_id"]
-        }
+            "required": ["cards"],
+        },
     },
 
-    {
+    # ------------------------------------------------------------ cards & review
+    "insert_card": {
+        "name": "insert_card",
+        "description": "Create a single flashcard manually under a topic. The card's pdf and course are derived from the topic automatically. For batches from the ingestion flow use bulk_insert_cards instead.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "integer", "description": "The topic this card belongs to (get_topics to find it)."},
+                "question": {"type": "string", "description": "The question or prompt."},
+                "answer": {"type": "string", "description": "The answer or explanation."},
+            },
+            "required": ["topic_id", "question", "answer"],
+        },
+    },
+    "get_cards": {
         "name": "get_cards",
-        "description": "Retrieve flashcards filtered by subject and/or topic. Use this when the user wants to browse, list, or look up cards by content — e.g. 'show me my Python cards' or 'list all my recursion cards'. Both filters are optional — if neither is provided, returns all cards. This is for browsing, not for reviewing due cards (use get_due_cards for that).",
+        "description": "Browse flashcards filtered by course, pdf, and/or topic (all optional; none = all cards). For browsing/cram — use get_due_cards for spaced-repetition review.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "subject": {
-                    "type": "string",
-                    "description": "Optional filter by subject, e.g. 'Java', 'Python'"
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "Optional filter by topic within the subject, e.g. 'basics', 'advanced'"
-                }
+                "course_id": {"type": "integer", "description": "Optional course filter."},
+                "pdf_id": {"type": "integer", "description": "Optional pdf filter."},
+                "topic_id": {"type": "integer", "description": "Optional topic filter."},
             },
-            "required": []
-        }
+            "required": [],
+        },
+    },
+    "get_due_cards": {
+        "name": "get_due_cards",
+        "description": "Retrieve flashcards due for review now (next_review has passed), optionally scoped to a course/pdf/topic. Reviewing due cards is what restores topic mastery and completion %.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "course_id": {"type": "integer", "description": "Optional course filter."},
+                "pdf_id": {"type": "integer", "description": "Optional pdf filter."},
+                "topic_id": {"type": "integer", "description": "Optional topic filter."},
+            },
+            "required": [],
+        },
+    },
+    "review_card": {
+        "name": "review_card",
+        "description": "Record a review: updates the card's SM-2 schedule from a 0-5 quality score and stamps last_reviewed_at (which resets the card's decay). Call AFTER grade_answer, using its quality value. 0-2 = failure (card resets), 3-5 = pass (interval grows).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {"type": "integer", "description": "The card that was just reviewed."},
+                "quality": {"type": "integer", "description": "Recall quality 0-5 from grade_answer."},
+            },
+            "required": ["card_id", "quality"],
+        },
+    },
+    "update_card": {
+        "name": "update_card",
+        "description": "Edit a card's question or answer, or move it to a different topic (pdf/course follow the new topic automatically). Does not affect its review schedule. Only provide fields that change.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {"type": "integer", "description": "The card to update."},
+                "question": {"type": "string", "description": "New question."},
+                "answer": {"type": "string", "description": "New answer."},
+                "topic_id": {"type": "integer", "description": "New topic to move the card to."},
+            },
+            "required": ["card_id"],
+        },
+    },
+    "delete_card": {
+        "name": "delete_card",
+        "description": "Delete a flashcard permanently.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {"type": "integer", "description": "The card to delete."}
+            },
+            "required": ["card_id"],
+        },
+    },
+    "grade_answer": {
+        "name": "grade_answer",
+        "description": "Grade the user's recalled answer against a card's stored answer. Use AFTER the user types their attempt and BEFORE review_card. Returns {'quality': 0-5, 'feedback': str}; pass the quality to review_card.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "The flashcard question."},
+                "correct_answer": {"type": "string", "description": "The card's stored correct answer."},
+                "user_answer": {"type": "string", "description": "The user's attempted recall, verbatim."},
+            },
+            "required": ["question", "correct_answer", "user_answer"],
+        },
     },
 
-    {
+    # ------------------------------------------------------------ insights
+    "insert_insight": {
         "name": "insert_insight",
-        "description": "Save an insight tied to a specific flashcard. An insight is a follow-up note, realization, mnemonic, or connection the user wants to remember next time they review this card. Use when the user says 'save this insight', 'remember this thought', 'note that', or similar phrases while reviewing or discussing a card.",
+        "description": "Save an insight (follow-up note, mnemonic, realization) tied to a flashcard. Only on an explicit user cue ('save that', 'note this'), and only after showing a proposed 1-2 sentence summary and getting confirmation.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "card_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the flashcard for which to insert an insight."
-                },
-                "content": {
-                     "type": "string",
-                     "description": "The text of the insight — a concise summary (1-2 sentences) of the realization, follow-up fact, or mnemonic. Synthesize from the conversation rather than copying long passages verbatim."
-                }
+                "card_id": {"type": "integer", "description": "The card (usually the most recently shown one)."},
+                "content": {"type": "string", "description": "Concise 1-2 sentence summary of the insight."},
             },
-            "required": ["card_id", "content"]
-        }
+            "required": ["card_id", "content"],
+        },
     },
-
-    {
+    "get_insights_for_card": {
         "name": "get_insights_for_card",
-        "description": "Retrieve all insights tied to the card_id of a specific flashcard. Use this when the user wants to review all the insights they have saved for a card. The user might say 'what are the insights' or 'show insights'. Returns a list of insights, each with id, content, and creation date, ordered newest first.",
+        "description": "Retrieve saved insights for a card, newest first. Only when the user explicitly asks ('show insights').",
         "input_schema": {
             "type": "object",
             "properties": {
-                "card_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the flashcard for which to retrieve insights."
-                }
+                "card_id": {"type": "integer", "description": "The card whose insights to fetch."}
             },
-            "required": ["card_id"]
-        }
+            "required": ["card_id"],
+        },
     },
-
-    {
+    "delete_insight": {
         "name": "delete_insight",
-        "description": "Delete a specific insight by its ID. Use this when the user wants to remove an insight they have previously saved.",
+        "description": "Delete an insight by id. If the id is ambiguous, ask the user before calling.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "insight_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the insight to delete."
-                }
+                "insight_id": {"type": "integer", "description": "The insight to delete."}
             },
-            "required": ["insight_id"]
-        }
-    },
-
-    {
-    "name": "extract_concepts",
-    "description": "Extract key concepts from study notes, with verbatim source text for each. Use this when the user wants to turn a block of notes into flashcards. This is the first step of the notes-to-cards flow — always call this before save_concepts or generate_cards_for_session.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "notes": {
-                "type": "string",
-                "description": "The raw study notes text from which to extract concepts."
-            }
+            "required": ["insight_id"],
         },
-        "required": ["notes"]
-    }
     },
 
-    {
-        "name": "save_concepts",
-        "description": "Save all approved concept chunks into the notes corpus in one batch. Call this ONCE after the user approves the output of extract_concepts. Returns a list of note ids, one per concept, in the same order as the input.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "subject": {
-                    "type": "string",
-                    "description": "The subject for these notes, e.g. 'Java'. Comes from extract_concepts's output."
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "The topic for these notes, e.g. 'Inheritance'. Comes from extract_concepts's output."
-                },
-                "concepts": {
-                    "type": "array",
-                    "description": "The full list of approved concepts as returned by extract_concepts. Each item has 'name' and 'content' fields."
-                }
-            },
-            "required": ["subject", "topic", "concepts"]
-        }
-    },
-    {
-        "name": "generate_cards_for_session",
-        "description": "Generate flashcards for all approved concepts in a notes session. Call this ONCE after save_concepts returns note_ids. Internally loops over each concept (up to 3 cards each), tags each card with its source note_id, and caps total at 15. Returns the full batch for user review before insert_card is called per card.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "subject": {
-                    "type": "string",
-                    "description": "The subject for the flashcards, as approved from extract_concepts."
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "The topic for the flashcards, as approved from extract_concepts."
-                },
-                "concepts": {
-                    "type": "array",
-                    "description": "The approved list of concepts from extract_concepts. Each item has 'name' and 'content'."
-                },
-                "note_ids": {
-                    "type": "array",
-                    "description": "The list of note ids returned by save_concepts, in the same order as concepts."
-                }
-            },
-            "required": ["subject", "topic", "concepts", "note_ids"]
-        }
-    },
-
-    {
-    "name": "bulk_insert_cards",
-    "description": "Insert multiple flashcards at once. Use this for the notes-to-cards flow AFTER the user approves the cards from generate_cards_for_session. Pass the approved list of card dicts (each containing subject, topic, question, answer, and notes_id). Each card is saved with its notes_id intact, preserving the link to its source chunk.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "cards": {
-                "type": "array",
-                "description": "The full list of approved card dicts. Each card has subject, topic, question, answer, and notes_id fields — pass them through exactly as returned by generate_cards_for_session (minus any the user dropped)."
-            }
-        },
-        "required": ["cards"]
-        }
-    },
-
-    {
-    "name": "extract_text_from_pdf_vision",
-    "description": """Extract text content from a PDF file. Use this when the user provides a PDF file path and wants to ingest its content for any purpose — making flashcards, summarizing, or pulling out specific information. 
-                    This is typically the first step of the notes-to-cards flow when the source is a PDF; call this BEFORE extract_concepts so the extracted text can be fed in.
-                    The user might say read this or something similar. Generally use this when the user provides a PDF path.""",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "pdf_path": {
-                "type": "string",
-                "description": "The absolute or relative file system path to the PDF file."
-            }
-        },
-        "required": ["pdf_path"]
-        }
-    },
-
-    {
-        "name": "delete_note",
-        "description": "Delete a specific note by its ID. Use this when the user wants to remove a note chunk they have previously saved. This is for deleting source notes, not flashcards or insights.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "note_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the note to delete."
-                }
-            },
-            "required": ["note_id"]
-        }
-    },
-
-    {
+    # ------------------------------------------------------------ notes
+    "get_note": {
         "name": "get_note",
-        "description": "Retrieve a specific note by its ID. Use this when the user wants to review or reference the original note chunk that a flashcard was derived from. This is for fetching source notes, not flashcards or insights.",
+        "description": "Fetch the source note chunk a flashcard was derived from (for reviewing original wording).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "note_id": {
-                    "type": "integer",
-                    "description": "The unique identifier of the note to retrieve."
-                }
+                "note_id": {"type": "integer", "description": "The note to fetch."}
             },
-            "required": ["note_id"]
-        }
-        
+            "required": ["note_id"],
+        },
+    },
+    "delete_note": {
+        "name": "delete_note",
+        "description": "Delete a source note chunk (cards derived from it survive with their link cleared).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "integer", "description": "The note to delete."}
+            },
+            "required": ["note_id"],
+        },
+    },
+    "search_notes": {
+        "name": "search_notes",
+        "description": "Semantic search over saved study notes. Use for conceptual/factual questions about studied material ('what did my notes say about hash collisions'). Returns the most relevant chunks with their course/pdf/topic so you can cite where the answer came from. If nothing relevant returns, say it isn't in the notes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The concept to search for — phrase as the underlying concept ('hash table collision handling'), not a chatty question."},
+                "top_k": {"type": "integer", "description": "Optional. Chunks to retrieve (default 3; 4-5 for broad questions)."},
+                "course_id": {"type": "integer", "description": "Optional course filter."},
+            },
+            "required": ["query"],
+        },
     },
 
-    {
-    "name": "search_notes",
-    "description": "Semantic search over the user's saved study notes. Use this when the user asks a conceptual question about material they've studied — e.g. 'what did my notes say about hash collisions', 'explain transformers', 'how does open addressing work'. Returns the most relevant note chunks by meaning. Answer using the returned chunks and name the subject/topic they came from; if nothing relevant is returned, tell the user it isn't in their notes.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The concept or question to search for, in natural language. Phrasing it as the underlying concept (e.g. 'hash table collision handling') usually retrieves better than a chatty question."
+    # ------------------------------------------------------------ study sessions & progress
+    "start_study_session": {
+        "name": "start_study_session",
+        "description": "Open a study session log entry. Call at the START of every review or cram session, before showing the first card. kind='review' for spaced-repetition review, 'cram' for quiz-everything mode. The session is auto-logged to the study calendar.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["review", "cram"], "description": "Session type."},
+                "course_id": {"type": "integer", "description": "Optional course scope."},
+                "pdf_id": {"type": "integer", "description": "Optional pdf scope."},
+                "topic_ids": {"type": "array", "description": "Optional topic scope (required for cram so the log knows what was quizzed)."},
             },
-            "top_k": {
-                "type": "integer",
-                "description": "Optional. How many chunks to retrieve (default 3). Use 4-5 for broad questions spanning several ideas."
-            }
+            "required": ["kind"],
         },
-        "required": ["query"]
-    }
-    }
+    },
+    "end_study_session": {
+        "name": "end_study_session",
+        "description": "Close the open study session. Call when every card has been quizzed or the user ends the session. For review sessions the reviewed-card count is derived automatically; for cram sessions pass cards_reviewed explicitly.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "integer", "description": "The id returned by start_study_session."},
+                "cards_reviewed": {"type": "integer", "description": "Required for cram sessions: how many cards were quizzed."},
+                "summary": {"type": "string", "description": "Optional one-line summary of the session."},
+            },
+            "required": ["session_id"],
+        },
+    },
+    "get_progress_report": {
+        "name": "get_progress_report",
+        "description": "Full progress report for a document (or every document in a course): completion % with decay applied, per-topic mastery %, status, time estimates, due-card counts, and next due dates. THE tool for 'how am I doing' / 'what % done am I'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pdf_id": {"type": "integer", "description": "Report on one document."},
+                "course_id": {"type": "integer", "description": "Report on every document in a course."},
+            },
+            "required": [],
+        },
+    },
+    "get_upcoming_reviews": {
+        "name": "get_upcoming_reviews",
+        "description": "Per-topic upcoming review deadlines: earliest due date and number of cards coming due within the window. THE tool for 'what should I study next' / 'what's due this week'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Look-ahead window in days (default 7)."}
+            },
+            "required": [],
+        },
+    },
+    "get_study_log": {
+        "name": "get_study_log",
+        "description": "The study calendar: past sessions with date, kind, topics touched, cards reviewed, and minutes. Filter by date range and/or course. THE tool for 'what did I study last week'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Optional ISO date lower bound, e.g. '2026-07-01'."},
+                "end_date": {"type": "string", "description": "Optional ISO date upper bound."},
+                "course_id": {"type": "integer", "description": "Optional course filter."},
+            },
+            "required": [],
+        },
+    },
+}
 
 
-]
+def tools_for(names):
+    """The Anthropic tools param for an agent's tool subset."""
+    return [TOOL_SCHEMAS[name] for name in names]

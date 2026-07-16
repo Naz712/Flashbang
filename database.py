@@ -1,269 +1,683 @@
 import json
 import sqlite3
-from datetime import datetime, timedelta #importing in order to be able to set next review date 
-from sm2 import compute_sm2 #importing def compute_sm2 from other folder 
+from datetime import datetime, timedelta
+from sm2 import compute_sm2
 from embeddings import embed_text
 
-def init_db(): #stands for initialise database, creates the db = database if nothing exists curretnly 
-    conn = sqlite3.connect("calendar.db") #connect to the database in order to make edits 
-    cursor = conn.cursor() #allows the usage of SQL commands through python 
-    
-    cursor.execute(""" 
-        CREATE TABLE IF NOT EXISTS events(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time TEXT NOT NULL,
-            notes TEXT,
-            recurrence TEXT
+DB_PATH = "flashbang.db"
+
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")  # per-connection in SQLite
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def now_iso():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def init_db():
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS courses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            created_at  TEXT NOT NULL
         )
-    """) #command being excuted
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pdfs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id         INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            filename          TEXT NOT NULL,
+            file_path         TEXT,
+            source_type       TEXT NOT NULL DEFAULT 'pdf' CHECK (source_type IN ('pdf','text')),
+            total_pages       INTEGER NOT NULL DEFAULT 0,
+            est_total_minutes INTEGER,
+            status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','ready')),
+            ingested_at       TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pdf_pages (
+            pdf_id      INTEGER NOT NULL REFERENCES pdfs(id) ON DELETE CASCADE,
+            page_number INTEGER NOT NULL,
+            text        TEXT NOT NULL,
+            extractor   TEXT NOT NULL CHECK (extractor IN ('pypdf','vision','text')),
+            PRIMARY KEY (pdf_id, page_number)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS topics (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            pdf_id      INTEGER NOT NULL REFERENCES pdfs(id)    ON DELETE CASCADE,
+            course_id   INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            title       TEXT NOT NULL,
+            summary     TEXT,
+            page_start  INTEGER NOT NULL,
+            page_end    INTEGER NOT NULL,
+            est_minutes INTEGER NOT NULL DEFAULT 0,
+            position    INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL
+        )
+    """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                subject TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                name TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                embedding TEXT
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id    INTEGER NOT NULL REFERENCES topics(id)  ON DELETE CASCADE,
+            pdf_id      INTEGER NOT NULL REFERENCES pdfs(id)    ON DELETE CASCADE,
+            course_id   INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            page_start  INTEGER,
+            page_end    INTEGER,
+            embedding   TEXT,
+            created_at  TEXT NOT NULL
         )
     """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                subject TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                question TEXT NOT NULL,
-                answer TEXT NOT NULL,
-                ease_factor REAL NOT NULL DEFAULT 2.5,
-                interval_days INTEGER NOT NULL DEFAULT 0,
-                repetitions INTEGER NOT NULL DEFAULT 0,
-                next_review TEXT NOT NULL,
-                notes_id INTEGER,
-                FOREIGN KEY (notes_id) REFERENCES notes(id)
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id         INTEGER NOT NULL REFERENCES topics(id)  ON DELETE CASCADE,
+            pdf_id           INTEGER NOT NULL REFERENCES pdfs(id)    ON DELETE CASCADE,
+            course_id        INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            note_id          INTEGER REFERENCES notes(id) ON DELETE SET NULL,
+            question         TEXT NOT NULL,
+            answer           TEXT NOT NULL,
+            ease_factor      REAL    NOT NULL DEFAULT 2.5,
+            interval_days    INTEGER NOT NULL DEFAULT 0,
+            repetitions      INTEGER NOT NULL DEFAULT 0,
+            next_review      TEXT NOT NULL,
+            last_reviewed_at TEXT,
+            created_at       TEXT NOT NULL
         )
     """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS insights (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   card_id INTEGER NOT NULL,
-                   content TEXT NOT NULL,
-                   created_at TEXT NOT NULL,
-                   FOREIGN KEY (card_id) REFERENCES cards(id)
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id    INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            content    TEXT NOT NULL,
+            created_at TEXT NOT NULL
         )
-    """)    
-    conn.commit() #commits the changes to the database and then saves it 
-    conn.close() #end connection to database
+    """)
 
-def insert_event(title, start_time, end_time, notes=None, recurrence=None):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO events (title, start_time, end_time, notes, recurrence)
-        VALUES (?, ?, ?, ?, ?)
-    """, (title, start_time, end_time, notes, recurrence))
-    conn.commit()
-    conn.close() 
+        CREATE TABLE IF NOT EXISTS study_sessions (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind           TEXT NOT NULL CHECK (kind IN ('review','cram','ingestion')),
+            course_id      INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+            pdf_id         INTEGER REFERENCES pdfs(id)    ON DELETE SET NULL,
+            started_at     TEXT NOT NULL,
+            ended_at       TEXT,
+            cards_reviewed INTEGER NOT NULL DEFAULT 0,
+            minutes        REAL,
+            summary        TEXT
+        )
+    """)
 
-def get_events(start_date, end_date):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
     cursor.execute("""
-    SELECT * FROM events
-    WHERE start_time BETWEEN ? AND ?
-    ORDER BY start_time ASC
-    """, (start_date, end_date))    
-    events = cursor.fetchall()
-    conn.close()
-    return events
+        CREATE TABLE IF NOT EXISTS session_topics (
+            session_id INTEGER NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+            topic_id   INTEGER NOT NULL REFERENCES topics(id)         ON DELETE CASCADE,
+            PRIMARY KEY (session_id, topic_id)
+        )
+    """)
 
-def delete_event(event_id):
-    conn = sqlite3.connect("calendar.db")
-    cursor=conn.cursor()
-    cursor.execute("DELETE FROM events WHERE id=?", (event_id,))
-    conn.commit()
-    conn.close()
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_pdf        ON topics(pdf_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_topic       ON notes(topic_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started  ON study_sessions(started_at)")
 
-def update_event(event_id, title=None, start_time=None, end_time=None, notes=None, recurrence=None):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-    UPDATE events
-    SET title = COALESCE(?, title),
-        start_time = COALESCE(?, start_time),
-        end_time = COALESCE(?, end_time),
-        notes = COALESCE(?, notes),
-        recurrence = COALESCE(?, recurrence)
-    WHERE id = ?
-    """, (title, start_time, end_time, notes, recurrence, event_id))
     conn.commit()
     conn.close()
 
-def insert_card(subject, topic, question, answer, notes_id=None):
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    conn = sqlite3.connect("calendar.db")
+
+# ---------------------------------------------------------------- courses
+
+def create_course(name):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO courses (name, created_at) VALUES (?, ?)", (name, now_iso()))
+    course_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return course_id
+
+
+def get_courses():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM courses ORDER BY name")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def delete_course(course_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM courses WHERE id=?", (course_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------- pdfs & pages
+
+def create_pdf(course_id, filename, file_path=None, source_type="pdf", total_pages=0):
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO cards (subject, topic, question, answer, next_review, notes_id)
+        INSERT INTO pdfs (course_id, filename, file_path, source_type, total_pages, ingested_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (subject, topic, question, answer, tomorrow, notes_id))
+    """, (course_id, filename, file_path, source_type, total_pages, now_iso()))
+    pdf_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return pdf_id
+
+
+def save_pdf_pages(pdf_id, pages):
+    """pages: [{'page_number': int, 'text': str, 'extractor': 'pypdf'|'vision'|'text'}]"""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.executemany("""
+        INSERT OR REPLACE INTO pdf_pages (pdf_id, page_number, text, extractor)
+        VALUES (?, ?, ?, ?)
+    """, [(pdf_id, p["page_number"], p["text"], p["extractor"]) for p in pages])
+    conn.commit()
+    conn.close()
+
+
+def get_pdf_pages(pdf_id, page_start=None, page_end=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = "SELECT * FROM pdf_pages WHERE pdf_id = ?"
+    params = [pdf_id]
+    if page_start is not None:
+        query += " AND page_number >= ?"
+        params.append(page_start)
+    if page_end is not None:
+        query += " AND page_number <= ?"
+        params.append(page_end)
+    query += " ORDER BY page_number"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_pdfs(course_id=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    if course_id:
+        cursor.execute("SELECT * FROM pdfs WHERE course_id = ? ORDER BY ingested_at DESC", (course_id,))
+    else:
+        cursor.execute("SELECT * FROM pdfs ORDER BY ingested_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_pdf(pdf_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM pdfs WHERE id = ?", (pdf_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def delete_pdf(pdf_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM pdfs WHERE id=?", (pdf_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------- topics
+
+def save_topics(pdf_id, topics):
+    """topics: [{'title','summary','page_start','page_end','est_minutes'}].
+    Inserts all topics, sets the pdf's est_total_minutes = sum of topic minutes,
+    and flips its status to 'ready'. Returns the new topic ids in order."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT course_id FROM pdfs WHERE id = ?", (pdf_id,))
+    row = cursor.fetchone()
+    if row is None:
+        conn.close()
+        raise ValueError(f"No pdf with id {pdf_id}")
+    course_id = row["course_id"]
+
+    topic_ids = []
+    for position, t in enumerate(topics):
+        cursor.execute("""
+            INSERT INTO topics (pdf_id, course_id, title, summary, page_start, page_end,
+                                est_minutes, position, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (pdf_id, course_id, t["title"], t.get("summary"), t["page_start"],
+              t["page_end"], t.get("est_minutes", 0), position, now_iso()))
+        topic_ids.append(cursor.lastrowid)
+
+    total_minutes = sum(t.get("est_minutes", 0) for t in topics)
+    cursor.execute("UPDATE pdfs SET est_total_minutes = ?, status = 'ready' WHERE id = ?",
+                   (total_minutes, pdf_id))
+    conn.commit()
+    conn.close()
+    return topic_ids
+
+
+def get_topics(pdf_id=None, course_id=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = "SELECT * FROM topics WHERE 1=1"
+    params = []
+    if pdf_id:
+        query += " AND pdf_id = ?"
+        params.append(pdf_id)
+    if course_id:
+        query += " AND course_id = ?"
+        params.append(course_id)
+    query += " ORDER BY pdf_id, position"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_topic(topic_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM topics WHERE id = ?", (topic_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def update_topic(topic_id, title=None, summary=None, est_minutes=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE topics
+        SET title       = COALESCE(?, title),
+            summary     = COALESCE(?, summary),
+            est_minutes = COALESCE(?, est_minutes)
+        WHERE id = ?
+    """, (title, summary, est_minutes, topic_id))
+    # keep the pdf total in sync when a topic estimate changes
+    if est_minutes is not None:
+        cursor.execute("""
+            UPDATE pdfs SET est_total_minutes =
+                (SELECT SUM(est_minutes) FROM topics WHERE pdf_id = pdfs.id)
+            WHERE id = (SELECT pdf_id FROM topics WHERE id = ?)
+        """, (topic_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------- notes
+
+def save_concepts(topic_id, concepts):
+    """concepts: [{'name','content', optional 'page_start','page_end'}].
+    pdf_id/course_id are resolved from the topic so they can never desync.
+    Embeds each concept's content. Returns note ids in order."""
+    topic = get_topic(topic_id)
+    if topic is None:
+        raise ValueError(f"No topic with id {topic_id}")
+
+    conn = get_conn()
+    cursor = conn.cursor()
+    note_ids = []
+    for c in concepts:
+        vector = embed_text(c["content"])
+        cursor.execute("""
+            INSERT INTO notes (topic_id, pdf_id, course_id, name, content,
+                               page_start, page_end, embedding, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (topic_id, topic["pdf_id"], topic["course_id"], c["name"], c["content"],
+              c.get("page_start"), c.get("page_end"), json.dumps(vector), now_iso()))
+        note_ids.append(cursor.lastrowid)
+    conn.commit()
+    conn.close()
+    return note_ids
+
+
+def get_note(note_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def delete_note(note_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM notes WHERE id=?", (note_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_notes_with_embeddings(course_id=None, pdf_id=None, topic_id=None):
+    """Notes joined with course/pdf/topic names so search results can be cited."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = """
+        SELECT notes.*, courses.name AS course_name, pdfs.filename AS pdf_filename,
+               topics.title AS topic_title
+        FROM notes
+        JOIN courses ON courses.id = notes.course_id
+        JOIN pdfs    ON pdfs.id    = notes.pdf_id
+        JOIN topics  ON topics.id  = notes.topic_id
+        WHERE notes.embedding IS NOT NULL
+    """
+    params = []
+    if course_id:
+        query += " AND notes.course_id = ?"
+        params.append(course_id)
+    if pdf_id:
+        query += " AND notes.pdf_id = ?"
+        params.append(pdf_id)
+    if topic_id:
+        query += " AND notes.topic_id = ?"
+        params.append(topic_id)
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+# ---------------------------------------------------------------- cards
+
+def insert_card(topic_id, question, answer, note_id=None):
+    """pdf_id/course_id come from the topic row, never from the caller."""
+    topic = get_topic(topic_id)
+    if topic is None:
+        raise ValueError(f"No topic with id {topic_id}")
+    tomorrow = (datetime.now() + timedelta(days=1)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO cards (topic_id, pdf_id, course_id, note_id, question, answer,
+                           next_review, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (topic_id, topic["pdf_id"], topic["course_id"], note_id, question, answer,
+          tomorrow, now_iso()))
     card_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return card_id
 
-def delete_card(card_id):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM cards WHERE id=?", (card_id,))
-    conn.commit()
-    conn.close()
 
-def get_due_cards():
-    today = datetime.now().strftime("%Y-%m-%d")
-    conn = sqlite3.connect("calendar.db")
+def get_cards(course_id=None, pdf_id=None, topic_id=None):
+    conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM cards
-        WHERE next_review <= ?
-        ORDER BY next_review ASC
-    """, (today,))
-    cards = cursor.fetchall()
+    query = """
+        SELECT cards.*, topics.title AS topic_title, courses.name AS course_name
+        FROM cards
+        JOIN topics  ON topics.id  = cards.topic_id
+        JOIN courses ON courses.id = cards.course_id
+        WHERE 1=1
+    """
+    params = []
+    if course_id:
+        query += " AND cards.course_id = ?"
+        params.append(course_id)
+    if pdf_id:
+        query += " AND cards.pdf_id = ?"
+        params.append(pdf_id)
+    if topic_id:
+        query += " AND cards.topic_id = ?"
+        params.append(topic_id)
+    query += " ORDER BY cards.next_review ASC"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
     conn.close()
-    return cards
+    return rows
+
+
+def get_due_cards(course_id=None, pdf_id=None, topic_id=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = """
+        SELECT cards.*, topics.title AS topic_title, courses.name AS course_name
+        FROM cards
+        JOIN topics  ON topics.id  = cards.topic_id
+        JOIN courses ON courses.id = cards.course_id
+        WHERE cards.next_review <= ?
+    """
+    params = [now_iso()]
+    if course_id:
+        query += " AND cards.course_id = ?"
+        params.append(course_id)
+    if pdf_id:
+        query += " AND cards.pdf_id = ?"
+        params.append(pdf_id)
+    if topic_id:
+        query += " AND cards.topic_id = ?"
+        params.append(topic_id)
+    query += " ORDER BY cards.next_review ASC"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
 
 def review_card(card_id, quality):
-    conn = sqlite3.connect("calendar.db")
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT ease_factor, interval_days, repetitions FROM cards WHERE id=?", (card_id,))
     row = cursor.fetchone()
-    ease_factor, interval_days, repetitions = row   
-    new_ease_factor, new_interval_days, new_repetitions = compute_sm2(ease_factor, interval_days, repetitions, quality)
-    
-    next_review_date = (datetime.now() + timedelta(days=new_interval_days)).strftime("%Y-%m-%d")
-    
+    if row is None:
+        conn.close()
+        raise ValueError(f"No card with id {card_id}")
+    new_ease, new_interval, new_reps = compute_sm2(
+        row["ease_factor"], row["interval_days"], row["repetitions"], quality)
+
+    next_review = (datetime.now() + timedelta(days=new_interval)).isoformat(timespec="seconds")
     cursor.execute("""
         UPDATE cards
-        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?
+        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?, last_reviewed_at=?
         WHERE id=?
-    """, (new_ease_factor, new_interval_days, new_repetitions, next_review_date, card_id))
-    
+    """, (new_ease, new_interval, new_reps, next_review, now_iso(), card_id))
     conn.commit()
     conn.close()
-    return new_interval_days
+    return new_interval
 
-def update_card(card_id, subject=None, topic=None, question=None, answer=None):
-    conn = sqlite3.connect("calendar.db")
+
+def update_card(card_id, question=None, answer=None, topic_id=None):
+    conn = get_conn()
     cursor = conn.cursor()
+    if topic_id is not None:
+        # moving a card to another topic re-derives pdf/course from the new topic
+        topic = get_topic(topic_id)
+        if topic is None:
+            conn.close()
+            raise ValueError(f"No topic with id {topic_id}")
+        cursor.execute("""
+            UPDATE cards SET topic_id=?, pdf_id=?, course_id=? WHERE id=?
+        """, (topic_id, topic["pdf_id"], topic["course_id"], card_id))
     cursor.execute("""
-    UPDATE cards
-        SET subject = COALESCE(?, subject),
-            topic = COALESCE(?, topic),
-            question = COALESCE(?, question),
-            answer = COALESCE(?, answer)
-    WHERE id = ?
-    """, (subject, topic, question, answer, card_id))
+        UPDATE cards
+        SET question = COALESCE(?, question),
+            answer   = COALESCE(?, answer)
+        WHERE id = ?
+    """, (question, answer, card_id))
     conn.commit()
     conn.close()
 
-def get_cards(subject=None, topic=None):   # plural!
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
 
-    query = "SELECT * FROM cards WHERE 1=1"
-    params = []
-    if subject:
-        query += " AND subject = ?"
-        params.append(subject)
-    if topic:
-        query += " AND topic = ?"
-        params.append(topic)
-    query += " ORDER BY next_review ASC"
-
-    cursor.execute(query, params)
-    cards = cursor.fetchall()
+def delete_card(card_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM cards WHERE id=?", (card_id,))
+    conn.commit()
     conn.close()
-    return cards
-       
+
+
+# ---------------------------------------------------------------- insights
+
 def insert_insight(card_id, content):
-    created_at = datetime.now().strftime("%Y-%m-%d")
-    conn = sqlite3.connect("calendar.db")
+    conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO insights (card_id, content, created_at)
-        VALUES (?, ?, ?)
-    """, (card_id, content, created_at))
+    cursor.execute("INSERT INTO insights (card_id, content, created_at) VALUES (?, ?, ?)",
+                   (card_id, content, now_iso()))
     insight_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return insight_id
 
+
 def get_insights_for_card(card_id):
-    conn = sqlite3.connect("calendar.db")
+    conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM insights
-        WHERE card_id = ?
-        ORDER BY created_at DESC
-    """, (card_id,))
-    insights = cursor.fetchall()
-    conn.close()
-    return insights
-
-def delete_insight(insight_id):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute ("DELETE FROM insights WHERE id=?", (insight_id,))
-    conn.commit()
-    conn.close()
-
-def save_concepts(subject, topic, concepts):
-    created_at = datetime.now().strftime("%Y-%m-%d")
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    
-    note_ids = []
-    for c in concepts:
-        vector = embed_text(c["content"])
-        vector_as_string = json.dumps(vector)
-        cursor.execute("""
-            INSERT INTO notes (subject, topic, name, content, created_at, embedding)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (subject, topic, c["name"], c["content"], created_at, vector_as_string))
-        note_ids.append(cursor.lastrowid)
-    
-    conn.commit()
-    conn.close()
-    return note_ids
-
-def get_note(note_id):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM notes
-        WHERE id = ?
-    """, (note_id,))
-    note = cursor.fetchone()
-    conn.close()
-    return note
-
-def delete_note(note_id):
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM notes WHERE id=?", (note_id,))
-    conn.commit()
-    conn.close()
-
-def get_notes_with_embeddings():
-    conn = sqlite3.connect("calendar.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM notes WHERE embedding IS NOT NULL")
+    cursor.execute("SELECT * FROM insights WHERE card_id = ? ORDER BY created_at DESC", (card_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+def delete_insight(insight_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM insights WHERE id=?", (insight_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------- study log
+
+def start_session(kind, course_id=None, pdf_id=None, topic_ids=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO study_sessions (kind, course_id, pdf_id, started_at)
+        VALUES (?, ?, ?, ?)
+    """, (kind, course_id, pdf_id, now_iso()))
+    session_id = cursor.lastrowid
+    if topic_ids:
+        cursor.executemany(
+            "INSERT OR IGNORE INTO session_topics (session_id, topic_id) VALUES (?, ?)",
+            [(session_id, t) for t in topic_ids])
+    conn.commit()
+    conn.close()
+    return session_id
+
+
+def end_session(session_id, cards_reviewed=None, summary=None):
+    """Close a session. For 'review' sessions cards_reviewed and the topic links
+    are derived from cards actually reviewed during the window (deterministic —
+    immune to model miscounting). Cram sessions pass cards_reviewed explicitly
+    since cram never calls review_card."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM study_sessions WHERE id = ?", (session_id,))
+    session = cursor.fetchone()
+    if session is None:
+        conn.close()
+        raise ValueError(f"No session with id {session_id}")
+
+    ended_at = now_iso()
+    if cards_reviewed is None:
+        cursor.execute("""
+            SELECT COUNT(*) AS n FROM cards
+            WHERE last_reviewed_at BETWEEN ? AND ?
+        """, (session["started_at"], ended_at))
+        cards_reviewed = cursor.fetchone()["n"]
+        cursor.execute("""
+            INSERT OR IGNORE INTO session_topics (session_id, topic_id)
+            SELECT DISTINCT ?, topic_id FROM cards
+            WHERE last_reviewed_at BETWEEN ? AND ?
+        """, (session_id, session["started_at"], ended_at))
+
+    started = datetime.fromisoformat(session["started_at"])
+    minutes = round((datetime.fromisoformat(ended_at) - started).total_seconds() / 60, 1)
+    cursor.execute("""
+        UPDATE study_sessions
+        SET ended_at = ?, cards_reviewed = ?, minutes = ?, summary = COALESCE(?, summary)
+        WHERE id = ?
+    """, (ended_at, cards_reviewed, minutes, summary, session_id))
+    conn.commit()
+    conn.close()
+    return {"session_id": session_id, "cards_reviewed": cards_reviewed, "minutes": minutes}
+
+
+def get_study_log(start_date=None, end_date=None, course_id=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = """
+        SELECT s.*, courses.name AS course_name, pdfs.filename AS pdf_filename,
+               GROUP_CONCAT(topics.title, '; ') AS topic_titles
+        FROM study_sessions s
+        LEFT JOIN courses        ON courses.id = s.course_id
+        LEFT JOIN pdfs           ON pdfs.id    = s.pdf_id
+        LEFT JOIN session_topics st ON st.session_id = s.id
+        LEFT JOIN topics         ON topics.id  = st.topic_id
+        WHERE 1=1
+    """
+    params = []
+    if start_date:
+        query += " AND s.started_at >= ?"
+        params.append(start_date)
+    if end_date:
+        query += " AND s.started_at <= ?"
+        params.append(end_date)
+    if course_id:
+        query += " AND s.course_id = ?"
+        params.append(course_id)
+    query += " GROUP BY s.id ORDER BY s.started_at DESC"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_upcoming_reviews(days=7):
+    """Per topic: earliest next_review and how many cards come due within the window."""
+    horizon = (datetime.now() + timedelta(days=days)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT topics.id AS topic_id, topics.title, courses.name AS course_name,
+               pdfs.filename AS pdf_filename,
+               MIN(cards.next_review) AS first_due,
+               COUNT(*) AS cards_due
+        FROM cards
+        JOIN topics  ON topics.id  = cards.topic_id
+        JOIN courses ON courses.id = cards.course_id
+        JOIN pdfs    ON pdfs.id    = cards.pdf_id
+        WHERE cards.next_review <= ?
+        GROUP BY topics.id
+        ORDER BY first_due ASC
+    """, (horizon,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+# ---------------------------------------------------------------- mastery inputs
+
+def get_mastery_inputs(pdf_id):
+    """Everything mastery.py needs for one pdf, in two queries."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM topics WHERE pdf_id = ? ORDER BY position", (pdf_id,))
+    topics = cursor.fetchall()
+    cursor.execute("""
+        SELECT id, topic_id, interval_days, last_reviewed_at, next_review
+        FROM cards WHERE pdf_id = ?
+    """, (pdf_id,))
+    cards = cursor.fetchall()
+    conn.close()
+    return topics, cards
 
 
 if __name__ == "__main__":
