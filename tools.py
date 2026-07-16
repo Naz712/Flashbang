@@ -439,3 +439,18 @@ TOOL_SCHEMAS = {
 def tools_for(names):
     """The Anthropic tools param for an agent's tool subset."""
     return [TOOL_SCHEMAS[name] for name in names]
+
+
+def openai_tools_for(names):
+    """The same subset in OpenAI function-calling format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": schema["name"],
+                "description": schema["description"],
+                "parameters": schema["input_schema"],
+            },
+        }
+        for schema in (TOOL_SCHEMAS[name] for name in names)
+    ]

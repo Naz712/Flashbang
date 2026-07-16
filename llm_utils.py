@@ -1,13 +1,71 @@
-"""Shared Anthropic client and robust JSON handling for all LLM calls.
-Every module that calls Claude imports `client` and the JSON helpers from here
-instead of creating its own client and doing raw json.loads on model output."""
+"""LLM provider layer. Auto-detects Anthropic or OpenAI from whichever API key
+is present in .env (Anthropic preferred if both). Everything above this module
+is provider-agnostic: agent_core's tool loop branches on PROVIDER, and all
+one-shot calls go through complete_text() / call_for_json().
 
+Model tiers: 'main' for reasoning-heavy work (agent turns, segmentation,
+card generation), 'fast' for cheap calls (grading, routing)."""
+
+import os
 import json
-import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-client = anthropic.Anthropic()
+
+if os.getenv("ANTHROPIC_API_KEY"):
+    PROVIDER = "anthropic"
+    MAIN_MODEL = "claude-sonnet-4-5"
+    FAST_MODEL = "claude-haiku-4-5"
+elif os.getenv("OPENAI_API_KEY"):
+    PROVIDER = "openai"
+    MAIN_MODEL = os.getenv("OPENAI_MAIN_MODEL", "gpt-4o")
+    FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4o-mini")
+else:
+    PROVIDER = None  # importable without keys (dashboard-only); calls will raise
+    MAIN_MODEL = FAST_MODEL = None
+
+_anthropic_client = None
+_openai_client = None
+
+
+def anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        import anthropic
+        _anthropic_client = anthropic.Anthropic()
+    return _anthropic_client
+
+
+def openai_client():
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+def _require_provider():
+    if PROVIDER is None:
+        raise RuntimeError(
+            "No LLM API key found. Create a .env file in the project folder with "
+            "OPENAI_API_KEY=... (or ANTHROPIC_API_KEY=...) and restart the app.")
+
+
+def complete_text(prompt, fast=False, max_tokens=1000):
+    """One-shot text completion on either provider."""
+    _require_provider()
+    model = FAST_MODEL if fast else MAIN_MODEL
+    if PROVIDER == "anthropic":
+        response = anthropic_client().messages.create(
+            model=model, max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}])
+        return response.content[0].text, response.stop_reason == "max_tokens"
+    else:
+        response = openai_client().chat.completions.create(
+            model=model, max_completion_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}])
+        choice = response.choices[0]
+        return choice.message.content or "", choice.finish_reason == "length"
 
 
 def parse_json_response(raw_text):
@@ -16,13 +74,11 @@ def parse_json_response(raw_text):
     valid JSON can be found."""
     text = raw_text.strip()
     if text.startswith("```"):
-        # strip ```json ... ``` fences of any flavour
         text = text.split("\n", 1)[1] if "\n" in text else ""
         text = text.rsplit("```", 1)[0].strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # fall back to the outermost {...} or [...] span
         for open_ch, close_ch in (("{", "}"), ("[", "]")):
             start, end = text.find(open_ch), text.rfind(close_ch)
             if start != -1 and end > start:
@@ -33,33 +89,24 @@ def parse_json_response(raw_text):
         raise
 
 
-def call_for_json(prompt, model="claude-sonnet-4-5", max_tokens=4000):
-    """One-shot Claude call that must return JSON. Retries ONCE on a parse
-    failure by showing the model its own bad output. Raises RuntimeError if the
-    response was truncated (stop_reason max_tokens) — truncated JSON must never
-    be silently parsed — or if the retry also fails to parse."""
-    messages = [{"role": "user", "content": prompt}]
+def call_for_json(prompt, fast=False, max_tokens=4000):
+    """One-shot call that must return JSON. Retries ONCE on a parse failure by
+    showing the model its own bad output. Raises RuntimeError on truncation
+    (truncated JSON must never be silently parsed) or a second parse failure."""
+    current_prompt = prompt
     for attempt in range(2):
-        response = client.messages.create(
-            model=model, max_tokens=max_tokens, messages=messages,
-        )
-        raw_text = response.content[0].text
-        if response.stop_reason == "max_tokens":
+        raw_text, truncated = complete_text(current_prompt, fast=fast, max_tokens=max_tokens)
+        if truncated:
             raise RuntimeError(
                 f"LLM response truncated at {max_tokens} tokens; raise max_tokens "
-                f"or shrink the input. First 200 chars: {raw_text[:200]}"
-            )
+                f"or shrink the input. First 200 chars: {raw_text[:200]}")
         try:
             return parse_json_response(raw_text)
         except json.JSONDecodeError as e:
             if attempt == 1:
                 raise RuntimeError(
                     f"LLM returned unparseable JSON twice. Error: {e}. "
-                    f"Raw output: {raw_text[:500]}"
-                )
-            messages.append({"role": "assistant", "content": raw_text})
-            messages.append({
-                "role": "user",
-                "content": f"Your output was not valid JSON ({e}). "
-                           "Respond again with ONLY the valid JSON, nothing else.",
-            })
+                    f"Raw output: {raw_text[:500]}")
+            current_prompt = (prompt +
+                              f"\n\nYour previous output was not valid JSON ({e}). "
+                              "Respond with ONLY the valid JSON, nothing else.")

@@ -3,7 +3,7 @@ Cheapest first; mid-session messages never leave the pinned agent (an answer
 attempt must never be re-routed)."""
 
 import re
-from llm_utils import client
+from llm_utils import complete_text
 
 AGENT_NAMES = {"ingestion", "review", "organizer", "planner"}
 
@@ -73,12 +73,8 @@ Examples:
 Message: "{user_text}"
 Answer:"""
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=10,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        label = response.content[0].text.strip().lower()
+        raw, _ = complete_text(prompt, fast=True, max_tokens=10)
+        label = raw.strip().lower()
         if label == "stay" and pinned_agent:
             return pinned_agent
         if label in AGENT_NAMES:

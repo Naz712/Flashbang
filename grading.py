@@ -1,4 +1,4 @@
-from llm_utils import client, parse_json_response
+from llm_utils import call_for_json
 
 
 def grade_answer(question, correct_answer, user_answer):
@@ -47,17 +47,9 @@ Respond with ONLY a JSON object in this exact format. No markdown code fences, n
 {{"quality": <integer from 0 to 5>, "feedback": "<your feedback as a single string>"}}
 """
 
-    response = client.messages.create(
-        model="claude-haiku-4-5",   # fast model — grading a short answer doesn't need Sonnet
-        max_tokens=300,
-        messages=[
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": '{"quality":'},  # prefill locks the JSON shape
-        ]
-    )
-
-    raw_text = '{"quality":' + response.content[0].text
-    return parse_json_response(raw_text)
+    # fast tier — grading a short answer doesn't need the main model;
+    # call_for_json retries once if the output isn't valid JSON
+    return call_for_json(prompt, fast=True, max_tokens=300)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,9 @@ specialist agent the orchestrator picked: it keeps calling Claude with that
 agent's system prompt + tool subset until no more tools are requested.
 Tool dispatch is a registry (TOOL_HANDLERS) instead of an if/elif chain."""
 
-from llm_utils import client
-from tools import tools_for
+import json
+from llm_utils import PROVIDER, MAIN_MODEL, anthropic_client, openai_client
+from tools import tools_for, openai_tools_for
 from pdf_ingest import read_pdf, create_text_source, propose_topics
 from generation import extract_topic_concepts, generate_cards_for_topic
 from grading import grade_answer
@@ -21,9 +22,6 @@ from database import (
     start_session, end_session, get_study_log, get_upcoming_reviews,
     get_mastery_inputs,
 )
-
-MODEL = "claude-sonnet-4-5"
-
 
 def _rows(rows):
     return [dict(r) for r in rows]
@@ -136,8 +134,10 @@ def handle_tool(name, args):
 
 
 def run_turn(messages, agent, on_event=None, on_tool=None):
-    """Run one assistant turn for the given AgentSpec. `messages` (the API
-    history) is mutated in place. Returns the final assistant text.
+    """Run one assistant turn for the given AgentSpec on whichever LLM provider
+    is configured. `messages` (the API history) is mutated in place — its entry
+    format is provider-specific, but a conversation only ever uses one provider.
+    Returns the final assistant text.
 
     on_event(str): optional logging callback (tool calls, stop reasons).
     on_tool(name, input, result): optional structured callback with the RAW
@@ -147,12 +147,18 @@ def run_turn(messages, agent, on_event=None, on_tool=None):
         if on_event:
             on_event(msg)
 
+    if PROVIDER == "openai":
+        return _run_turn_openai(messages, agent, log, on_tool)
+    return _run_turn_anthropic(messages, agent, log, on_tool)
+
+
+def _run_turn_anthropic(messages, agent, log, on_tool):
     system_prompt = agent.build_system_prompt()
     tools = tools_for(agent.tool_names)
 
     while True:
-        response = client.messages.create(
-            model=MODEL,
+        response = anthropic_client().messages.create(
+            model=MAIN_MODEL,
             max_tokens=4096,
             system=system_prompt,
             tools=tools,
@@ -179,3 +185,48 @@ def run_turn(messages, agent, on_event=None, on_tool=None):
             continue
 
         return "".join(b.text for b in response.content if b.type == "text")
+
+
+def _run_turn_openai(messages, agent, log, on_tool):
+    # system prompt is prepended per call (not stored) because each turn may be
+    # handled by a different specialist over the same shared history
+    system_prompt = agent.build_system_prompt()
+    tools = openai_tools_for(agent.tool_names)
+
+    while True:
+        response = openai_client().chat.completions.create(
+            model=MAIN_MODEL,
+            max_completion_tokens=4096,
+            messages=[{"role": "system", "content": system_prompt}] + messages,
+            tools=tools,
+        )
+        msg = response.choices[0].message
+        log(f"[{agent.name} | finish_reason: {response.choices[0].finish_reason}]")
+
+        entry = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            entry["tool_calls"] = [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls]
+        messages.append(entry)
+
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                log(f"[tool: {tc.function.name}({args})]")
+                result = handle_tool(tc.function.name, args)
+                log(f"[result: {str(result)[:200]}]")
+                if on_tool:
+                    on_tool(tc.function.name, args, result)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": str(result),
+                })
+            continue
+
+        return msg.content or ""

@@ -16,13 +16,11 @@ import base64
 import io
 import os
 from pypdf import PdfReader, PdfWriter
-from llm_utils import client, call_for_json
+from llm_utils import PROVIDER, MAIN_MODEL, anthropic_client, openai_client, call_for_json
 from database import create_pdf, save_pdf_pages, get_pdf_pages, get_pdf
 
 SPARSE_THRESHOLD = 200   # chars; below this a page is probably scanned/diagram-only
 VISION_BATCH_SIZE = 8    # pages per vision call
-VISION_MODEL = "claude-sonnet-4-5"
-SEGMENT_MODEL = "claude-sonnet-4-5"
 SEGMENT_CHUNK_CHARS = 100_000  # ~25k tokens of page text per segmentation call
 
 
@@ -78,26 +76,47 @@ def vision_extract_pages(pdf_path, page_numbers):
 
 def _vision_extract_batch(pdf_path, batch):
     pdf_data = _build_sub_pdf(pdf_path, batch)
-    response = client.messages.create(
-        model=VISION_MODEL,
-        max_tokens=8000,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "document",
-                 "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_data}},
-                {"type": "text", "text": _vision_prompt(batch)},
-            ],
-        }],
-    )
-    if response.stop_reason == "max_tokens":
+
+    if PROVIDER == "openai":
+        response = openai_client().chat.completions.create(
+            model=MAIN_MODEL,
+            max_completion_tokens=8000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "file",
+                     "file": {"filename": "pages.pdf",
+                              "file_data": f"data:application/pdf;base64,{pdf_data}"}},
+                    {"type": "text", "text": _vision_prompt(batch)},
+                ],
+            }],
+        )
+        truncated = response.choices[0].finish_reason == "length"
+        text = response.choices[0].message.content or ""
+    else:
+        response = anthropic_client().messages.create(
+            model=MAIN_MODEL,
+            max_tokens=8000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "document",
+                     "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_data}},
+                    {"type": "text", "text": _vision_prompt(batch)},
+                ],
+            }],
+        )
+        truncated = response.stop_reason == "max_tokens"
+        text = response.content[0].text
+
+    if truncated:
         if len(batch) == 1:
             raise RuntimeError(f"Vision extraction of single page {batch[0]} exceeded 8000 tokens")
         mid = len(batch) // 2
         results = _vision_extract_batch(pdf_path, batch[:mid])
         results.update(_vision_extract_batch(pdf_path, batch[mid:]))
         return results
-    return _parse_page_markers(response.content[0].text, batch)
+    return _parse_page_markers(text, batch)
 
 
 def _parse_page_markers(text, expected_pages):
@@ -230,7 +249,7 @@ def segment_topics(pdf_id, course_name):
         chunk_text = "\n\n".join(f"=== PAGE {p['page_number']} ===\n{p['text']}" for p in chunk)
         page_range = (chunk[0]["page_number"], chunk[-1]["page_number"])
         prompt = _segmentation_prompt(chunk_text, course_name, page_range, carry_over)
-        result = call_for_json(prompt, model=SEGMENT_MODEL, max_tokens=4000)
+        result = call_for_json(prompt, max_tokens=4000)
         topics = result["topics"]
 
         # merge a topic continued across the chunk boundary
