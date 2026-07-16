@@ -222,6 +222,23 @@ Respond with ONLY a JSON object in this exact format. No markdown code fences, n
 """
 
 
+def _normalize_ranges(topics, first_page, last_page):
+    """Deterministically repair the model's page ranges: sorted, contiguous,
+    non-overlapping, covering first_page..last_page. LLMs occasionally return
+    overlapping or gapped ranges no matter what the prompt says."""
+    topics = sorted(topics, key=lambda t: (t["page_start"], t["page_end"]))
+    prev_end = first_page - 1
+    for i, t in enumerate(topics):
+        t["page_start"] = prev_end + 1
+        end = max(t["page_end"], t["page_start"])
+        if i == len(topics) - 1:
+            end = max(end, last_page)   # last topic absorbs any trailing gap
+        t["page_end"] = min(end, last_page)
+        prev_end = t["page_end"]
+    # drop topics squeezed past the end of the document (heavy overlap case)
+    return [t for t in topics if t["page_start"] <= last_page]
+
+
 def segment_topics(pdf_id, course_name):
     """Segment a pdf's stored pages into topics with time estimates.
     Chunks long documents on page boundaries; same-titled boundary topics are
@@ -263,7 +280,7 @@ def segment_topics(pdf_id, course_name):
             carry_over = {"title": all_topics[-1]["title"],
                           "page_start": all_topics[-1]["page_start"]}
 
-    return all_topics
+    return _normalize_ranges(all_topics, pages[0]["page_number"], pages[-1]["page_number"])
 
 
 def propose_topics(pdf_id):
