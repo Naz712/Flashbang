@@ -627,14 +627,28 @@ function renderCardsScreen() {
     .flatMap((c) => c.pdfs);
   const pdfOpts = [`<option value="">All documents</option>`,
     ...coursePdfs.map((p) => `<option value="${p.pdf_id}" ${f.pdf_id === p.pdf_id ? "selected" : ""}>${esc(p.filename)}</option>`)];
+  // topics grouped under a bold header per source pdf (optgroup renders bold)
+  const pdfName = {};
+  st.libCourses.forEach((c) => c.pdfs.forEach((p) => { pdfName[p.pdf_id] = p.filename; }));
+  const groupedTopicOptions = (topics, selectedId) => {
+    const groups = new Map();
+    topics.forEach((t) => {
+      if (!groups.has(t.pdf_id)) groups.set(t.pdf_id, []);
+      groups.get(t.pdf_id).push(t);
+    });
+    return [...groups.entries()].map(([pid, list]) => `
+      <optgroup label="${esc(pdfName[pid] || `document ${pid}`)}">
+        ${list.map((t) => `<option value="${t.id}" ${selectedId === t.id ? "selected" : ""}>${esc(t.title)}</option>`).join("")}
+      </optgroup>`).join("");
+  };
+
   const pdfTopics = S.cardTopics.filter((t) => !f.pdf_id || t.pdf_id === f.pdf_id);
   const topicOpts = [`<option value="">All topics</option>`,
-    ...pdfTopics.map((t) => `<option value="${t.id}" ${f.topic_id === t.id ? "selected" : ""}>${esc(t.title)}</option>`)];
+    groupedTopicOptions(pdfTopics, f.topic_id)];
 
   const rows = S.cards.map((c) => {
     const due = (c.next_review || "").slice(0, 10);
-    const moveOpts = S.cardTopics
-      .map((t) => `<option value="${t.id}" ${t.id === c.topic_id ? "selected" : ""}>${esc(t.title)}</option>`).join("");
+    const moveOpts = groupedTopicOptions(S.cardTopics, c.topic_id);
     return `
     <div class="cardedit" data-id="${c.id}">
       <div class="cardedit-head">
