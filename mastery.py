@@ -41,11 +41,23 @@ def topic_mastery(cards, now=None):
     return total / len(cards)
 
 
+def _reps(card):
+    # tolerate inputs without a repetitions field (older callers/tests)
+    try:
+        return card["repetitions"]
+    except (KeyError, IndexError):
+        return 2
+
+
 def topic_status(cards):
-    """Derived, never stored: not_started / in_progress / covered."""
+    """Derived, never stored: not_started / in_progress / covered.
+    Successive relearning (Rawson & Dunlosky, 2011): a card only counts as
+    learned after TWO successive successful recalls (SM-2 repetitions >= 2,
+    since a failed recall resets the counter) — so 'covered' means every card
+    was recalled correctly twice, not seen once."""
     if not cards:
         return "not_started"
-    if all(c["last_reviewed_at"] for c in cards):
+    if all(c["last_reviewed_at"] and _reps(c) >= 2 for c in cards):
         return "covered"
     return "in_progress"
 

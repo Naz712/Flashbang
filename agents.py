@@ -39,7 +39,8 @@ def _ingestion_prompt():
 2. PDF path given → read_pdf. Pasted text → create_text_source.
 3. propose_topics, then SHOW the user the proposed topics with page ranges, per-topic minutes, and the total hours. Wait for approval. If they request changes (rename, merge, split, re-estimate), apply them to the list yourself and re-show. Do NOT call save_topics until approved.
 4. Once approved: save_topics with the final list.
-5. To make cards for a topic: extract_topic_concepts → show concepts, wait for approval → save_topic_concepts (capture note_ids) → generate_cards_for_topic → show the batch, wait for approval (user may drop cards by number or ask for regeneration) → bulk_insert_cards with the approved list.
+5. Right after save_topics, offer a pretest: "Want a quick 5-question pretest before you read? Getting them wrong is the point — it primes learning." If yes: generate_pretest, then ask ONE question at a time, wait for the attempt, reveal the answer warmly (no grading tools, no review_card — a pretest is never scored), and move on. Afterwards, point them at reading the material.
+6. To make cards for a topic: extract_topic_concepts → show concepts, wait for approval → save_topic_concepts (capture note_ids) → generate_cards_for_topic → show the batch, wait for approval (user may drop cards by number or ask for regeneration) → bulk_insert_cards with the approved list.
 
 ## Rules
 - Make cards topic-by-topic, not for the whole document at once — a 60-page dump is unreviewable.
@@ -54,9 +55,12 @@ def _review_prompt():
     return f"""You are Flashbang's review assistant. You run spaced-repetition review sessions and cram sessions, grade the user's recall, and manage card insights. Today's date is {_today()}.
 
 ## Review session (spaced repetition)
-1. Call start_study_session(kind='review') FIRST, then get_due_cards (scoped if the user named a course/pdf/topic).
+1. Call start_study_session(kind='review') FIRST, then get_due_cards (scoped if the user named a course/pdf/topic). Scope filters take integer ids only — if the user gave an id (e.g. "pdf_id 3") use it directly; if they gave a name, resolve it via get_topics first. If a scoped call unexpectedly returns nothing, retry unscoped before concluding nothing is due.
+1b. If no cards are due at all, say so, call end_study_session immediately (never leave a session open with nothing to review), and suggest what's due soonest instead.
 2. For each card: show ONLY the question — never reveal the answer or give hints. Wait for the user's attempt. Call grade_answer(question, stored answer, attempt), show the feedback, then review_card(card_id, quality from grade_answer). Move to the next card.
-3. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went.
+3. Successive relearning: keep a private list of cards graded below 3 this session. After the last due card, re-ask those cards (retrieval only — do NOT call grade_answer or review_card again for the re-asks) until each gets one correct recall. A card is only truly learned after two successive successful recalls across sessions.
+4. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went, which cards are in relearning.
+5. If the user says a grade was wrong or asks to undo: call undo_review with that card's id, confirm the restored schedule, and offer to re-grade.
 
 ## Cram session (quiz, no schedule changes)
 Same loop, but: start_study_session(kind='cram', topic_ids=the crammed topics), cards come from get_cards (shuffle them), do NOT call review_card — cram is quizzing, not spaced repetition. Each card is quizzed once. At the end call end_study_session with cards_reviewed set to how many you quizzed.
@@ -118,7 +122,7 @@ AGENTS = {
         build_system_prompt=_ingestion_prompt,
         tool_names=[
             "get_courses", "create_course", "read_pdf", "create_text_source",
-            "propose_topics", "save_topics", "get_topics",
+            "propose_topics", "save_topics", "get_topics", "generate_pretest",
             "extract_topic_concepts", "save_topic_concepts",
             "generate_cards_for_topic", "bulk_insert_cards",
         ],
@@ -129,7 +133,7 @@ AGENTS = {
         tool_names=[
             "start_study_session", "end_study_session",
             "get_due_cards", "get_cards", "get_topics",
-            "grade_answer", "review_card",
+            "grade_answer", "review_card", "undo_review",
             "insert_insight", "get_insights_for_card", "delete_insight",
         ],
     ),

@@ -49,7 +49,14 @@ assert topic_mastery([], now) == 0.0
 # derived status
 assert topic_status([]) == "not_started"
 assert topic_status(cards) == "in_progress"
-assert topic_status([cards[0]]) == "covered"
+assert topic_status([cards[0]]) == "covered"  # no repetitions field → tolerated
+
+# successive relearning: one successful recall isn't 'covered' — two are
+one_recall = {"interval_days": 1, "last_reviewed_at": iso(0), "repetitions": 1}
+two_recalls = {"interval_days": 6, "last_reviewed_at": iso(0), "repetitions": 2}
+assert topic_status([one_recall]) == "in_progress"
+assert topic_status([two_recalls]) == "covered"
+assert topic_status([one_recall, two_recalls]) == "in_progress"
 
 # pdf completion: est_minutes-weighted
 topics = [

@@ -45,10 +45,21 @@ assert "T" in card["next_review"], f"next_review not full timestamp: {card['next
 datetime.fromisoformat(card["created_at"])
 
 # --- review stamps last_reviewed_at and grows interval
-interval = database.review_card(card_id, 5)
-assert interval >= 1
+result = database.review_card(card_id, 5)
+assert result["new_interval"] >= 1 and result["old_interval"] == 0
 card = database.get_cards(topic_id=topic_ids[0])[0]
 assert card["last_reviewed_at"] is not None
+
+# --- undo restores the pre-review state, one level deep
+prev = database.undo_review(card_id)
+card = database.get_cards(topic_id=topic_ids[0])[0]
+assert card["last_reviewed_at"] is None and card["interval_days"] == 0
+try:
+    database.undo_review(card_id)
+    raise AssertionError("second undo should have raised")
+except ValueError:
+    pass
+database.review_card(card_id, 5)  # re-review so later session checks still hold
 
 # --- FK enforcement: orphan insert must fail
 try:

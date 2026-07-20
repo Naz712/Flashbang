@@ -139,6 +139,47 @@ def generate_cards_for_topic(topic_id, concepts, note_ids, per_concept_cap=5, to
     return all_cards
 
 
+def generate_pretest(pdf_id, count=5):
+    """Pretest questions for a document the user hasn't studied yet (pretesting
+    effect: attempting answers before reading primes later learning). Samples
+    pages evenly across the document. Not graded, never touches SM-2."""
+    count = max(3, min(count or 5, 5))
+    pages = get_pdf_pages(pdf_id)
+    if not pages:
+        raise ValueError(f"No stored pages for pdf {pdf_id}")
+
+    BUDGET = 15_000
+    step = max(1, len(pages) // 8)
+    sampled, used = [], 0
+    for page in pages[::step]:
+        block = f"=== PAGE {page['page_number']} ===\n{page['text']}"
+        if used + len(block) > BUDGET:
+            break
+        sampled.append(block)
+        used += len(block)
+
+    pdf = get_pdf(pdf_id)
+    course_name = _course_name(pdf["course_id"]) if pdf else "Unknown"
+
+    prompt = f"""You are writing a PRETEST for study material the student has NOT read yet ("{pdf['filename']}", course: {course_name}). The goal is the pretesting effect: attempting these questions before reading — and mostly getting them wrong — primes the brain to encode the answers when they appear in the material.
+
+Rules:
+- Write exactly {count} questions spanning different parts of the document (excerpts below are sampled across it).
+- Target the document's central concepts — things the student WILL learn, phrased so an attempt is possible from general knowledge.
+- Mix conceptual ("why/how") with factual ("what/which").
+- Each answer: 1-2 sentences, from the material.
+
+<excerpts>
+{chr(10).join(sampled)}
+</excerpts>
+
+OUTPUT FORMAT:
+Respond with ONLY a JSON array. No markdown fences, no preamble:
+[{{"question": "<string>", "answer": "<string>"}}]
+"""
+    return call_for_json(prompt, max_tokens=2000)
+
+
 def _course_name(course_id):
     for course in get_courses():
         if course["id"] == course_id:

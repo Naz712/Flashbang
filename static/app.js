@@ -19,6 +19,46 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* markdown-lite for agent replies: escape first (XSS-safe), then transform.
+   Supports **bold**, *italic*, `code`, ### headings, bullet/numbered lists. */
+function md(s) {
+  const lines = esc(s).split("\n");
+  const out = [];
+  let list = null; // "ul" | "ol"
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*•]\s+(.*)/);
+    const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)/);
+    const heading = line.match(/^(#{1,4})\s+(.*)/);
+    if (bullet) {
+      if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+    } else if (numbered) {
+      if (list !== "ol") { closeList(); out.push(`<ol start="${numbered[1]}">`); list = "ol"; }
+      out.push(`<li>${inline(numbered[2])}</li>`);
+    } else if (heading) {
+      closeList();
+      out.push(`<div class="md-head">${inline(heading[2])}</div>`);
+    } else if (line.trim() === "") {
+      closeList();
+      out.push('<div class="md-gap"></div>');
+    } else {
+      closeList();
+      out.push(`<div>${inline(line)}</div>`);
+    }
+  }
+  closeList();
+  return out.join("");
+
+  function inline(t) {
+    return t
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  }
+}
 const retColor = (pct) => pct >= 70 ? GOOD : pct >= 40 ? WARN : pct > 0 ? LOW : "#C9CCD4";
 const fmtMin = (m) => { m = Math.round(m || 0); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 const deltaBits = (d) => d === 0 ? { label: "±0", color: MUT }
@@ -44,17 +84,24 @@ async function fetchHistory() {
 
 function renderMsg(m) {
   if (m.role === "user") {
-    const meta = m.meta ? `<div class="grade-head"><span class="grade-meta">${esc(m.meta)}</span></div>` : "";
+    const meta = m.meta ? `<div class="grade-head"><span class="grade-meta" style="color:#B9BDC7">${esc(m.meta)}</span></div>` : "";
     return `<div class="msg-row-user"><div class="bubble-user">${meta}${esc(m.text)}</div></div>`;
   }
   if (m.role === "grade") {
     const cls = m.grade >= 4 ? "good" : "warn";
     const meta = m.meta ? `<span class="grade-meta">${esc(m.meta)}</span>` : "";
     return `<div class="msg-row-bot"><div class="bubble-bot">
-      <div class="grade-head"><span class="grade-chip ${cls}">Grade ${m.grade}/5</span>${meta}</div>${esc(m.text)}</div></div>`;
+      <div class="grade-head"><span class="grade-chip ${cls}">Grade ${m.grade}/5</span>${meta}
+        <button class="undo-btn" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
+      </div>${md(m.text)}</div></div>`;
   }
-  return `<div class="msg-row-bot"><div class="bubble-bot">${esc(m.text)}</div></div>`;
+  return `<div class="msg-row-bot"><div class="bubble-bot">${md(m.text)}</div></div>`;
 }
+
+window.undoGrade = (btn) => {
+  document.querySelectorAll(".undo-btn").forEach((b) => (b.disabled = true));
+  sendChat("Undo that last grade — restore the card's previous schedule.");
+};
 
 async function sendChat(text) {
   if (S.busy || !text.trim()) return;
@@ -388,7 +435,8 @@ window.dismissRecap = () => { S.recap = null; renderRail(); };
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
 window.startReview = () => {
   const cur = S.state?.current;
-  sendChat(cur ? `Review my due cards in ${cur.filename}` : "Review my due cards");
+  sendChat(cur ? `Review my due cards in "${cur.filename}" (pdf_id ${cur.pdf_id})`
+               : "Review my due cards");
 };
 
 window.toggleFocus = async () => {
@@ -428,7 +476,7 @@ $("doNext").onclick = () => {
   if (!best) return;
   S.pdfId = best.pdf_id;
   S.view = "study";
-  fetchState().then(() => sendChat(`Review my due cards in the topic "${best.title}"`));
+  fetchState().then(() => sendChat(`Review my due cards in the topic "${best.title}" (topic_id ${best.topic_id})`));
 };
 $("sendBtn").onclick = () => sendChat($("chatInput").value);
 $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(e.target.value); });

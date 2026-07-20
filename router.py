@@ -19,9 +19,10 @@ _PLANNER_KW = re.compile(
     r"\b(progress|complet(e|ion)|how am i doing|study log|studied|deadline|"
     r"what should i study|upcoming|decay|mastery|streak|stats|"
     r"plan|schedule)\b", re.IGNORECASE)
-_INGEST_KW = re.compile(
-    r"\.pdf\b|\b(ingest|upload|import|make cards from|extract|new notes|add notes)\b",
-    re.IGNORECASE)
+_INGEST_VERB = re.compile(
+    r"\b(ingest|upload|import|make cards from|new notes|add notes)\b", re.IGNORECASE)
+_INGEST_WEAK = re.compile(r"\.pdf\b|\bextract\b", re.IGNORECASE)
+_INGEST_KW = re.compile(_INGEST_VERB.pattern + "|" + _INGEST_WEAK.pattern, re.IGNORECASE)
 _ORGANIZER_KW = re.compile(r"\b(rename|reorganize|merge topics|move card)\b", re.IGNORECASE)
 
 
@@ -42,11 +43,17 @@ def route(user_text, pinned_agent=None, session_active=False, strict_pin=True):
                   or _ORGANIZER_KW.search(user_text)):
             return pinned_agent
 
-    # 2. keyword heuristics for unambiguous cases
-    if _INGEST_KW.search(user_text):
+    # 2. keyword heuristics for unambiguous cases. Precedence: explicit ingest
+    # VERBS ("ingest my notes") > review words > weak ingest signals — so
+    # "review my due cards in Lecture3.pdf" is a review request even though it
+    # names a file, while "stop this quiz, ingest my notes" still escapes to
+    # ingestion.
+    if _INGEST_VERB.search(user_text):
         return "ingestion"
     if _REVIEW_KW.search(user_text):
         return "review"
+    if _INGEST_WEAK.search(user_text):
+        return "ingestion"
     if _PLANNER_KW.search(user_text):
         return "planner"
 

@@ -98,6 +98,7 @@ def init_db():
             repetitions      INTEGER NOT NULL DEFAULT 0,
             next_review      TEXT NOT NULL,
             last_reviewed_at TEXT,
+            prev_state       TEXT,
             created_at       TEXT NOT NULL
         )
     """)
@@ -143,6 +144,11 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+
+    # migration for pre-existing databases: one-level undo snapshot on cards
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE cards ADD COLUMN prev_state TEXT")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -487,23 +493,56 @@ def get_due_cards(course_id=None, pdf_id=None, topic_id=None):
 def review_card(card_id, quality):
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT ease_factor, interval_days, repetitions FROM cards WHERE id=?", (card_id,))
+    cursor.execute("""
+        SELECT ease_factor, interval_days, repetitions, next_review, last_reviewed_at
+        FROM cards WHERE id=?
+    """, (card_id,))
     row = cursor.fetchone()
     if row is None:
         conn.close()
         raise ValueError(f"No card with id {card_id}")
+    prev_state = json.dumps(dict(row))  # one-level undo snapshot
+    old_interval = row["interval_days"]
     new_ease, new_interval, new_reps = compute_sm2(
         row["ease_factor"], row["interval_days"], row["repetitions"], quality)
 
     next_review = (datetime.now() + timedelta(days=new_interval)).isoformat(timespec="seconds")
     cursor.execute("""
         UPDATE cards
-        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?, last_reviewed_at=?
+        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?,
+            last_reviewed_at=?, prev_state=?
         WHERE id=?
-    """, (new_ease, new_interval, new_reps, next_review, now_iso(), card_id))
+    """, (new_ease, new_interval, new_reps, next_review, now_iso(), prev_state, card_id))
     conn.commit()
     conn.close()
-    return new_interval
+    return {"old_interval": old_interval, "new_interval": new_interval,
+            "next_review": next_review[:10]}
+
+
+def undo_review(card_id):
+    """Restore the card's SM-2 state from before its most recent review.
+    One level deep; the snapshot is cleared after use."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT prev_state FROM cards WHERE id=?", (card_id,))
+    row = cursor.fetchone()
+    if row is None:
+        conn.close()
+        raise ValueError(f"No card with id {card_id}")
+    if not row["prev_state"]:
+        conn.close()
+        raise ValueError(f"Card {card_id} has no review to undo")
+    prev = json.loads(row["prev_state"])
+    cursor.execute("""
+        UPDATE cards
+        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?,
+            last_reviewed_at=?, prev_state=NULL
+        WHERE id=?
+    """, (prev["ease_factor"], prev["interval_days"], prev["repetitions"],
+          prev["next_review"], prev["last_reviewed_at"], card_id))
+    conn.commit()
+    conn.close()
+    return prev
 
 
 def update_card(card_id, question=None, answer=None, topic_id=None):
@@ -844,7 +883,7 @@ def get_mastery_inputs(pdf_id):
     cursor.execute("SELECT * FROM topics WHERE pdf_id = ? ORDER BY position", (pdf_id,))
     topics = cursor.fetchall()
     cursor.execute("""
-        SELECT id, topic_id, interval_days, last_reviewed_at, next_review
+        SELECT id, topic_id, interval_days, repetitions, last_reviewed_at, next_review
         FROM cards WHERE pdf_id = ?
     """, (pdf_id,))
     cards = cursor.fetchall()

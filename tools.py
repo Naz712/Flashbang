@@ -282,6 +282,29 @@ TOOL_SCHEMAS = {
             "required": ["card_id"],
         },
     },
+    "undo_review": {
+        "name": "undo_review",
+        "description": "Undo a card's most recent review, restoring its previous SM-2 schedule (interval, ease, repetitions, due date). Use when the user says a grade was wrong or taps undo. One level deep — only the latest review can be undone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {"type": "integer", "description": "The card whose last review to undo (usually the most recently graded one)."}
+            },
+            "required": ["card_id"],
+        },
+    },
+    "generate_pretest": {
+        "name": "generate_pretest",
+        "description": "Generate 3-5 pretest questions for a freshly ingested document the user hasn't read yet. Pretesting effect: attempting answers before reading — even wrongly — primes later learning. Quiz conversationally: one question at a time, reveal the answer after each attempt, NO grading tools, NO review_card, and make clear that being wrong is expected and useful.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pdf_id": {"type": "integer", "description": "The ingested document to pretest."},
+                "count": {"type": "integer", "description": "How many questions (3-5, default 5)."},
+            },
+            "required": ["pdf_id"],
+        },
+    },
     "grade_answer": {
         "name": "grade_answer",
         "description": "Grade the user's recalled answer against a card's stored answer. Use AFTER the user types their attempt and BEFORE review_card. Returns {'quality': 0-5, 'feedback': str}; pass the quality to review_card.",

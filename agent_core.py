@@ -7,7 +7,7 @@ import json
 from llm_utils import PROVIDER, MAIN_MODEL, anthropic_client, openai_client
 from tools import tools_for, openai_tools_for
 from pdf_ingest import read_pdf, create_text_source, propose_topics
-from generation import extract_topic_concepts, generate_cards_for_topic
+from generation import extract_topic_concepts, generate_cards_for_topic, generate_pretest
 from grading import grade_answer
 from search import search_notes
 import mastery
@@ -19,7 +19,8 @@ from database import (
     get_pdfs, get_pdf, delete_pdf,
     save_topics, get_topics, update_topic,
     save_concepts, get_note, delete_note,
-    insert_card, get_cards, get_due_cards, review_card, update_card, delete_card,
+    insert_card, get_cards, get_due_cards, review_card, undo_review,
+    update_card, delete_card,
     insert_insight, get_insights_for_card, delete_insight,
     start_session, end_session, get_study_log, get_upcoming_reviews,
     get_mastery_inputs, save_study_plan, get_study_plan,
@@ -97,7 +98,11 @@ TOOL_HANDLERS = {
     "insert_card":      lambda topic_id, question, answer: f"Card created (id: {insert_card(topic_id, question, answer)}).",
     "get_cards":        lambda course_id=None, pdf_id=None, topic_id=None: _counted("cards", get_cards(course_id, pdf_id, topic_id)),
     "get_due_cards":    lambda course_id=None, pdf_id=None, topic_id=None: _counted("cards due", get_due_cards(course_id, pdf_id, topic_id)),
-    "review_card":      lambda card_id, quality: f"Card reviewed. Next review in {review_card(card_id, quality)} day(s).",
+    "review_card":      lambda card_id, quality: (lambda r:
+        f"interval {r['old_interval']}d → {r['new_interval']}d · next {r['next_review']}")(review_card(card_id, quality)),
+    "undo_review":      lambda card_id: (lambda p:
+        f"Review undone. Card restored to interval {p['interval_days']}d, next review {p['next_review'][:10]}.")(undo_review(card_id)),
+    "generate_pretest": generate_pretest,
     "update_card":      lambda **kw: (update_card(**kw), "Card updated.")[1],
     "delete_card":      lambda card_id: (delete_card(card_id), "Card deleted.")[1],
     "grade_answer":     grade_answer,   # returns raw dict; run_turn str()s it, on_tool gets the dict
@@ -130,10 +135,22 @@ TOOL_HANDLERS = {
 }
 
 
+_ID_PARAMS = {"course_id", "pdf_id", "topic_id", "card_id", "note_id", "insight_id", "session_id"}
+
+
 def handle_tool(name, args):
     handler = TOOL_HANDLERS.get(name)
     if handler is None:
         return f"Unknown tool: {name}"
+    # id params must be integers — a filename/title passed as an id silently
+    # matches nothing in SQL, which reads as "no cards due" to the model
+    for key, value in list(args.items()):
+        if key in _ID_PARAMS and value is not None and not isinstance(value, int):
+            if isinstance(value, str) and value.isdigit():
+                args[key] = int(value)
+            else:
+                return (f"Error: {key} must be an integer id, got {value!r}. "
+                        f"Resolve names to ids first (get_courses / get_pdfs / get_topics).")
     try:
         return handler(**args)
     except Exception as e:

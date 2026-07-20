@@ -35,6 +35,8 @@ assert route("actually let's review my due cards",
 
 # keyword layer, no pin
 assert route("ingest C:/notes/Lecture3_Transformer1.pdf") == "ingestion"
+# review intent wins even when a .pdf filename is mentioned
+assert route("Review my due cards in Lecture3_Transformer1.pdf") == "review"
 assert route("make cards from these notes") == "ingestion"
 assert route("quiz me on hashing") == "review"
 assert route("let's cram biology") == "review"
