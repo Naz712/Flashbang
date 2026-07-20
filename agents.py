@@ -57,9 +57,10 @@ def _review_prompt():
 ## Review session (spaced repetition)
 1. Call start_study_session(kind='review') FIRST, then get_due_cards (scoped if the user named a course/pdf/topic). Scope filters take integer ids only — if the user gave an id (e.g. "pdf_id 3") use it directly; if they gave a name, resolve it via get_topics first. If a scoped call unexpectedly returns nothing, retry unscoped before concluding nothing is due.
 1b. If no cards are due at all, say so, call end_study_session immediately (never leave a session open with nothing to review), and suggest what's due soonest instead.
+1c. Free-recall warmup (optional, offer once per session): before the first card of a topic, invite a 60-second brain dump — "type everything you remember about <topic>". Compare their dump against the due cards' stored answers: name what they covered and what they missed, warmly, ungraded. Then start the cards.
 2. For each card: show ONLY the question — never reveal the answer or give hints. Wait for the user's attempt. Call grade_answer(question, stored answer, attempt), show the feedback, then review_card(card_id, quality from grade_answer). Move to the next card.
 3. Successive relearning: keep a private list of cards graded below 3 this session. After the last due card, re-ask those cards (retrieval only — do NOT call grade_answer or review_card again for the re-asks) until each gets one correct recall. A card is only truly learned after two successive successful recalls across sessions.
-4. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went, which cards are in relearning.
+4. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went, which cards are in relearning. End with ONE planning question — "When and where will your next session be?" (implementation intentions make follow-through far more likely). If they answer with a time, suggest they tell the planner to schedule it.
 5. If the user says a grade was wrong or asks to undo: call undo_review with that card's id, confirm the restored schedule, and offer to re-grade.
 
 ## Cram session (quiz, no schedule changes)
@@ -112,6 +113,7 @@ def _planner_prompt():
 ## Revision scheduling (approval-gated — never save without showing the user first)
 1. When asked to plan revision ('plan my week', 'schedule my studying'): ask for their daily minute budget if they haven't given one, then propose_study_plan.
 2. SHOW the proposed plan grouped by day (topic, minutes, reason). If anything is in 'unscheduled', say so explicitly — it didn't fit the budget and they should either extend days, raise the budget, or drop it.
+2b. Interleaving: when more than one course has due or upcoming material, recommend mixing two courses within a session/day rather than blocking one course at a time (interleaved practice beats blocked — Rohrer & Taylor, 2007). Mention it briefly when presenting the plan or recommending what to study.
 3. Apply requested edits to the entries yourself and re-show. Only after approval call save_study_plan.
 4. "What's my plan / did I stick to it" → get_study_plan; report done/missed/planned honestly.{_SHARED_RULES}"""
 

@@ -145,10 +145,23 @@ def init_db():
         )
     """)
 
-    # migration for pre-existing databases: one-level undo snapshot on cards
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS answer_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            at         TEXT NOT NULL,
+            card_id    INTEGER REFERENCES cards(id) ON DELETE SET NULL,
+            quality    INTEGER NOT NULL,
+            confidence TEXT CHECK (confidence IN ('sure','unsure') OR confidence IS NULL)
+        )
+    """)
+
+    # migrations for pre-existing databases
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE cards ADD COLUMN prev_state TEXT")
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('study_sessions') WHERE name='accuracy'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE study_sessions ADD COLUMN accuracy REAL")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -711,6 +724,91 @@ def get_upcoming_reviews(days=7):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+def log_answer(quality, confidence=None, card_id=None):
+    """Record one graded recall attempt (feeds calibration + 85%-rule flags)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO answer_log (at, card_id, quality, confidence) VALUES (?, ?, ?, ?)",
+                   (now_iso(), card_id, quality, confidence))
+    answer_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return answer_id
+
+
+def attach_card_to_answer(answer_id, card_id):
+    conn = get_conn()
+    conn.execute("UPDATE answer_log SET card_id = ? WHERE id = ?", (card_id, answer_id))
+    conn.commit()
+    conn.close()
+
+
+def get_calibration(days=28):
+    """Recall rate split by stated confidence, weekly buckets (newest last).
+    Only answers where a confidence was stated count."""
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT at, quality, confidence FROM answer_log
+        WHERE confidence IS NOT NULL AND at >= ?
+        ORDER BY at
+    """, (since,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    weeks = {}
+    now = datetime.now()
+    for row in rows:
+        age_days = (now - datetime.fromisoformat(row["at"])).days
+        bucket = min(3, age_days // 7)  # 0 = this week ... 3 = 3+ weeks ago
+        w = weeks.setdefault(bucket, {"sure": [0, 0], "unsure": [0, 0]})
+        counts = w[row["confidence"]]
+        counts[0] += 1
+        if row["quality"] >= 3:
+            counts[1] += 1
+
+    out = []
+    for bucket in range(3, -1, -1):
+        w = weeks.get(bucket, {"sure": [0, 0], "unsure": [0, 0]})
+        out.append({
+            "label": "this wk" if bucket == 0 else f"-{bucket}wk",
+            "sure_n": w["sure"][0],
+            "sure_rate": round(w["sure"][1] / w["sure"][0] * 100) if w["sure"][0] else None,
+            "unsure_n": w["unsure"][0],
+            "unsure_rate": round(w["unsure"][1] / w["unsure"][0] * 100) if w["unsure"][0] else None,
+        })
+    return out
+
+
+def get_topic_accuracy(min_answers=6, days=28):
+    """85%-rule input: per-topic recall rate over recent graded answers.
+    Topics with fewer than min_answers are omitted (not enough signal)."""
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT cards.topic_id,
+               COUNT(*) AS n,
+               SUM(CASE WHEN answer_log.quality >= 3 THEN 1 ELSE 0 END) AS passed
+        FROM answer_log
+        JOIN cards ON cards.id = answer_log.card_id
+        WHERE answer_log.at >= ?
+        GROUP BY cards.topic_id
+        HAVING n >= ?
+    """, (since, min_answers))
+    rows = cursor.fetchall()
+    conn.close()
+    return {row["topic_id"]: round(row["passed"] / row["n"] * 100) for row in rows}
+
+
+def set_session_accuracy(session_id, accuracy):
+    conn = get_conn()
+    conn.execute("UPDATE study_sessions SET accuracy = ? WHERE id = ?", (accuracy, session_id))
+    conn.commit()
+    conn.close()
 
 
 def log_focus_session(minutes, course_id=None, pdf_id=None):

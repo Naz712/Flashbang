@@ -99,5 +99,32 @@ assert database.get_pdfs() == []
 log = database.get_study_log()
 assert len(log) == 1 and log[0]["course_id"] is None, "study log should survive course deletion"
 
+# --- answer log + calibration + topic accuracy (85% rule inputs)
+course2 = database.create_course("Cal Course")
+pdf2 = database.create_pdf(course2, "cal.pdf", total_pages=2)
+database.save_pdf_pages(pdf2, [{"page_number": 1, "text": "x", "extractor": "pypdf"}])
+tid = database.save_topics(pdf2, [
+    {"title": "Cal Topic", "summary": "", "page_start": 1, "page_end": 2, "est_minutes": 10}])[0]
+cid = database.insert_card(tid, "Q?", "A.")
+for quality, conf in [(5, "sure"), (4, "sure"), (2, "unsure"), (4, "unsure"), (5, None), (3, None)]:
+    aid = database.log_answer(quality, conf)
+    database.attach_card_to_answer(aid, cid)
+
+cal = database.get_calibration(28)
+this_week = cal[-1]
+assert this_week["sure_n"] == 2 and this_week["sure_rate"] == 100
+assert this_week["unsure_n"] == 2 and this_week["unsure_rate"] == 50
+
+acc = database.get_topic_accuracy(min_answers=6)
+assert acc == {tid: 83}, f"expected {{{tid}: 83}}, got {acc}"  # 5 of 6 passed
+assert database.get_topic_accuracy(min_answers=7) == {}, "min_answers threshold ignored"
+
+# --- session accuracy column
+sid = database.start_session("review", course_id=course2)
+database.end_session(sid, cards_reviewed=6)
+database.set_session_accuracy(sid, 83)
+row = next(r for r in database.get_study_log() if r["id"] == sid)
+assert row["accuracy"] == 83
+
 os.unlink(tmp.name)
 print("check_db: ALL PASSED")

@@ -186,3 +186,25 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .trow .fill { height: 100%; border-radius: 3px; background: #B9BDC7; }
 .trow .time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A8F9C; width: 78px;
   flex: none; text-align: right; }
+
+/* 85%-rule flags */
+.flag-tag { flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600;
+  padding: 2px 7px; border-radius: 999px; cursor: default; }
+.flag-tag.easy { color: #005A8E; background: rgba(0,114,178,.10); }
+.flag-tag.hard { color: #A34700; background: rgba(213,94,0,.10); }
+
+/* evening nudge */
+.nudge { border-radius: 12px; background: #1C1E26; color: #E8E8E4; padding: 13px 16px;
+  font-size: 11.5px; line-height: 1.6; }
+
+/* calibration chart */
+.cal-key { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5C616E; }
+.cal-dot { width: 8px; height: 8px; border-radius: 2px; }
+.cal-row { flex: 1; display: flex; align-items: flex-end; gap: 14px; min-height: 72px; }
+.cal-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.cal-bars { display: flex; align-items: flex-end; gap: 3px; }
+.cal-bar { width: 14px; border-radius: 3px 3px 1px 1px; }
+
+/* recent sessions */
+.sess-row { display: flex; align-items: center; gap: 9px; }
+.sess-track { flex: 1; height: 4px; border-radius: 2px; background: #ECECE8; overflow: hidden; }

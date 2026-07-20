@@ -150,6 +150,15 @@ function evidence(text) {
   return SHOW_EVIDENCE ? `<div class="evidence">${text}</div>` : "";
 }
 
+/* 85%-rule flag (Wilson et al., 2019): recall running >95% = harden the cards,
+   <60% = struggling — optimal difficulty sits near 85%. */
+function flagTag(topicId) {
+  const flag = S.state?.topicFlags?.[topicId];
+  if (flag === "easy") return `<span class="flag-tag easy" title="Recall >95% — too easy; consider harder cards">too easy</span>`;
+  if (flag === "hard") return `<span class="flag-tag hard" title="Recall <60% — struggling; smaller steps or re-read first">struggling</span>`;
+  return "";
+}
+
 function renderRail() {
   const st = S.state, rail = $("rail");
   $("railReopen").style.display = S.railOpen ? "none" : "block";
@@ -207,6 +216,7 @@ function renderRail() {
           <div class="mini-track"><div class="mini-fill" style="width:${t.mastery_pct}%; background:${retColor(t.mastery_pct)}"></div></div>
         </div>
         <span class="topic-pct">${t.mastery_pct.toFixed(0)}%</span>
+        ${flagTag(t.id)}
         ${t.cards_due > 0 ? `<span class="due-tag">${t.cards_due} due</span>` : ""}
       </div>`).join("")}
     </div>
@@ -254,6 +264,12 @@ function renderRail() {
     <button class="btn-block ${active ? "ghost" : ""}" style="margin-top:0" onclick="toggleFocus()">
       ${active ? "End session" : `Start ${S.sessionLen}-min focus`}</button>
   </div>`;
+
+  // evening nudge: reviewing shortly before sleep aids consolidation
+  if (new Date().getHours() >= 18 && st.dueTotal > 0 && !active) {
+    html += `<div class="nudge">🌙 ${st.dueTotal} cards due — a short review before
+      sleep helps consolidation. Even 10 minutes counts.</div>`;
+  }
 
   rail.innerHTML = html;
 }
@@ -402,8 +418,76 @@ function renderProgress() {
         ${evidence("Interleaving courses within a week beats blocking one at a time (Rohrer &amp; Taylor, 2007).")}
       </div>
     </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">CALIBRATION · CONFIDENCE VS RECALL</div>
+        ${renderCalibration(st.calibration)}
+        ${evidence("Calibration training: comparing predicted vs actual recall improves self-regulated study.")}
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">RECENT SESSIONS</div>
+        ${renderRecentSessions(st.recentSessions)}
+        ${evidence("Self-monitoring: seeing your own accuracy trend supports habit formation.")}
+      </div>
+    </div>
     <div class="section-head" style="margin-top:10px"><span class="mono-label">COURSES</span><div class="rule"></div></div>
     ${courseCards || '<div class="card" style="color:#8A8F9C; font-size:12.5px">No courses yet — ingest something from the Study tab.</div>'}`;
+}
+
+function renderCalibration(weeks) {
+  const hasData = (weeks || []).some((w) => w.sure_n + w.unsure_n > 0);
+  if (!hasData) {
+    return `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">
+      No confidence-tagged answers yet. Pick <em>Sure</em> or <em>Unsure</em> before
+      answering during reviews and this chart fills in.</div>`;
+  }
+  const cols = weeks.map((w) => {
+    const bar = (rate, color, n, label) => rate == null
+      ? `<div class="cal-bar" style="height:4px; background:#ECECE8" title="${label}: no data"></div>`
+      : `<div class="cal-bar" style="height:${Math.max(4, rate * 0.56)}px; background:${color}"
+           title="${label}: ${rate}% recall over ${n} answers"></div>`;
+    return `<div class="cal-col">
+      <div class="cal-bars">
+        ${bar(w.sure_rate, "#0072B2", w.sure_n, "Sure")}
+        ${bar(w.unsure_rate, "#CC79A7", w.unsure_n, "Unsure")}
+      </div>
+      <span class="forecast-day">${w.label}</span>
+    </div>`;
+  }).join("");
+  // calibration verdict from the most recent week with both series
+  const latest = [...weeks].reverse().find((w) => w.sure_rate != null && w.unsure_rate != null);
+  let verdict = "";
+  if (latest) {
+    const gap = latest.sure_rate - latest.unsure_rate;
+    verdict = gap >= 15 ? "Well calibrated — your confidence tracks your recall."
+      : gap <= 0 ? "Miscalibrated: you recall MORE when unsure — trust yourself less when “sure”."
+      : "Slightly compressed — confidence and recall barely differ.";
+  }
+  return `<div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
+      <span class="cal-key"><span class="cal-dot" style="background:#0072B2"></span>Sure</span>
+      <span class="cal-key"><span class="cal-dot" style="background:#CC79A7"></span>Unsure</span>
+    </div>
+    <div class="cal-row">${cols}</div>
+    ${verdict ? `<div style="font-size:11.5px; color:#5C616E; margin-top:10px">${verdict}</div>` : ""}`;
+}
+
+function renderRecentSessions(sessions) {
+  if (!sessions || !sessions.length) {
+    return `<div style="font-size:12px; color:#8A8F9C; flex:1">No sessions yet.</div>`;
+  }
+  return `<div style="display:flex; flex-direction:column; gap:8px">` + sessions.map((s) => {
+    const day = new Date(s.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    const acc = s.accuracy == null ? "" :
+      `<span class="mono" style="font-size:10.5px; font-weight:600; color:${s.accuracy >= 80 ? GOOD : s.accuracy >= 60 ? "#8A6100" : LOW}">${s.accuracy}%</span>`;
+    const accBar = s.accuracy == null ? "" :
+      `<div class="sess-track"><div style="height:100%; width:${s.accuracy}%; border-radius:2px; background:${s.accuracy >= 80 ? GOOD : s.accuracy >= 60 ? WARN : LOW}"></div></div>`;
+    return `<div class="sess-row">
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:74px; flex:none">${day}</span>
+      <span style="font-size:11.5px; width:64px; flex:none">${esc(s.kind)}</span>
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:118px; flex:none">${s.cards} cards · ${fmtMin(s.minutes)}</span>
+      ${accBar}${acc}
+    </div>`;
+  }).join("") + "</div>";
 }
 
 /* ---------------------------------------------------------------- shell */

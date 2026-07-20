@@ -12,14 +12,16 @@ from orchestrator import Orchestrator
 from database import (
     get_courses, get_pdfs, get_pdf, get_mastery_inputs,
     get_due_forecast, get_time_by_course, get_topic_time_spent,
-    log_focus_session,
+    log_focus_session, log_answer, attach_card_to_answer,
+    get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
 )
 
 app = Flask(__name__)
 
 orchestrator = Orchestrator()
-chat_history = []   # display log: {role, text, grade, meta}
-grade_log = []      # {at: datetime, quality: int} — feeds focus-session recap
+chat_history = []       # display log: {role, text, grade, meta}
+grade_log = []          # {at: datetime, quality: int} — feeds focus-session recap
+session_grades = []     # qualities since the agent's start_study_session — feeds accuracy
 
 
 def fmt_min(minutes):
@@ -139,6 +141,7 @@ def state():
     subject_rows = get_time_by_course()
     subject_total = sum(r["minutes"] for r in subject_rows) or 1
     course_index = {c["id"]: i for i, c in enumerate(courses)}
+    topic_accuracy = get_topic_accuracy()
 
     return jsonify({
         "courses": courses,
@@ -155,6 +158,15 @@ def state():
                          "share": round(r["minutes"] / subject_total * 100),
                          "ci": course_index.get(r["course_id"], 3)}
                         for r in subject_rows],
+        "calibration": get_calibration(28),
+        "topicFlags": {tid: ("easy" if rate > 95 else "hard" if rate < 60 else None)
+                       for tid, rate in topic_accuracy.items()},
+        "topicAccuracy": topic_accuracy,
+        "recentSessions": [
+            {"at": r["started_at"], "kind": r["kind"],
+             "cards": r["cards_reviewed"], "minutes": r["minutes"],
+             "accuracy": r["accuracy"], "topics": r["topic_titles"]}
+            for r in get_study_log()[:8] if r["ended_at"]],
         "stats": {"weekTime": fmt_min(s["week_minutes"]),
                   "sessionCount": s["week_sessions"],
                   "week": week,
@@ -186,10 +198,23 @@ def chat():
     def on_tool(name, args, result):
         if name == "grade_answer" and isinstance(result, dict):
             grade_log.append({"at": datetime.now(), "quality": result["quality"]})
+            session_grades.append(result["quality"])
+            # confidence applies to the attempt that produced the first grade of the turn
+            conf = confidence if not grades_this_turn else None
+            result["answer_id"] = log_answer(result["quality"], conf)
             grades_this_turn.append(result)
         elif name == "review_card" and grades_this_turn:
-            # attach schedule info to the latest grade ("Next review in N day(s).")
             grades_this_turn[-1]["meta"] = str(result)
+            if "answer_id" in grades_this_turn[-1] and "card_id" in args:
+                attach_card_to_answer(grades_this_turn[-1]["answer_id"], args["card_id"])
+        elif name == "start_study_session":
+            session_grades.clear()
+        elif name == "end_study_session" and isinstance(result, dict):
+            if session_grades:
+                passed = sum(1 for q in session_grades if q >= 3)
+                set_session_accuracy(result["session_id"],
+                                     round(passed / len(session_grades) * 100))
+            session_grades.clear()
 
     try:
         reply = orchestrator.handle(sent, on_tool=on_tool)
@@ -216,10 +241,13 @@ def focus():
     window_start = datetime.now() - timedelta(minutes=minutes)
     grades = [g["quality"] for g in grade_log if g["at"] >= window_start]
     passed = sum(1 for q in grades if q >= 3)
+    accuracy = round(passed / len(grades) * 100) if grades else None
+    if accuracy is not None:
+        set_session_accuracy(result["session_id"], accuracy)
     return jsonify({
         "mins": minutes,
         "cards": result["cards_reviewed"],
-        "acc": round(passed / len(grades) * 100) if grades else None,
+        "acc": accuracy,
         "ext": passed,
         "reset": len(grades) - passed,
     })
