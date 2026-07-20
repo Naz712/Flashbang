@@ -4,3 +4,4 @@ python-dotenv
 pypdf
 streamlit
 numpy
+flask

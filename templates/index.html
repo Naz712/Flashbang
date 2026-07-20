@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashbang</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="shell">
+  <!-- top app bar -->
+  <div class="appbar">
+    <div class="logo-row">
+      <div class="logo-tile">F</div>
+      <span class="logo-name">Flashbang</span>
+    </div>
+    <div class="tabs">
+      <button id="tabStudy" class="tab on">Study</button>
+      <button id="tabProgress" class="tab">Progress</button>
+    </div>
+    <div style="flex:1"></div>
+    <div class="appbar-right">
+      <button id="doNext" class="btn-ink" title="">Do next ↦</button>
+      <span class="due-pill"><span class="due-dot"></span><span id="dueTotal">0</span>&nbsp;due</span>
+    </div>
+  </div>
+
+  <!-- study screen -->
+  <div id="studyScreen" class="study">
+    <div class="chat">
+      <div class="chat-head">
+        <div class="chat-head-left">
+          <span id="agentDot" class="agent-dot"></span>
+          <span class="chat-title" id="agentName">Flashbang agent</span>
+          <span class="chat-sub" id="sessionLabel"></span>
+        </div>
+        <span id="focusChip" class="focus-chip" style="display:none">
+          <span class="pulse"></span>FOCUS · <span id="focusElapsedHead">0</span>M
+        </span>
+      </div>
+      <div id="chatScroll" class="chat-scroll"></div>
+      <div class="chat-foot">
+        <div id="confRow" class="conf-row" style="display:none; margin-bottom:10px">
+          <div class="conf-box">
+            <span>Before answering — how confident are you?</span>
+            <button class="conf-btn" data-conf="sure">Sure</button>
+            <button class="conf-btn" data-conf="unsure">Unsure</button>
+          </div>
+        </div>
+        <div class="input-row">
+          <input id="chatInput" placeholder="Ask a question, start a review, or paste notes…" autocomplete="off">
+          <button id="sendBtn" class="send-key">⏎</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rail" class="rail"></div>
+    <button id="railReopen" class="rail-reopen" title="Show panel" style="display:none">⇤</button>
+  </div>
+
+  <!-- progress screen -->
+  <div id="progressScreen" class="progress-wrap" style="display:none">
+    <div id="progressInner" class="progress"></div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -674,6 +674,97 @@ def get_upcoming_reviews(days=7):
     return rows
 
 
+def log_focus_session(minutes, course_id=None, pdf_id=None):
+    """Log a UI focus-timer session that just ended (started `minutes` ago).
+    Cards reviewed and topics touched during the window are derived from the
+    cards table, same as end_session."""
+    ended = datetime.now()
+    started = ended - timedelta(minutes=minutes)
+    started_iso = started.isoformat(timespec="seconds")
+    ended_iso = ended.isoformat(timespec="seconds")
+
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) AS n FROM cards WHERE last_reviewed_at BETWEEN ? AND ?
+    """, (started_iso, ended_iso))
+    cards_reviewed = cursor.fetchone()["n"]
+    cursor.execute("""
+        INSERT INTO study_sessions (kind, course_id, pdf_id, started_at, ended_at,
+                                    cards_reviewed, minutes, summary)
+        VALUES ('review', ?, ?, ?, ?, ?, ?, 'focus session')
+    """, (course_id, pdf_id, started_iso, ended_iso, cards_reviewed, float(minutes)))
+    session_id = cursor.lastrowid
+    cursor.execute("""
+        INSERT OR IGNORE INTO session_topics (session_id, topic_id)
+        SELECT DISTINCT ?, topic_id FROM cards WHERE last_reviewed_at BETWEEN ? AND ?
+    """, (session_id, started_iso, ended_iso))
+    conn.commit()
+    conn.close()
+    return {"session_id": session_id, "cards_reviewed": cards_reviewed, "minutes": minutes}
+
+
+def get_due_forecast(days=7):
+    """Cards coming due per day for the next `days` days; overdue cards are
+    bucketed into today. Returns [{'day': ISO date, 'count': int}] covering
+    every day in the window."""
+    today = datetime.now().date()
+    horizon = (datetime.now() + timedelta(days=days - 1)).replace(
+        hour=23, minute=59, second=59).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT next_review FROM cards WHERE next_review <= ?", (horizon,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    counts = {(today + timedelta(days=i)).isoformat(): 0 for i in range(days)}
+    for row in rows:
+        due_day = datetime.fromisoformat(row["next_review"]).date()
+        key = max(due_day, today).isoformat()
+        counts[key] += 1
+    return [{"day": day, "count": counts[day]} for day in sorted(counts)]
+
+
+def get_time_by_course():
+    """Total logged study minutes per course, all time."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.course_id, courses.name, SUM(s.minutes) AS minutes
+        FROM study_sessions s
+        LEFT JOIN courses ON courses.id = s.course_id
+        WHERE s.minutes IS NOT NULL
+        GROUP BY s.course_id
+        ORDER BY minutes DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"course_id": r["course_id"], "name": r["name"] or "Other",
+             "minutes": round(r["minutes"], 1)} for r in rows]
+
+
+def get_topic_time_spent():
+    """Approximate minutes spent per topic: each session's minutes divided
+    evenly among the topics it touched. Returns {topic_id: minutes}."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT st.topic_id, s.minutes,
+               (SELECT COUNT(*) FROM session_topics st2
+                WHERE st2.session_id = s.id) AS topics_in_session
+        FROM study_sessions s
+        JOIN session_topics st ON st.session_id = s.id
+        WHERE s.minutes IS NOT NULL
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    spent = {}
+    for row in rows:
+        share = row["minutes"] / max(row["topics_in_session"], 1)
+        spent[row["topic_id"]] = spent.get(row["topic_id"], 0) + share
+    return {tid: round(m, 1) for tid, m in spent.items()}
+
+
 # ---------------------------------------------------------------- study plan
 
 def save_study_plan(entries, replace_future=True):
