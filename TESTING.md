@@ -120,6 +120,130 @@ All five offline suites: **PASSING** as of 2026-07-21.
 - Calibration chart and 85%-rule flags need data: confidence-tagged answers,
   and ≥6 graded answers per topic in 28 days, respectively.
 
+## Results appendix (raw outputs)
+
+### Offline suite run — 2026-07-21
+
+```
+check_db:       ALL PASSED
+check_mastery:  ALL PASSED
+check_search:   ALL PASSED
+check_router:   ALL PASSED (keyword + pin layers)
+check_planning: ALL PASSED
+```
+
+### RB2302_Part_1_Slides.pdf — saved topic split (242 pages, 8.4h)
+
+```
+p.1-8     ~25 min  Introduction to Neural Networks
+p.9-40    ~20 min  Basic Mathematical Concepts for Neural Networks
+p.41-68   ~35 min  Gradient Descent and Optimization
+p.69-91   ~40 min  Perceptron Learning Algorithm
+p.92-101  ~30 min  Multilayer Perceptrons (MLP)
+p.102-117 ~40 min  Backpropagation
+p.118-146 ~70 min  Classification and Regression
+p.147-154 ~25 min  Support Vector Machines and Applications
+p.155-176 ~50 min  Convolutional Neural Networks (CNNs)
+p.177-196 ~45 min  Learning in Convolutional Neural Networks
+p.197-206 ~40 min  Recurrent Neural Networks (RNNs) and Applications
+p.207-219 ~35 min  Long Short-Term Memory (LSTM)
+p.220-241 ~45 min  Training Techniques and Optimizations
+p.242     ~5 min   Historical Overview
+```
+
+### cs2030de batch — saved topic splits (5 decks, 8.3h)
+
+```
+Chapter 2 Data Encapsulation v1.pdf — 37 pages, vision p.[1], 2.5h
+  p.1-6    ~25 min  Access Modifiers
+  p.7-13   ~30 min  Data Encapsulation
+  p.14-19  ~25 min  Object Composition
+  p.20-24  ~25 min  Object Aggregation
+  p.25-30  ~25 min  Java Private Methods
+  p.31-37  ~20 min  Creating and Using Java Packages
+
+Chapter 3 Inheritance (Annexure)_publish2.pdf — 14 pages, vision p.[1,4,14], 0.8h
+  p.1-4    ~10 min  Introduction to Digital Circuit Design using Inheritance
+  p.5-7    ~10 min  Design Flow of Logic Gates with Alternative Solutions
+  p.8-12   ~20 min  Digital Circuit Simulation: Implementation and Testing
+  p.13-14  ~5 min   Challenges and Alternative Design Choices in Digital Circuit Simulation
+
+Chapter 3 Inheritance v4.pdf — 28 pages, vision p.[1,17,28], 1.7h
+  p.1-4    ~10 min  Introduction to Inheritance
+  p.5-8    ~12 min  Basic Inheritance Example and Child Class Accessibility
+  p.9-11   ~10 min  Single Parent - Single Child Inheritance Examples
+  p.12-17  ~20 min  Protected Variables and Methods
+  p.18-19  ~10 min  Method Overriding and the @Override Annotation
+  p.20-21  ~12 min  Abstract Classes and Methods
+  p.22-25  ~20 min  Multiple Children and Inheritance Applications
+  p.26     ~5 min   Limitations of Multiple Inheritance in Java
+  p.27-28  ~5 min   DIY Application: Currency Converter
+
+Chapter 4 Interfaces v3 Part 2.pdf — 23 pages, vision p.[1,2,23], 2.0h
+  p.1-6    ~25 min  Introduction to Java Interfaces
+  p.7-13   ~35 min  Properties and Usage of Java Interfaces
+  p.14-19  ~30 min  Design Patterns with Interfaces
+  p.20-21  ~20 min  Examples and Tutorials on Java Interfaces
+  p.22-23  ~10 min  Summary of Java Interfaces
+
+Chapter 4 Polymorphism v3 Part 1.pdf — 19 pages, vision p.[1,19], 1.3h
+  p.1-3    ~10 min  Introduction to Polymorphism
+  p.4-5    ~10 min  Examples of Polymorphism
+  p.6      ~5 min   Concepts of Polymorphism
+  p.7-8    ~10 min  Compile-time and Runtime Polymorphism
+  p.9-13   ~20 min  Polymorphism & Object Creation
+  p.14-17  ~15 min  Practical Exercises and Code Examples
+  p.18-19  ~10 min  Additional Exercises and Concept Review
+```
+
+### Card-creation benchmark — raw output (2026-07-21)
+
+```
+=== Method Overriding and the @Override Annotation (2 pages, est 10 min) ===
+  extract_concepts:     6.5s  -> 2 concepts
+  save+embed:           5.1s  -> 2 notes embedded
+  generate_cards:       5.1s  -> 7 cards (2.5s per concept call)
+  insert cards:         0.2s
+  TOTAL:               16.9s for 7 cards (2.4s per card)
+
+=== Data Encapsulation (7 pages, est 30 min) ===
+  extract_concepts:    10.3s  -> 6 concepts
+  save+embed:           3.4s  -> 6 notes embedded
+  generate_cards:      16.8s  -> 27 cards (2.8s per concept call)
+  insert cards:         0.6s
+  TOTAL:               31.0s for 27 cards (1.1s per card)
+```
+
+Sample generated cards (saved for real, due next day):
+
+```
+Q: What is method overriding in Java?
+A: Method overriding in Java occurs when a subclass defines a method with the
+   same name, parameters, and return type as one in its superclass.
+
+Q: Is the @Override annotation necessary for method overriding to work in Java?
+A: No, method overriding works in Java even without explicitly using @Override.
+
+Q: What role do access modifiers play in data encapsulation?
+A: Access modifiers control access to class members and methods, preventing
+   unauthorized access.
+
+Q: Why should certain internal representations be hidden in data encapsulation?
+A: Hiding internal representations prevents accidental access from outside,
+   safeguarding data integrity.
+```
+
+### Live review-flow verification — 2026-07-20 (web UI)
+
+```
+user:  Review my due cards in "Lecture3_Transformer1.pdf" (pdf_id 1)
+agent: You have 10 cards due... Card 1: What does this concept do?
+user:  [confidence: unsure] it explains what the concept does in the demo answer
+agent: Grade 3/5 · interval 6d → 14d · next 2026-08-03 [undo]
+       ...Your confidence level was "unsure," and you did better than you expected.
+dashboard (live, mid-session): due 10 → 9 · completion 33% → 36% · topic 54% → 63%
+```
+
 ## Not yet exercised live
 
 - Cram mode end-to-end through the UI (prompt-level logic tested only in
