@@ -85,6 +85,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/architecture")
+def architecture():
+    """One-page system diagram (docs/architecture.html) — presentation aid."""
+    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "docs", "architecture.html"))
+
+
 @app.get("/api/state")
 def state():
     now = datetime.now()

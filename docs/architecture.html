@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashbang — Architecture</title>
+<style>
+  :root {
+    --ink: #1C1E26; --mut: #8A8F9C; --line: #E3E3DE; --bg: #F2F2EF; --card: #fff;
+    --blue: #0072B2; --orange: #E69F00; --green: #009E73; --red: #D55E00; --pink: #CC79A7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink);
+    font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; padding: 28px 36px 40px; }
+  .mono { font-family: 'IBM Plex Mono', Consolas, monospace; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -.3px; }
+  .sub { font-size: 12px; color: var(--mut); margin-bottom: 22px; }
+  .lane { display: flex; align-items: stretch; gap: 14px; margin-bottom: 10px; }
+  .lane-label { flex: none; width: 92px; display: flex; align-items: center; }
+  .lane-label span { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.8px;
+    color: var(--mut); font-weight: 600; writing-mode: horizontal-tb; }
+  .lane-body { flex: 1; display: flex; gap: 12px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; box-shadow: 0 1px 2px rgba(16,18,24,.05); flex: 1; }
+  .box b { font-size: 12.5px; display: block; margin-bottom: 3px; }
+  .box .d { font-size: 10.5px; color: var(--mut); line-height: 1.5; }
+  .box .f { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--blue); margin-top: 5px; }
+  .accent { border-top: 3px solid var(--ink); }
+  .arrow-row { display: flex; justify-content: center; padding: 1px 0 5px; margin-left: 106px; }
+  .arrow-row span { font-size: 13px; color: var(--mut); }
+  .arrow-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--mut); margin: 0 8px; align-self: center; }
+  .agents { display: flex; gap: 12px; flex: 1; }
+  .agent { flex: 1; border-radius: 12px; background: var(--card); border: 1px solid var(--line);
+    border-top: 3px solid var(--c); padding: 11px 14px; box-shadow: 0 1px 2px rgba(16,18,24,.05); }
+  .agent b { font-size: 12px; display: block; }
+  .agent .d { font-size: 10px; color: var(--mut); line-height: 1.45; margin-top: 3px; }
+  .agent .t { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; color: var(--ink);
+    background: #F4F4F1; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
+    display: inline-block; margin: 4px 3px 0 0; }
+  .split { display: flex; gap: 12px; }
+  .note { font-size: 10.5px; color: var(--mut); border-left: 3px solid var(--line);
+    padding: 2px 0 2px 12px; margin: 18px 0 0 106px; line-height: 1.7; max-width: 860px; }
+  .note b { color: var(--ink); }
+  .pill { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 1px 8px;
+    border-radius: 999px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>⚡ Flashbang — system architecture</h1>
+<div class="sub">Agent-powered spaced-repetition study app · Python / Flask / SQLite · provider-agnostic LLM layer (OpenAI or Anthropic, auto-detected)</div>
+
+<div class="lane">
+  <div class="lane-label"><span>INTERFACE</span></div>
+  <div class="lane-body">
+    <div class="box accent">
+      <b>Web app — chat + dashboard</b>
+      <div class="d">Streaming chat (SSE status lines, typewriter), slash-command palette, PDF upload with progress, topic page-viewer (pdf.js, bounded page ranges), cards CRUD, decay-aware completion bars, forecast, calibration &amp; streaks</div>
+      <div class="f">templates/index.html · static/app.js · static/app.css</div>
+    </div>
+    <div class="box" style="flex:.45">
+      <b>JSON API</b>
+      <div class="d">/api/chat/stream · /api/state · /api/cards · /api/upload · /api/focus · /api/pdf/&lt;id&gt;</div>
+      <div class="f">server.py (Flask)</div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-row"><span>▼</span><span class="arrow-label">every message</span></div>
+
+<div class="lane">
+  <div class="lane-label"><span>ORCHESTRATION</span></div>
+  <div class="lane-body">
+    <div class="box">
+      <b>Router — 3 layers, cheapest first</b>
+      <div class="d">① <b>Pin fast-path</b>: active session → pinned agent, zero API calls &nbsp;② keyword heuristics &nbsp;③ gpt-4o-mini classifier (10 tokens). Slash commands bypass all three (explicit intent).</div>
+      <div class="f">router.py</div>
+    </div>
+    <div class="box">
+      <b>Orchestrator — stateful routing</b>
+      <div class="d">One shared conversation; session pins are <b>set by observing tool calls</b> (start_study_session pins review + opens the log — same event, can't drift). Strict pins for quizzes, soft pins for approval flows.</div>
+      <div class="f">orchestrator.py</div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-row"><span>▼</span><span class="arrow-label">system prompt + tool subset per turn</span></div>
+
+<div class="lane">
+  <div class="lane-label"><span>AGENTS</span></div>
+  <div class="lane-body">
+    <div class="agents">
+      <div class="agent" style="--c:var(--blue)">
+        <b>Ingestion</b>
+        <div class="d">PDF → topics → concepts → cards; approval-gated at every save; pretest offer</div>
+        <span class="t">read_pdf</span><span class="t">propose_topics</span><span class="t">generate_pretest</span><span class="t">bulk_insert_cards</span>
+      </div>
+      <div class="agent" style="--c:var(--green)">
+        <b>Review</b>
+        <div class="d">Quiz loop, AI grading, SM-2 scheduling, relearning re-asks, undo, insights</div>
+        <span class="t">get_due_cards</span><span class="t">grade_answer</span><span class="t">review_card</span><span class="t">undo_review</span>
+      </div>
+      <div class="agent" style="--c:var(--orange)">
+        <b>Organizer</b>
+        <div class="d">Library CRUD, renames, moves; notes Q&amp;A grounded in retrieved chunks with citations</div>
+        <span class="t">update_topic</span><span class="t">update_card</span><span class="t">search_notes</span>
+      </div>
+      <div class="agent" style="--c:var(--pink)">
+        <b>Planner</b>
+        <div class="d">Progress reports, decay deadlines, weekly schedule proposals, stats &amp; streaks</div>
+        <span class="t">get_progress_report</span><span class="t">propose_study_plan</span><span class="t">get_study_stats</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-row"><span>▼</span><span class="arrow-label">function-calling loop · handler registry · id-type validation at the boundary</span></div>
+
+<div class="lane">
+  <div class="lane-label"><span>EXECUTION</span></div>
+  <div class="lane-body">
+    <div class="box">
+      <b>Agent core — provider-agnostic tool loop</b>
+      <div class="d">Anthropic tool_use blocks ⇄ OpenAI tool_calls, one adapter. Model picks the tools; code does the work. Counts, totals &amp; page ranges are computed/repaired in Python — <b>never trust LLM output code can verify</b>.</div>
+      <div class="f">agent_core.py · tools.py · llm_utils.py</div>
+    </div>
+    <div class="box">
+      <b>LLM pipelines</b>
+      <div class="d">Per-page extraction (pypdf free-first, vision fallback batches with truncation-split retry) · chunked topic segmentation + time-estimate rubric · per-concept card generation (source-linked) · rubric grading with calibration notes</div>
+      <div class="f">pdf_ingest.py · generation.py · grading.py</div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-row"><span>▼</span></div>
+
+<div class="lane">
+  <div class="lane-label"><span>DATA &amp; MATH</span></div>
+  <div class="lane-body">
+    <div class="box">
+      <b>SQLite — single source of truth</b>
+      <div class="d">courses → pdfs → pages → topics → notes/cards (triple FK, derived server-side) · study log auto-written by session tools · answer log (quality + confidence) · plan · FKs enforced, cascades designed</div>
+      <div class="f">database.py · flashbang.db</div>
+    </div>
+    <div class="box">
+      <b>Decay engine — pure functions, no LLM</b>
+      <div class="d">R = e<sup>−t/S</sup>, S ≈ 3.476 × SM-2 interval (due date ⇒ 75% retention) · never-reviewed = 0 · completion % = minutes-weighted topic mastery · computed at read time, nothing stored</div>
+      <div class="f">mastery.py · sm2.py · planning.py · stats.py</div>
+    </div>
+    <div class="box" style="flex:.6">
+      <b>Semantic search</b>
+      <div class="d">Concept embeddings, cosine ranking, relevance threshold; answers must cite course/PDF/topic or admit absence</div>
+      <div class="f">search.py · embeddings.py</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>Guardrail philosophy</b> — the LLM proposes, deterministic code disposes: page ranges normalized mechanically · ids type-checked at the tool boundary · session counts derived from DB timestamps · every persist gated by human approval · agents forbidden from claiming success without a tool result.
+  &nbsp;&nbsp;<b>Verified</b> — 5 offline test suites + dated live-eval log (<span class="mono" style="font-size:10px">TESTING.md</span>): 6 real documents ingested (242-page deck: 14 topics, 8.4 h, $0.15), 5 production bugs caught by live testing and fixed.
+</div>
+
+</body>
+</html>
