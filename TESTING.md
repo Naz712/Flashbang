@@ -108,6 +108,31 @@ All five offline suites: **PASSING** as of 2026-07-21.
 - Available optimizations (not yet applied): batch embeddings into one API
   call (−3–5s/topic); parallelize per-concept generation (~3× faster).
 
+## Cost & time per request (est. 2026-07-21, standard OpenAI rates)
+
+Rates assumed: gpt-4o $2.50/M in + $10/M out; gpt-4o-mini $0.15/$0.60;
+text-embedding-3-small $0.02/M. Check platform.openai.com/usage for actuals.
+
+| Request | Model | Tokens in/out | Time | Est. cost |
+|---|---|---|---|---|
+| Router classify | 4o-mini | 250 / 1 | <1s | ~$0.0001 (pin/keyword layers make most turns free) |
+| Answer grading | 4o-mini | 700 / 80 | 1–2s | ~$0.0002 |
+| Embedding per concept | emb-3-small | ~200 | 0.5–2.5s | ~$0.00001 |
+| Chat turn (agent+tools) | 4o | 3–15k / 200–500 ×2–3 calls | 5–15s | $0.02–0.05 |
+| Concept extraction/topic | 4o | 2–6k / 1–4k | 6–10s | $0.01–0.05 |
+| Card gen per concept | 4o | 1.2k / 400–700 | 2.5–2.8s | ~$0.01 |
+| Segmentation per chunk | 4o | ~25k / ~800 | 25–35s | ~$0.07 |
+| Vision batch (≤8 pages) | 4o | 10–15k / ≤8k | 15–40s | $0.05–0.10 |
+
+Measured real operations: RB2302 ingest ≈ $0.15 / 90s · cs2030de batch ≈
+$0.20–0.25 / 4min · cards per topic ≈ $0.05–0.10 / 17–31s · full 14-topic
+card build ≈ $1–1.50 / 10–12min · 10-card review session ≈ $0.25–0.40.
+
+Cost profile: reviews are the dominant RECURRING cost (history grows each
+turn and is re-sent to gpt-4o); ingestion is a cheap one-off. Levers if
+credits tighten: trim session history after each completed card, or set
+OPENAI_MAIN_MODEL=gpt-4o-mini. Typical usage ≈ $8–12/month equivalent.
+
 ## Known approximations (by design)
 
 - Weekly completion delta re-runs decay math as of 7 days ago; only each
