@@ -214,8 +214,13 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .sess-row { display: flex; align-items: center; gap: 9px; }
 .sess-track { flex: 1; height: 4px; border-radius: 2px; background: #ECECE8; overflow: hidden; }
 
-/* live status under the thinking dots */
-.status-line { font-size: 11.5px; color: #8A8F9C; font-style: italic; min-height: 15px; }
+/* live status while the agent works — Claude-style shimmer + elapsed counter */
+.status-line { font-size: 12px; color: #8A8F9C; font-style: italic; min-height: 15px; }
+.status-line.working { background: linear-gradient(90deg, #9BA0AC 25%, #1C1E26 50%, #9BA0AC 75%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; animation: fbShimmer 1.8s linear infinite; }
+@keyframes fbShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.status-elapsed { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #B0B4BE; }
 
 /* upload progress */
 .up-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.25); overflow: hidden; }

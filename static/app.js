@@ -148,15 +148,24 @@ async function sendChat(text) {
     meta: S.pendingConf ? `confidence: ${S.pendingConf}` : "" }));
   scroll.insertAdjacentHTML("beforeend",
     `<div id="thinking" class="msg-row-bot"><div class="bubble-bot">
-       <div class="thinking" style="padding:0 0 6px 0"><span></span><span></span><span></span></div>
-       <div id="statusLine" class="status-line"></div></div></div>`);
+       <div style="display:flex; align-items:baseline; gap:8px">
+         <span id="statusLine" class="status-line working">Thinking…</span>
+         <span id="statusElapsed" class="status-elapsed"></span>
+       </div></div></div>`);
   scroll.scrollTop = scroll.scrollHeight;
   $("chatInput").value = "";
   const confidence = S.pendingConf;
   S.pendingConf = null;
   renderConfRow();
 
+  const startedAt = Date.now();
+  const elapsedTimer = setInterval(() => {
+    const el = document.getElementById("statusElapsed");
+    if (el) el.textContent = `${Math.round((Date.now() - startedAt) / 1000)}s`;
+  }, 1000);
+
   const finish = (data) => {
+    clearInterval(elapsedTimer);
     document.getElementById("thinking")?.remove();
     (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend",
       renderMsg({ role: "grade", text: g.feedback, grade: g.quality, meta: g.meta || "" })));
@@ -200,6 +209,7 @@ async function sendChat(text) {
     }
     if (!finished) throw new Error("stream ended unexpectedly");
   } catch (e) {
+    clearInterval(elapsedTimer);
     document.getElementById("thinking")?.remove();
     scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "assistant", text: `Connection error: ${e.message}` }));
     scroll.scrollTop = scroll.scrollHeight;

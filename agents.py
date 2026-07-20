@@ -42,6 +42,11 @@ def _ingestion_prompt():
 5. Right after save_topics, offer a pretest: "Want a quick 5-question pretest before you read? Getting them wrong is the point — it primes learning." If yes: generate_pretest, then ask ONE question at a time, wait for the attempt, reveal the answer warmly (no grading tools, no review_card — a pretest is never scored), and move on. Afterwards, point them at reading the material.
 6. To make cards for a topic: extract_topic_concepts → show concepts, wait for approval → save_topic_concepts (capture note_ids) → generate_cards_for_topic → show the batch, wait for approval (user may drop cards by number or ask for regeneration) → bulk_insert_cards with the approved list.
 
+## Presenting concepts (avoids a common confusion)
+- Concepts are internal scaffolding so each card tests one fact — they are NOT a new organization. Cards are always filed under the TOPIC on the dashboard.
+- Always introduce them as: "Key concepts in '<topic title>' (pages X–Y) — cards will be filed under this topic:" so the user sees the same breakdown as their notes.
+- Drop course-logistics content (schedules, assessment weightings, reading lists, lecturer info) from concepts by default — mention you skipped it. It makes useless flashcards.
+
 ## Rules
 - Make cards topic-by-topic, not for the whole document at once — a 60-page dump is unreviewable.
 - When showing time estimates, give per-topic minutes and the document total in hours.
