@@ -249,12 +249,14 @@ def chat_stream():
     the status line under the thinking indicator and types the reply out."""
     body = request.get_json(force=True)
     message = (body.get("message") or "").strip()
+    display = (body.get("display") or message).strip()   # raw "/command" for history
+    force_agent = body.get("agent")
     confidence = body.get("confidence")
     if not message:
         return jsonify({"error": "empty message"}), 400
 
     sent = message + (f" (my confidence before answering: {confidence})" if confidence else "")
-    chat_history.append({"role": "user", "text": message, "grade": 0,
+    chat_history.append({"role": "user", "text": display, "grade": 0,
                          "meta": f"confidence: {confidence}" if confidence else ""})
 
     q = queue.Queue()
@@ -289,7 +291,8 @@ def chat_stream():
 
     def worker():
         try:
-            reply = orchestrator.handle(sent, on_event=on_event, on_tool=on_tool)
+            reply = orchestrator.handle(sent, on_event=on_event, on_tool=on_tool,
+                                        force_agent=force_agent)
         except Exception as e:
             reply = f"Something went wrong: {type(e).__name__}: {e}"
         for g in grades_this_turn:

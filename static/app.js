@@ -107,6 +107,73 @@ window.undoGrade = (btn) => {
   sendChat("Undo that last grade — restore the card's previous schedule.");
 };
 
+/* ---------------------------------------------------------------- slash commands */
+/* Each command maps to a specific agent (skips the router) and expands to an
+   unambiguous instruction — the raw /command is what shows in the chat. */
+const COMMANDS = [
+  { cmd: "/review",   args: "[topic/pdf]",           desc: "Review due cards",                    agent: "review",    expand: (a) => a ? `Start a review session on my due cards in ${a}` : "Start a review session on my due cards" },
+  { cmd: "/cram",     args: "<topic/pdf>",           desc: "Quiz everything once, no scheduling", agent: "review",    expand: (a) => `Start a cram session on ${a || "all my cards"}` },
+  { cmd: "/end",      args: "",                      desc: "End the current session",             agent: "review",    expand: () => "End the current session and summarize how I did" },
+  { cmd: "/undo",     args: "",                      desc: "Undo the last grade",                 agent: "review",    expand: () => "Undo that last grade — restore the card's previous schedule." },
+  { cmd: "/ingest",   args: "<file path>",           desc: "Ingest a PDF by path",                agent: "ingestion", expand: (a) => `Ingest ${a}` },
+  { cmd: "/cards",    args: "<topic>",               desc: "Generate flashcards for a topic",     agent: "ingestion", expand: (a) => `Make flashcards for the topic ${a}` },
+  { cmd: "/pretest",  args: "[document]",            desc: "Unscored pretest before reading",     agent: "ingestion", expand: (a) => `Give me a pretest${a ? ` on ${a}` : " on my newest document"}` },
+  { cmd: "/plan",     args: "[minutes per day]",     desc: "Plan the study week",                 agent: "planner",   expand: (a) => `Plan my study week${a ? `, I have ${a} minutes a day` : ""}` },
+  { cmd: "/next",     args: "",                      desc: "What should I study next?",           agent: "planner",   expand: () => "What should I study next?" },
+  { cmd: "/progress", args: "[course/pdf]",          desc: "Progress report",                     agent: "planner",   expand: (a) => `How is my progress${a ? ` on ${a}` : ""}?` },
+  { cmd: "/stats",    args: "",                      desc: "Streak & weekly stats",               agent: "planner",   expand: () => "Show my study stats and streak" },
+  { cmd: "/rename",   args: "<topic> to <new name>", desc: "Rename a topic",                      agent: "organizer", expand: (a) => `Rename the topic ${a}` },
+  { cmd: "/search",   args: "<query>",               desc: "Ask your notes",                      agent: "organizer", expand: (a) => `What do my notes say about ${a}?` },
+  { cmd: "/help",     args: "",                      desc: "List all commands",                   agent: null },
+];
+
+function parseCommand(text) {
+  if (!text.startsWith("/")) return null;
+  const space = text.indexOf(" ");
+  const name = (space === -1 ? text : text.slice(0, space)).toLowerCase();
+  const arg = space === -1 ? "" : text.slice(space + 1).trim();
+  const command = COMMANDS.find((c) => c.cmd === name);
+  return command ? { command, arg } : null;
+}
+
+function renderPalette() {
+  const input = $("chatInput");
+  const palette = $("cmdPalette");
+  const value = input.value;
+  if (!value.startsWith("/") || value.includes(" ")) {
+    palette.style.display = "none";
+    return;
+  }
+  const matches = COMMANDS.filter((c) => c.cmd.startsWith(value.toLowerCase()));
+  if (!matches.length) { palette.style.display = "none"; return; }
+  palette.innerHTML = matches.map((c) => `
+    <div class="cmd-item" data-cmd="${c.cmd}">
+      <span class="mono" style="font-weight:600; font-size:12px">${c.cmd}</span>
+      <span class="mono" style="font-size:10.5px; color:#B0B4BE">${c.args}</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px; color:#8A8F9C">${c.desc}</span>
+    </div>`).join("");
+  palette.style.display = "block";
+  palette.querySelectorAll(".cmd-item").forEach((el) => {
+    el.onmousedown = (e) => {   // mousedown beats input blur
+      e.preventDefault();
+      input.value = el.dataset.cmd + " ";
+      palette.style.display = "none";
+      input.focus();
+    };
+  });
+}
+
+function showHelp() {
+  const scroll = $("chatScroll");
+  const rows = COMMANDS.map((c) =>
+    `<div style="display:flex; gap:10px"><code style="flex:none">${c.cmd} ${c.args}</code><span>${c.desc}</span></div>`).join("");
+  scroll.insertAdjacentHTML("beforeend",
+    `<div class="msg-row-bot"><div class="bubble-bot"><div class="md-head">Commands</div>${rows}
+      <div class="md-gap"></div><div>Type <code>/</code> to see this menu inline. Commands go straight to the right specialist — no interpretation needed.</div></div></div>`);
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
 /* human-readable status lines for tool activity while the agent works */
 const STATUS_LABELS = {
   read_pdf: "Reading the PDF page by page…",
@@ -146,9 +213,20 @@ function typewrite(el, text, onDone) {
 
 async function sendChat(text) {
   if (S.busy || !text.trim()) return;
+  $("cmdPalette").style.display = "none";
+
+  // slash command? translate to an explicit instruction + forced agent
+  let display = text, message = text, agent = null;
+  const parsed = parseCommand(text.trim());
+  if (parsed) {
+    if (parsed.command.cmd === "/help") { $("chatInput").value = ""; showHelp(); return; }
+    message = parsed.command.expand(parsed.arg);
+    agent = parsed.command.agent;
+  }
+
   S.busy = true;
   const scroll = $("chatScroll");
-  scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "user", text,
+  scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "user", text: display,
     meta: S.pendingConf ? `confidence: ${S.pendingConf}` : "" }));
   scroll.insertAdjacentHTML("beforeend",
     `<div id="thinking" class="msg-row-bot"><div class="bubble-bot">
@@ -184,7 +262,7 @@ async function sendChat(text) {
   try {
     const res = await fetch("/api/chat/stream", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, confidence }) });
+      body: JSON.stringify({ message, display, agent, confidence }) });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -975,7 +1053,17 @@ const chatPane = document.querySelector(".chat");
 chatPane.addEventListener("drop", (e) => uploadPdfs(e.dataTransfer.files));
 
 $("sendBtn").onclick = () => sendChat($("chatInput").value);
-$("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(e.target.value); });
+$("chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendChat(e.target.value);
+  if (e.key === "Escape") $("cmdPalette").style.display = "none";
+  if (e.key === "Tab" && $("cmdPalette").style.display === "block") {
+    e.preventDefault();
+    const first = $("cmdPalette").querySelector(".cmd-item");
+    if (first) { e.target.value = first.dataset.cmd + " "; renderPalette(); }
+  }
+});
+$("chatInput").addEventListener("input", renderPalette);
+$("chatInput").addEventListener("blur", () => setTimeout(() => { $("cmdPalette").style.display = "none"; }, 150));
 document.querySelectorAll(".conf-btn").forEach((b) => b.onclick = () => {
   S.pendingConf = S.pendingConf === b.dataset.conf ? null : b.dataset.conf;
   renderConfRow();

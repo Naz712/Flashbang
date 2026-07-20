@@ -24,12 +24,15 @@ class Orchestrator:
         self.active_session_id = None
         self.last_agent = None
 
-    def handle(self, user_text, on_event=None, on_tool=None):
-        agent_name = route(user_text, self.pinned, self.session_active, self.strict_pin)
+    def handle(self, user_text, on_event=None, on_tool=None, force_agent=None):
+        if force_agent in AGENTS:
+            agent_name = force_agent   # slash command — intent is explicit, skip routing
+        else:
+            agent_name = route(user_text, self.pinned, self.session_active, self.strict_pin)
         agent = AGENTS[agent_name]
         self.last_agent = agent_name
         if on_event:
-            on_event(f"[router -> {agent_name}]")
+            on_event(f"[router -> {agent_name}{' (forced)' if force_agent in AGENTS else ''}]")
 
         self.messages.append({"role": "user", "content": user_text})
         return run_turn(self.messages, agent,
