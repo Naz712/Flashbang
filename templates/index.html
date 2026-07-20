@@ -67,6 +67,22 @@
     <div id="progressInner" class="progress"></div>
   </div>
 </div>
+
+<!-- topic page viewer -->
+<div id="viewer" class="viewer-overlay" style="display:none">
+  <div class="viewer-box">
+    <div class="viewer-head">
+      <div style="min-width:0">
+        <div id="viewerTitle" style="font-size:13.5px; font-weight:700"></div>
+        <div id="viewerSub" class="doc-meta"></div>
+      </div>
+      <button class="icon-btn" style="font-size:15px" onclick="closeViewer()">✕</button>
+    </div>
+    <div id="viewerBody" class="viewer-body"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

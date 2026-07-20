@@ -103,6 +103,43 @@ window.undoGrade = (btn) => {
   sendChat("Undo that last grade — restore the card's previous schedule.");
 };
 
+/* human-readable status lines for tool activity while the agent works */
+const STATUS_LABELS = {
+  read_pdf: "Reading the PDF page by page…",
+  create_text_source: "Saving your notes…",
+  propose_topics: "Splitting into topics & estimating study time… (big documents take a minute)",
+  save_topics: "Saving the approved topics…",
+  generate_pretest: "Writing pretest questions…",
+  extract_topic_concepts: "Extracting the key concepts…",
+  save_topic_concepts: "Saving concepts to your notes…",
+  generate_cards_for_topic: "Writing flashcards…",
+  bulk_insert_cards: "Saving your cards…",
+  get_due_cards: "Fetching due cards…",
+  grade_answer: "Grading your answer…",
+  review_card: "Updating the schedule…",
+  undo_review: "Undoing that grade…",
+  search_notes: "Searching your notes…",
+  get_progress_report: "Crunching your progress…",
+  propose_study_plan: "Drafting a study plan…",
+  get_study_stats: "Adding up your stats…",
+};
+
+function typewrite(el, text, onDone) {
+  const scroll = $("chatScroll");
+  const finish = () => { el.innerHTML = md(text); scroll.scrollTop = scroll.scrollHeight; onDone && onDone(); };
+  if (document.hidden) return finish();   // rAF/timers throttle in hidden tabs — don't animate
+  let i = 0;
+  const started = Date.now();
+  const perTick = Math.max(3, Math.round(text.length / 120)); // ~2s at 16ms ticks
+  const timer = setInterval(() => {
+    if (Date.now() - started > 4000) i = text.length;  // hard cap — never leave chat busy
+    i += perTick;
+    el.textContent = text.slice(0, i);
+    scroll.scrollTop = scroll.scrollHeight;
+    if (i >= text.length) { clearInterval(timer); finish(); }
+  }, 16);
+}
+
 async function sendChat(text) {
   if (S.busy || !text.trim()) return;
   S.busy = true;
@@ -110,30 +147,65 @@ async function sendChat(text) {
   scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "user", text,
     meta: S.pendingConf ? `confidence: ${S.pendingConf}` : "" }));
   scroll.insertAdjacentHTML("beforeend",
-    `<div id="thinking" class="msg-row-bot"><div class="bubble-bot thinking"><span></span><span></span><span></span></div></div>`);
+    `<div id="thinking" class="msg-row-bot"><div class="bubble-bot">
+       <div class="thinking" style="padding:0 0 6px 0"><span></span><span></span><span></span></div>
+       <div id="statusLine" class="status-line"></div></div></div>`);
   scroll.scrollTop = scroll.scrollHeight;
   $("chatInput").value = "";
   const confidence = S.pendingConf;
   S.pendingConf = null;
   renderConfRow();
 
-  try {
-    const res = await fetch("/api/chat", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, confidence }) });
-    const data = await res.json();
+  const finish = (data) => {
     document.getElementById("thinking")?.remove();
     (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend",
       renderMsg({ role: "grade", text: g.feedback, grade: g.quality, meta: g.meta || "" })));
-    scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "assistant", text: data.reply }));
     if (data.agent) $("agentName").textContent = `${data.agent[0].toUpperCase()}${data.agent.slice(1)} specialist`;
+    scroll.insertAdjacentHTML("beforeend",
+      `<div class="msg-row-bot"><div class="bubble-bot" id="typing"></div></div>`);
+    const el = document.getElementById("typing");
+    el.removeAttribute("id");
+    typewrite(el, data.reply || "", () => { S.busy = false; fetchState(); });
+  };
+
+  try {
+    const res = await fetch("/api/chat/stream", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, confidence }) });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let finished = false;
+    while (!finished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, sep).trim();
+        buf = buf.slice(sep + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const evt = JSON.parse(chunk.slice(6));
+        if (evt.type === "status") {
+          const line = document.getElementById("statusLine");
+          if (line) line.textContent = STATUS_LABELS[evt.tool] || `${evt.tool}…`;
+          scroll.scrollTop = scroll.scrollHeight;
+        } else if (evt.type === "agent") {
+          $("agentName").textContent = `${evt.agent[0].toUpperCase()}${evt.agent.slice(1)} specialist`;
+        } else if (evt.type === "done") {
+          finished = true;
+          finish(evt);
+        }
+      }
+    }
+    if (!finished) throw new Error("stream ended unexpectedly");
   } catch (e) {
     document.getElementById("thinking")?.remove();
-    scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "assistant", text: `Connection error: ${e}` }));
+    scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "assistant", text: `Connection error: ${e.message}` }));
+    scroll.scrollTop = scroll.scrollHeight;
+    S.busy = false;
+    fetchState();
   }
-  scroll.scrollTop = scroll.scrollHeight;
-  S.busy = false;
-  fetchState();
 }
 
 function renderConfRow() {
@@ -209,7 +281,8 @@ function renderRail() {
     <div class="mono-label" style="margin-bottom:11px">TOPICS · WEAKEST FIRST</div>
     <div style="display:flex; flex-direction:column; gap:4px">
       ${sorted.map((t) => `
-      <div class="topic-row">
+      <div class="topic-row" style="cursor:pointer" title="Open pages ${t.pages}"
+           onclick="openTopic(${cur.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
         <span class="ret-dot" style="background:${retColor(t.mastery_pct)}"></span>
         <div style="flex:1; min-width:0">
           <div class="topic-title">${esc(t.title)}</div>
@@ -347,7 +420,8 @@ function renderProgress() {
         : started ? ["In progress", "rgba(230,159,0,.13)", "#8A6100"] : ["Not started", "#F0F0EC", "#8A8F9C"];
       const d = deltaBits(p.delta);
       const topicRows = p.topics.map((t) => `
-        <div class="trow">
+        <div class="trow" style="cursor:pointer" title="Open pages ${t.pages}"
+             onclick="event.stopPropagation(); openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
           <span class="dot" style="background:${retColor(t.mastery_pct)}"></span>
           <span class="name">${esc(t.title)}</span>
           <div class="track"><div class="fill" style="width:${Math.min(100, t.spent / Math.max(t.est_minutes, 1) * 100)}%"></div></div>
@@ -552,6 +626,66 @@ window.toggleFocus = async () => {
   }
 };
 
+/* ---------------------------------------------------------------- topic page viewer */
+
+const pdfDocCache = {};
+
+window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
+  const title = decodeURIComponent(encTitle);
+  $("viewerTitle").textContent = title;
+  $("viewerSub").textContent = `pages ${pageStart}–${pageEnd}`;
+  const body = $("viewerBody");
+  body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">Loading pages…</div>`;
+  $("viewer").style.display = "flex";
+
+  try {
+    if (!window.pdfjsLib) throw new Error("pdf.js unavailable");
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    if (!pdfDocCache[pdfId]) {
+      pdfDocCache[pdfId] = await pdfjsLib.getDocument(`/api/pdf/${pdfId}`).promise;
+    }
+    const doc = pdfDocCache[pdfId];
+    body.innerHTML = "";
+    const width = Math.min(860, body.clientWidth - 40);
+    const last = Math.min(pageEnd, doc.numPages);
+    for (let n = pageStart; n <= last; n++) {
+      const page = await doc.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const scale = width / base.width;
+      const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = `${width}px`;
+      canvas.className = "viewer-page";
+      const label = document.createElement("div");
+      label.className = "viewer-page-label";
+      label.textContent = `page ${n}`;
+      body.appendChild(label);
+      body.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    }
+  } catch {
+    // fallback: extracted text (pasted-text sources, moved files, no pdf.js)
+    try {
+      const res = await fetch(`/api/pdf/${pdfId}/text?start=${pageStart}&end=${pageEnd}`);
+      const pages = await res.json();
+      if (!pages.length) throw new Error("no pages");
+      body.innerHTML = pages.map((p) => `
+        <div class="viewer-page-label">page ${p.page}</div>
+        <div class="viewer-text">${md(p.text)}</div>`).join("");
+    } catch {
+      body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">
+        Couldn't load these pages — the original file may have moved.</div>`;
+    }
+  }
+};
+
+window.closeViewer = () => { $("viewer").style.display = "none"; };
+$("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewer(); });
+
 /* ---- static listeners ---- */
 $("tabStudy").onclick = () => { S.view = "study"; render(); };
 $("tabProgress").onclick = () => { S.view = "progress"; render(); };
@@ -563,19 +697,49 @@ $("doNext").onclick = () => {
   fetchState().then(() => sendChat(`Review my due cards in the topic "${best.title}" (topic_id ${best.topic_id})`));
 };
 /* ---- pdf upload (button + drag-and-drop onto the chat) ---- */
+function xhrUpload(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
+    };
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        xhr.status < 300 ? resolve(data) : reject(new Error(data.error || "upload failed"));
+      } catch { reject(new Error(`upload failed (${xhr.status})`)); }
+    };
+    xhr.onerror = () => reject(new Error("network error during upload"));
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+}
+
 async function uploadPdfs(files) {
   const pdfs = [...files].filter((f) => f.name.toLowerCase().endsWith(".pdf"));
   if (!pdfs.length || S.busy) return;
   const btn = $("uploadBtn");
   btn.disabled = true;
+  const scroll = $("chatScroll");
   const paths = [];
   try {
     for (const file of pdfs) {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "upload failed");
+      const id = `up-${Date.now()}`;
+      scroll.insertAdjacentHTML("beforeend", `
+        <div class="msg-row-user"><div class="bubble-user" style="min-width:240px">
+          <div style="font-size:12px; margin-bottom:7px">📎 ${esc(file.name)}
+            <span class="mono" style="font-size:10px; opacity:.7">(${(file.size / 1048576).toFixed(1)} MB)</span></div>
+          <div class="up-track"><div class="up-fill" id="${id}"></div></div>
+        </div></div>`);
+      scroll.scrollTop = scroll.scrollHeight;
+      const data = await xhrUpload(file, (pct) => {
+        const fill = document.getElementById(id);
+        if (fill) fill.style.width = `${pct}%`;
+      });
+      const fill = document.getElementById(id);
+      if (fill) fill.style.width = "100%";
       paths.push(data.path);
     }
     const list = paths.map((p) => `"${p}"`).join(", ");

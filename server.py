@@ -3,9 +3,12 @@ and a small JSON API over the existing backend: orchestrator (chat), mastery
 (decay math), and the study log. Run: python server.py  →  http://localhost:5001
 """
 
+import json
 import os
+import queue
+import threading
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
 from werkzeug.utils import secure_filename
 
 import mastery
@@ -16,6 +19,7 @@ from database import (
     get_due_forecast, get_time_by_course, get_topic_time_spent,
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
+    get_pdf_pages,
 )
 
 app = Flask(__name__)
@@ -178,7 +182,8 @@ def state():
                   "week": week,
                   "litCount": sum(1 for d in week if d["lit"]),
                   "streak": s["current_streak_days"]},
-        "sessionActive": orchestrator.session_active,
+        # drives the confidence widget — only review sessions ask for confidence
+        "sessionActive": orchestrator.session_active and orchestrator.pinned == "review",
     })
 
 
@@ -235,6 +240,98 @@ def chat():
     return jsonify({"reply": reply, "grades": grades_this_turn,
                     "sessionActive": orchestrator.session_active,
                     "agent": orchestrator.last_agent})
+
+
+@app.post("/api/chat/stream")
+def chat_stream():
+    """SSE version of /api/chat: pushes live status events while the agent
+    works (tool starts, results), then the final reply. The front-end renders
+    the status line under the thinking indicator and types the reply out."""
+    body = request.get_json(force=True)
+    message = (body.get("message") or "").strip()
+    confidence = body.get("confidence")
+    if not message:
+        return jsonify({"error": "empty message"}), 400
+
+    sent = message + (f" (my confidence before answering: {confidence})" if confidence else "")
+    chat_history.append({"role": "user", "text": message, "grade": 0,
+                         "meta": f"confidence: {confidence}" if confidence else ""})
+
+    q = queue.Queue()
+    grades_this_turn = []
+
+    def on_event(msg):
+        # "[tool: name({...})]" fires BEFORE the tool runs — that's the status signal
+        if msg.startswith("[tool: "):
+            q.put({"type": "status", "tool": msg[7:].split("(", 1)[0]})
+        elif msg.startswith("[router -> "):
+            q.put({"type": "agent", "agent": msg[11:-1]})
+
+    def on_tool(name, args, result):
+        if name == "grade_answer" and isinstance(result, dict):
+            grade_log.append({"at": datetime.now(), "quality": result["quality"]})
+            session_grades.append(result["quality"])
+            conf = confidence if not grades_this_turn else None
+            result["answer_id"] = log_answer(result["quality"], conf)
+            grades_this_turn.append(result)
+        elif name == "review_card" and grades_this_turn:
+            grades_this_turn[-1]["meta"] = str(result)
+            if "answer_id" in grades_this_turn[-1] and "card_id" in args:
+                attach_card_to_answer(grades_this_turn[-1]["answer_id"], args["card_id"])
+        elif name == "start_study_session":
+            session_grades.clear()
+        elif name == "end_study_session" and isinstance(result, dict):
+            if session_grades:
+                passed = sum(1 for g in session_grades if g >= 3)
+                set_session_accuracy(result["session_id"],
+                                     round(passed / len(session_grades) * 100))
+            session_grades.clear()
+
+    def worker():
+        try:
+            reply = orchestrator.handle(sent, on_event=on_event, on_tool=on_tool)
+        except Exception as e:
+            reply = f"Something went wrong: {type(e).__name__}: {e}"
+        for g in grades_this_turn:
+            chat_history.append({"role": "grade", "text": g.get("feedback", ""),
+                                 "grade": g.get("quality", 0), "meta": g.get("meta", "")})
+        chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
+        q.put({"type": "done", "reply": reply,
+               "grades": [{"quality": g.get("quality", 0), "feedback": g.get("feedback", ""),
+                           "meta": g.get("meta", "")} for g in grades_this_turn],
+               "sessionActive": orchestrator.session_active,
+               "agent": orchestrator.last_agent})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def generate():
+        while True:
+            item = q.get()
+            yield f"data: {json.dumps(item)}\n\n"
+            if item["type"] == "done":
+                break
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/pdf/<int:pdf_id>")
+def serve_pdf(pdf_id):
+    """The original PDF file, for the in-app page viewer."""
+    pdf = get_pdf(pdf_id)
+    if pdf is None or not pdf["file_path"] or not os.path.exists(pdf["file_path"]):
+        return jsonify({"error": "file not available"}), 404
+    return send_file(pdf["file_path"], mimetype="application/pdf")
+
+
+@app.get("/api/pdf/<int:pdf_id>/text")
+def serve_pdf_text(pdf_id):
+    """Extracted page text for a range — fallback viewer for pasted-text
+    sources or PDFs whose file moved."""
+    start = request.args.get("start", type=int)
+    end = request.args.get("end", type=int)
+    pages = get_pdf_pages(pdf_id, start, end)
+    return jsonify([{"page": p["page_number"], "text": p["text"]} for p in pages])
 
 
 @app.post("/api/upload")
