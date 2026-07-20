@@ -664,15 +664,60 @@ function renderCardsScreen() {
     </div>`;
   }).join("");
 
+  // new-card form: topic select (grouped by pdf, defaults to the active filter)
+  const newCardBox = S.showNewCard ? `
+    <div class="cardedit" id="newCard" style="border-color:#0072B2">
+      <div class="cardedit-head">
+        <span class="mono" style="font-size:10px; letter-spacing:1.4px; color:#005A8E; font-weight:600">NEW CARD</span>
+        <select class="sort-select" id="ncTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
+        <span style="flex:1"></span>
+        <button class="conf-btn" id="ncCreate" style="border-color:#1C1E26; background:#1C1E26; color:#fff">Create</button>
+        <button class="icon-btn" id="ncCancel" title="Cancel">✕</button>
+      </div>
+      <textarea class="ce-q" id="ncQ" rows="2" placeholder="Question…"></textarea>
+      <textarea class="ce-a" id="ncA" rows="3" placeholder="Answer…"></textarea>
+      <div style="display:flex; align-items:center; gap:10px">
+        <span style="font-size:10.5px; color:#8A8F9C">Files under the chosen topic — its PDF and course link automatically. First review: tomorrow.</span>
+        <span id="ncMsg" style="font-size:10.5px; color:#D55E00; font-weight:600"></span>
+      </div>
+    </div>` : "";
+
   inner.innerHTML = `
     <div class="section-head"><span class="mono-label">CARDS</span><div class="rule"></div>
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${S.cards.length} shown</span></div>
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${S.cards.length} shown</span>
+      <button id="newCardBtn" class="conf-btn">+ New card</button></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap">
       <select id="cfCourse" class="sort-select">${courseOpts.join("")}</select>
       <select id="cfPdf" class="sort-select">${pdfOpts.join("")}</select>
       <select id="cfTopic" class="sort-select">${topicOpts.join("")}</select>
     </div>
-    ${rows || `<div class="card" style="color:#8A8F9C; font-size:12.5px">No cards match this filter — generate some from the Study chat ("make cards for &lt;topic&gt;").</div>`}`;
+    ${newCardBox}
+    ${rows || `<div class="card" style="color:#8A8F9C; font-size:12.5px">No cards match this filter — generate some from the Study chat ("make cards for &lt;topic&gt;"), or use + New card.</div>`}`;
+
+  $("newCardBtn").onclick = () => { S.showNewCard = !S.showNewCard; renderCardsScreen(); };
+  if (S.showNewCard) {
+    $("ncCancel").onclick = () => { S.showNewCard = false; renderCardsScreen(); };
+    $("ncCreate").onclick = async () => {
+      const topic_id = +$("ncTopic").value;
+      const question = $("ncQ").value.trim();
+      const answer = $("ncA").value.trim();
+      const msg = $("ncMsg");
+      if (!topic_id || !question || !answer) {
+        msg.textContent = "Pick a topic and fill in both fields.";
+        return;
+      }
+      msg.textContent = "";
+      $("ncCreate").textContent = "Creating…";
+      const res = await fetch("/api/cards", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic_id, question, answer }) });
+      if (res.ok) { S.showNewCard = false; loadCards(); fetchState(); }
+      else {
+        $("ncCreate").textContent = "Create";
+        msg.textContent = "Create failed — try again.";
+      }
+    };
+  }
 
   $("cfCourse").onchange = (e) => {
     S.cardFilter = { course_id: e.target.value ? +e.target.value : null, pdf_id: null, topic_id: null };

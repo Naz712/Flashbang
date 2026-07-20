@@ -19,7 +19,7 @@ from database import (
     get_due_forecast, get_time_by_course, get_topic_time_spent,
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
-    get_pdf_pages, get_cards, update_card, delete_card, get_topics,
+    get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
 )
 
 app = Flask(__name__)
@@ -347,6 +347,20 @@ def api_topics():
     rows = get_topics(pdf_id=request.args.get("pdf_id", type=int),
                       course_id=request.args.get("course_id", type=int))
     return jsonify([dict(r) for r in rows])
+
+
+@app.post("/api/cards")
+def api_create_card():
+    """Create a card under a topic; pdf_id/course_id derive from the topic
+    server-side so the linkage can never be wrong."""
+    body = request.get_json(force=True)
+    topic_id = body.get("topic_id")
+    question = (body.get("question") or "").strip()
+    answer = (body.get("answer") or "").strip()
+    if not (topic_id and question and answer):
+        return jsonify({"error": "topic_id, question, and answer are required"}), 400
+    card_id = insert_card(topic_id, question, answer)
+    return jsonify({"id": card_id})
 
 
 @app.post("/api/cards/<int:card_id>")
