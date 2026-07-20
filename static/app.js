@@ -562,6 +562,50 @@ $("doNext").onclick = () => {
   S.view = "study";
   fetchState().then(() => sendChat(`Review my due cards in the topic "${best.title}" (topic_id ${best.topic_id})`));
 };
+/* ---- pdf upload (button + drag-and-drop onto the chat) ---- */
+async function uploadPdfs(files) {
+  const pdfs = [...files].filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+  if (!pdfs.length || S.busy) return;
+  const btn = $("uploadBtn");
+  btn.disabled = true;
+  const paths = [];
+  try {
+    for (const file of pdfs) {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "upload failed");
+      paths.push(data.path);
+    }
+    const list = paths.map((p) => `"${p}"`).join(", ");
+    sendChat(paths.length === 1
+      ? `I've uploaded a PDF — ingest ${list}. Ask me which course it belongs to if you can't tell.`
+      : `I've uploaded ${paths.length} PDFs — ingest them one at a time, starting with the first: ${list}. Ask me which course they belong to.`);
+  } catch (e) {
+    const scroll = $("chatScroll");
+    scroll.insertAdjacentHTML("beforeend",
+      renderMsg({ role: "assistant", text: `Upload failed: ${e.message}` }));
+    scroll.scrollTop = scroll.scrollHeight;
+  }
+  btn.disabled = false;
+  $("fileInput").value = "";
+}
+
+$("uploadBtn").onclick = () => $("fileInput").click();
+$("fileInput").addEventListener("change", (e) => uploadPdfs(e.target.files));
+
+const chatPane = document.querySelector(".chat");
+["dragenter", "dragover"].forEach((ev) => chatPane.addEventListener(ev, (e) => {
+  e.preventDefault();
+  chatPane.classList.add("dragging");
+}));
+["dragleave", "drop"].forEach((ev) => chatPane.addEventListener(ev, (e) => {
+  e.preventDefault();
+  chatPane.classList.remove("dragging");
+}));
+chatPane.addEventListener("drop", (e) => uploadPdfs(e.dataTransfer.files));
+
 $("sendBtn").onclick = () => sendChat($("chatInput").value);
 $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(e.target.value); });
 document.querySelectorAll(".conf-btn").forEach((b) => b.onclick = () => {

@@ -3,8 +3,10 @@ and a small JSON API over the existing backend: orchestrator (chat), mastery
 (decay math), and the study log. Run: python server.py  →  http://localhost:5001
 """
 
+import os
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request
+from werkzeug.utils import secure_filename
 
 import mastery
 import stats as stats_module
@@ -17,6 +19,10 @@ from database import (
 )
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload cap
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 orchestrator = Orchestrator()
 chat_history = []       # display log: {role, text, grade, meta}
@@ -229,6 +235,26 @@ def chat():
     return jsonify({"reply": reply, "grades": grades_this_turn,
                     "sessionActive": orchestrator.session_active,
                     "agent": orchestrator.last_agent})
+
+
+@app.post("/api/upload")
+def upload():
+    """Save an uploaded PDF into uploads/ and return its path; the front-end
+    then asks the ingestion agent to ingest that path."""
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"error": "no file provided"}), 400
+    if not f.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "only .pdf files are supported"}), 400
+    name = secure_filename(f.filename) or "upload.pdf"
+    base, ext = os.path.splitext(name)
+    path = os.path.join(UPLOAD_DIR, name)
+    suffix = 1
+    while os.path.exists(path):   # never overwrite an earlier upload
+        path = os.path.join(UPLOAD_DIR, f"{base}_{suffix}{ext}")
+        suffix += 1
+    f.save(path)
+    return jsonify({"path": path, "filename": os.path.basename(path)})
 
 
 @app.post("/api/focus")

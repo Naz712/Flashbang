@@ -7,6 +7,9 @@ flashbang/
 # Local database
 *.db
 
+# Uploaded study material
+uploads/
+
 # Python artifacts
 __pycache__/
 *.pyc

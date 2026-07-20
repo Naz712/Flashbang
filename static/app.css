@@ -92,8 +92,13 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .conf-btn:hover, .conf-btn.picked { border-color: #1C1E26; }
 .conf-btn.picked { background: #F4F4F1; }
 .chat-foot { flex: none; padding: 14px 22px 18px; border-top: 1px solid #ECECE8; }
-.input-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 16px; border-radius: 12px;
+.input-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 8px; border-radius: 12px;
   background: #F4F4F1; border: 1px solid #E3E3DE; }
+.attach-btn { border: none; background: none; font-size: 15px; cursor: pointer; padding: 6px 8px;
+  border-radius: 8px; line-height: 1; filter: grayscale(1); opacity: .65; }
+.attach-btn:hover { background: #ECECE8; opacity: 1; }
+.attach-btn:disabled { opacity: .35; cursor: default; }
+.chat.dragging { outline: 2px dashed #0072B2; outline-offset: -6px; }
 .input-row input { flex: 1; border: none; background: none; font-size: 13.5px; padding: 9px 0;
   font-family: 'IBM Plex Sans', sans-serif; color: #1C1E26; outline: none; }
 .input-row input::placeholder { color: #8A8F9C; }
