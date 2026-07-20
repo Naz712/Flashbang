@@ -133,6 +133,17 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS study_plan (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id   INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+            plan_date  TEXT NOT NULL,
+            minutes    INTEGER NOT NULL,
+            reason     TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_pdf        ON topics(pdf_id)")
@@ -661,6 +672,76 @@ def get_upcoming_reviews(days=7):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+# ---------------------------------------------------------------- study plan
+
+def save_study_plan(entries, replace_future=True):
+    """entries: [{'topic_id','plan_date' (ISO date),'minutes','reason'}].
+    By default wipes today-onward entries first so re-planning never stacks
+    duplicates; past entries are kept as history."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    if replace_future:
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("DELETE FROM study_plan WHERE plan_date >= ?", (today,))
+    cursor.executemany("""
+        INSERT INTO study_plan (topic_id, plan_date, minutes, reason, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, [(e["topic_id"], e["plan_date"], e["minutes"], e.get("reason"), now_iso())
+          for e in entries])
+    conn.commit()
+    conn.close()
+    return len(entries)
+
+
+def get_study_plan(start_date=None, end_date=None):
+    """Plan entries with topic/course names and a DERIVED status:
+    done   — a review/cram session touched the topic on that date
+    missed — the date passed with no such session
+    planned — upcoming."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    query = """
+        SELECT p.*, topics.title AS topic_title, courses.name AS course_name,
+               pdfs.filename AS pdf_filename,
+               EXISTS (
+                   SELECT 1 FROM study_sessions s
+                   JOIN session_topics st ON st.session_id = s.id
+                   WHERE st.topic_id = p.topic_id
+                     AND s.kind IN ('review','cram')
+                     AND DATE(s.started_at) = p.plan_date
+               ) AS studied
+        FROM study_plan p
+        JOIN topics  ON topics.id  = p.topic_id
+        JOIN courses ON courses.id = topics.course_id
+        JOIN pdfs    ON pdfs.id    = topics.pdf_id
+        WHERE 1=1
+    """
+    params = []
+    if start_date:
+        query += " AND p.plan_date >= ?"
+        params.append(start_date)
+    if end_date:
+        query += " AND p.plan_date <= ?"
+        params.append(end_date)
+    query += " ORDER BY p.plan_date, p.id"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    result = []
+    for row in rows:
+        entry = dict(row)
+        if entry.pop("studied"):
+            entry["status"] = "done"
+        elif entry["plan_date"] < today:
+            entry["status"] = "missed"
+        else:
+            entry["status"] = "planned"
+        result.append(entry)
+    return result
 
 
 # ---------------------------------------------------------------- mastery inputs

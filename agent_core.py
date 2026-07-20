@@ -11,6 +11,8 @@ from generation import extract_topic_concepts, generate_cards_for_topic
 from grading import grade_answer
 from search import search_notes
 import mastery
+import planning
+import stats as stats_module
 from database import (
     init_db,
     create_course, get_courses, delete_course,
@@ -20,7 +22,7 @@ from database import (
     insert_card, get_cards, get_due_cards, review_card, update_card, delete_card,
     insert_insight, get_insights_for_card, delete_insight,
     start_session, end_session, get_study_log, get_upcoming_reviews,
-    get_mastery_inputs,
+    get_mastery_inputs, save_study_plan, get_study_plan,
 )
 
 def _rows(rows):
@@ -116,6 +118,12 @@ TOOL_HANDLERS = {
     "end_study_session":   lambda session_id, cards_reviewed=None, summary=None:
         end_session(session_id, cards_reviewed, summary),
     "get_progress_report": _progress_report,
+    "propose_study_plan":  lambda days=7, minutes_per_day=60, course_id=None:
+        planning.propose_plan(days=days, minutes_per_day=minutes_per_day, course_id=course_id),
+    "save_study_plan":     lambda entries: f"Saved {save_study_plan(entries)} plan entries (future plan replaced).",
+    "get_study_plan":      lambda start_date=None, end_date=None:
+        _counted("plan entries", get_study_plan(start_date, end_date)),
+    "get_study_stats":     lambda: stats_module.compute_stats(),
     "get_upcoming_reviews": lambda days=7: _counted("topics with upcoming reviews", get_upcoming_reviews(days)),
     "get_study_log":       lambda start_date=None, end_date=None, course_id=None:
         _counted("study sessions", get_study_log(start_date, end_date, course_id)),

@@ -17,7 +17,8 @@ _ESCAPE = re.compile(
 _REVIEW_KW = re.compile(r"\b(review|due|cram|quiz|test me|revise)\b", re.IGNORECASE)
 _PLANNER_KW = re.compile(
     r"\b(progress|complet(e|ion)|how am i doing|study log|studied|deadline|"
-    r"what should i study|upcoming|decay|mastery)\b", re.IGNORECASE)
+    r"what should i study|upcoming|decay|mastery|streak|stats|"
+    r"plan|schedule)\b", re.IGNORECASE)
 _INGEST_KW = re.compile(
     r"\.pdf\b|\b(ingest|upload|import|make cards from|extract|new notes|add notes)\b",
     re.IGNORECASE)

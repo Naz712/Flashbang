@@ -56,6 +56,14 @@ class Orchestrator:
                 # cards landed — approval flow done (re-entry is keyword-routed)
                 self.pinned = None
                 self.session_active = False
+            elif name == "propose_study_plan":
+                # soft-pin planner so "looks good, save it" reaches save_study_plan
+                self.pinned = "planner"
+                self.session_active = True
+                self.strict_pin = False
+            elif name == "save_study_plan":
+                self.pinned = None
+                self.session_active = False
             if downstream:
                 downstream(name, args, result)
         return observer

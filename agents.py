@@ -19,6 +19,16 @@ def _today():
     return datetime.now().strftime("%Y-%m-%d")
 
 
+# appended to every specialist prompt: an agent must never claim work happened
+# without a tool result proving it (specialists don't share tools, so a
+# misrouted request could otherwise be "confirmed" without any effect)
+_SHARED_RULES = """
+
+## Integrity
+- Never claim an action was completed unless a tool call in THIS conversation returned a success result for it.
+- If the user asks for something none of your tools can do, say plainly that it's outside your current mode and suggest rephrasing (e.g. 'plan my week', 'review my cards', 'ingest a pdf') — do not pretend it happened."""
+
+
 # ---------------------------------------------------------------- ingestion
 
 def _ingestion_prompt():
@@ -35,7 +45,7 @@ def _ingestion_prompt():
 - Make cards topic-by-topic, not for the whole document at once — a 60-page dump is unreviewable.
 - When showing time estimates, give per-topic minutes and the document total in hours.
 - State counts from the tool result's count line, not your own tally.
-- After completing an action, confirm briefly what you did and what the natural next step is."""
+- After completing an action, confirm briefly what you did and what the natural next step is.{_SHARED_RULES}"""
 
 
 # ---------------------------------------------------------------- review
@@ -58,7 +68,7 @@ Same loop, but: start_study_session(kind='cram', topic_ids=the crammed topics), 
 
 ## Insights
 - Never show insights unprompted; fetch only when explicitly asked.
-- Save only on an explicit cue ('save that', 'note this'): first show a proposed 1-2 sentence summary and ask to save/edit/skip. Only insert_insight after confirmation, on the most recently shown card."""
+- Save only on an explicit cue ('save that', 'note this'): first show a proposed 1-2 sentence summary and ask to save/edit/skip. Only insert_insight after confirmation, on the most recently shown card.{_SHARED_RULES}"""
 
 
 # ---------------------------------------------------------------- organizer
@@ -74,7 +84,7 @@ def _organizer_prompt():
 ## Answering questions from notes
 For any conceptual or factual question about study material, call search_notes BEFORE answering.
 - If relevant chunks return, ground your answer in them and cite the course/document/topic they came from. You may add a brief clarification from your own knowledge, kept clearly separate from what the notes say.
-- If nothing clears the threshold, say it isn't in their notes, then offer a general answer."""
+- If nothing clears the threshold, say it isn't in their notes, then offer a general answer.{_SHARED_RULES}"""
 
 
 # ---------------------------------------------------------------- planner
@@ -90,8 +100,15 @@ def _planner_prompt():
 - "How am I doing / % done" → get_progress_report (per topic: mastery %, status, due counts). Present per-topic mastery compactly; lead with the completion % and the 2-3 topics that most need attention.
 - "What should I study next / what's due" → get_upcoming_reviews, ordered by first_due; recommend the topics with the most cards due soonest, and mention estimated minutes from the topic data.
 - "What did I study" → get_study_log with the right date range.
+- "What's my streak / how much did I study" → get_study_stats.
 - Convert relative dates ('last week', 'tomorrow') to ISO dates before calling tools.
-- Keep reports scannable: short lines, numbers up front, no walls of text."""
+- Keep reports scannable: short lines, numbers up front, no walls of text.
+
+## Revision scheduling (approval-gated — never save without showing the user first)
+1. When asked to plan revision ('plan my week', 'schedule my studying'): ask for their daily minute budget if they haven't given one, then propose_study_plan.
+2. SHOW the proposed plan grouped by day (topic, minutes, reason). If anything is in 'unscheduled', say so explicitly — it didn't fit the budget and they should either extend days, raise the budget, or drop it.
+3. Apply requested edits to the entries yourself and re-show. Only after approval call save_study_plan.
+4. "What's my plan / did I stick to it" → get_study_plan; report done/missed/planned honestly.{_SHARED_RULES}"""
 
 
 AGENTS = {
@@ -131,6 +148,8 @@ AGENTS = {
         tool_names=[
             "get_progress_report", "get_upcoming_reviews", "get_study_log",
             "get_due_cards", "get_topics",
+            "propose_study_plan", "save_study_plan", "get_study_plan",
+            "get_study_stats",
         ],
     ),
 }

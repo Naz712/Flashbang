@@ -420,6 +420,60 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "propose_study_plan": {
+        "name": "propose_study_plan",
+        "description": "Build a proposed day-by-day revision schedule from decay deadlines and time estimates: due-card reviews first (most urgent), then never-reviewed cards, then unstarted topics. Saves NOTHING — show the plan to the user for approval/edits before save_study_plan. Anything that didn't fit the daily budget is listed in 'unscheduled'; always mention it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Planning horizon in days (default 7)."},
+                "minutes_per_day": {"type": "integer", "description": "Daily study budget in minutes (default 60). Ask the user if unknown."},
+                "course_id": {"type": "integer", "description": "Optional: plan for one course only."},
+            },
+            "required": [],
+        },
+    },
+    "save_study_plan": {
+        "name": "save_study_plan",
+        "description": "Persist the approved study plan. Call ONCE after the user approves (possibly edited) entries from propose_study_plan. Replaces any existing plan from today onward, so re-planning never duplicates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "description": "Approved plan entries, each with topic_id, plan_date (YYYY-MM-DD), minutes, reason.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "topic_id": {"type": "integer"},
+                            "plan_date": {"type": "string"},
+                            "minutes": {"type": "integer"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["topic_id", "plan_date", "minutes"],
+                    },
+                },
+            },
+            "required": ["entries"],
+        },
+    },
+    "get_study_plan": {
+        "name": "get_study_plan",
+        "description": "The saved revision schedule with per-entry status: done (a session touched that topic that day), missed (date passed, not studied), or planned. THE tool for 'what's my plan today/this week' and 'did I stick to my plan'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Optional ISO date lower bound."},
+                "end_date": {"type": "string", "description": "Optional ISO date upper bound."},
+            },
+            "required": [],
+        },
+    },
+    "get_study_stats": {
+        "name": "get_study_stats",
+        "description": "Study statistics from the log: current/longest day streak, this week's minutes/cards/sessions, lifetime totals, and a per-day series for the last 14 days. THE tool for 'what's my streak' / 'how much did I study'.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
     "get_study_log": {
         "name": "get_study_log",
         "description": "The study calendar: past sessions with date, kind, topics touched, cards reviewed, and minutes. Filter by date range and/or course. THE tool for 'what did I study last week'.",
