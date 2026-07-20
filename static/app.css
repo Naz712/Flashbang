@@ -214,6 +214,24 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .sess-row { display: flex; align-items: center; gap: 9px; }
 .sess-track { flex: 1; height: 4px; border-radius: 2px; background: #ECECE8; overflow: hidden; }
 
+/* sort/filter selects */
+.sort-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; color: #1C1E26;
+  background: #fff; border: 1px solid #E3E3DE; border-radius: 8px; padding: 5px 8px; cursor: pointer; }
+.sort-select:hover { border-color: #B0B4BE; }
+
+/* cards editor screen */
+.cardedit { border-radius: 12px; background: #fff; border: 1px solid #E3E3DE;
+  box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 13px 16px; display: flex;
+  flex-direction: column; gap: 8px; }
+.cardedit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cardedit textarea { width: 100%; box-sizing: border-box; border: 1px solid #ECECE8;
+  border-radius: 8px; padding: 8px 11px; font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12.5px; line-height: 1.55; resize: vertical; background: #FBFBF9; color: #1C1E26; }
+.cardedit textarea:focus { outline: none; border-color: #0072B2; background: #fff; }
+.cardedit .ce-q { font-weight: 600; }
+.ce-save:not(:disabled) { border-color: #1C1E26; background: #1C1E26; color: #fff; }
+.ce-save:disabled { opacity: .45; cursor: default; }
+
 /* live status while the agent works — Claude-style shimmer + elapsed counter */
 .status-line { font-size: 12px; color: #8A8F9C; font-style: italic; min-height: 15px; }
 .status-line.working { background: linear-gradient(90deg, #9BA0AC 25%, #1C1E26 50%, #9BA0AC 75%);

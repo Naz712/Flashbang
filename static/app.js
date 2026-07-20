@@ -14,6 +14,10 @@ const S = {
   focusStart: null,     // Date when focus timer started
   recap: null,
   busy: false,
+  pdfSort: localStorage.getItem("fbPdfSort") || "weakest",  // progress-card order
+  cardFilter: { course_id: null, pdf_id: null, topic_id: null },
+  cards: [],            // cards screen data
+  cardTopics: [],       // topics for the move-to select
 };
 
 const $ = (id) => document.getElementById(id);
@@ -423,8 +427,21 @@ function renderProgress() {
       <span class="mono" style="font-size:11px; color:#8A8F9C">${r.time} · ${r.share}%</span>
     </div>`).join("");
 
+  const PDF_SORTS = {
+    weakest:  { label: "Weakest first",   fn: (a, b) => a.completion_pct - b.completion_pct },
+    strongest:{ label: "Strongest first", fn: (a, b) => b.completion_pct - a.completion_pct },
+    due:      { label: "Most due first",  fn: (a, b) => b.due - a.due },
+    name:     { label: "By name",         fn: (a, b) => a.filename.localeCompare(b.filename) },
+    newest:   { label: "Newest first",    fn: (a, b) => b.pdf_id - a.pdf_id },
+  };
+  const sortFn = (PDF_SORTS[S.pdfSort] || PDF_SORTS.weakest).fn;
+  const sortSelect = `<select id="pdfSort" class="sort-select">
+      ${Object.entries(PDF_SORTS).map(([key, s]) =>
+        `<option value="${key}" ${key === S.pdfSort ? "selected" : ""}>${s.label}</option>`).join("")}
+    </select>`;
+
   const courseCards = st.libCourses.map((c) => {
-    const pdfCards = c.pdfs.map((p) => {
+    const pdfCards = [...c.pdfs].sort(sortFn).map((p) => {
       const started = p.topics.some((t) => t.status !== "not_started");
       const [badge, bg, fg] = p.completion_pct >= 70 ? ["On track", "rgba(0,158,115,.10)", "#00794F"]
         : started ? ["In progress", "rgba(230,159,0,.13)", "#8A6100"] : ["Not started", "#F0F0EC", "#8A8F9C"];
@@ -514,8 +531,15 @@ function renderProgress() {
         ${evidence("Self-monitoring: seeing your own accuracy trend supports habit formation.")}
       </div>
     </div>
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">COURSES</span><div class="rule"></div></div>
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">COURSES</span><div class="rule"></div>${sortSelect}</div>
     ${courseCards || '<div class="card" style="color:#8A8F9C; font-size:12.5px">No courses yet — ingest something from the Study tab.</div>'}`;
+
+  const sortEl = document.getElementById("pdfSort");
+  if (sortEl) sortEl.onchange = (e) => {
+    S.pdfSort = e.target.value;
+    localStorage.setItem("fbPdfSort", S.pdfSort);
+    renderProgress();
+  };
 }
 
 function renderCalibration(weeks) {
@@ -574,6 +598,113 @@ function renderRecentSessions(sessions) {
   }).join("") + "</div>";
 }
 
+/* ---------------------------------------------------------------- cards screen */
+
+async function loadCards() {
+  const f = S.cardFilter;
+  const params = new URLSearchParams();
+  if (f.topic_id) params.set("topic_id", f.topic_id);
+  else if (f.pdf_id) params.set("pdf_id", f.pdf_id);
+  else if (f.course_id) params.set("course_id", f.course_id);
+  const [cards, topics] = await Promise.all([
+    fetch(`/api/cards?${params}`).then((r) => r.json()),
+    fetch(`/api/topics?${f.course_id ? `course_id=${f.course_id}` : ""}`).then((r) => r.json()),
+  ]);
+  S.cards = cards;
+  S.cardTopics = topics;
+  renderCardsScreen();
+}
+
+function renderCardsScreen() {
+  const st = S.state;
+  if (!st) return;
+  const f = S.cardFilter;
+  const inner = $("cardsInner");
+
+  const courseOpts = [`<option value="">All courses</option>`,
+    ...st.courses.map((c) => `<option value="${c.id}" ${f.course_id === c.id ? "selected" : ""}>${esc(c.name)}</option>`)];
+  const coursePdfs = st.libCourses.filter((c) => !f.course_id || c.id === f.course_id)
+    .flatMap((c) => c.pdfs);
+  const pdfOpts = [`<option value="">All documents</option>`,
+    ...coursePdfs.map((p) => `<option value="${p.pdf_id}" ${f.pdf_id === p.pdf_id ? "selected" : ""}>${esc(p.filename)}</option>`)];
+  const pdfTopics = S.cardTopics.filter((t) => !f.pdf_id || t.pdf_id === f.pdf_id);
+  const topicOpts = [`<option value="">All topics</option>`,
+    ...pdfTopics.map((t) => `<option value="${t.id}" ${f.topic_id === t.id ? "selected" : ""}>${esc(t.title)}</option>`)];
+
+  const rows = S.cards.map((c) => {
+    const due = (c.next_review || "").slice(0, 10);
+    const moveOpts = S.cardTopics
+      .map((t) => `<option value="${t.id}" ${t.id === c.topic_id ? "selected" : ""}>${esc(t.title)}</option>`).join("");
+    return `
+    <div class="cardedit" data-id="${c.id}">
+      <div class="cardedit-head">
+        <span class="mono" style="font-size:10px; color:#8A8F9C">#${c.id} · ${esc(c.course_name)}</span>
+        <select class="sort-select ce-topic" title="Move to topic">${moveOpts}</select>
+        <span class="mono" style="font-size:10px; color:#8A8F9C">interval ${c.interval_days}d · due ${due}</span>
+        <span style="flex:1"></span>
+        <button class="ce-save conf-btn" disabled>Save</button>
+        <button class="ce-del icon-btn" title="Delete card">🗑</button>
+      </div>
+      <textarea class="ce-q" rows="2">${esc(c.question)}</textarea>
+      <textarea class="ce-a" rows="3">${esc(c.answer)}</textarea>
+    </div>`;
+  }).join("");
+
+  inner.innerHTML = `
+    <div class="section-head"><span class="mono-label">CARDS</span><div class="rule"></div>
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${S.cards.length} shown</span></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap">
+      <select id="cfCourse" class="sort-select">${courseOpts.join("")}</select>
+      <select id="cfPdf" class="sort-select">${pdfOpts.join("")}</select>
+      <select id="cfTopic" class="sort-select">${topicOpts.join("")}</select>
+    </div>
+    ${rows || `<div class="card" style="color:#8A8F9C; font-size:12.5px">No cards match this filter — generate some from the Study chat ("make cards for &lt;topic&gt;").</div>`}`;
+
+  $("cfCourse").onchange = (e) => {
+    S.cardFilter = { course_id: e.target.value ? +e.target.value : null, pdf_id: null, topic_id: null };
+    loadCards();
+  };
+  $("cfPdf").onchange = (e) => {
+    S.cardFilter.pdf_id = e.target.value ? +e.target.value : null;
+    S.cardFilter.topic_id = null;
+    loadCards();
+  };
+  $("cfTopic").onchange = (e) => {
+    S.cardFilter.topic_id = e.target.value ? +e.target.value : null;
+    loadCards();
+  };
+
+  inner.querySelectorAll(".cardedit").forEach((box) => {
+    const id = +box.dataset.id;
+    const original = S.cards.find((c) => c.id === id);
+    const saveBtn = box.querySelector(".ce-save");
+    const changed = () =>
+      box.querySelector(".ce-q").value !== original.question ||
+      box.querySelector(".ce-a").value !== original.answer ||
+      +box.querySelector(".ce-topic").value !== original.topic_id;
+    box.addEventListener("input", () => { saveBtn.disabled = !changed(); });
+    box.querySelector(".ce-topic").addEventListener("change", () => { saveBtn.disabled = !changed(); });
+
+    saveBtn.onclick = async () => {
+      saveBtn.textContent = "Saving…";
+      await fetch(`/api/cards/${id}`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: box.querySelector(".ce-q").value,
+          answer: box.querySelector(".ce-a").value,
+          topic_id: +box.querySelector(".ce-topic").value,
+        }) });
+      saveBtn.textContent = "Saved ✓";
+      setTimeout(() => loadCards(), 500);
+    };
+    box.querySelector(".ce-del").onclick = async () => {
+      if (!confirm("Delete this card permanently?")) return;
+      await fetch(`/api/cards/${id}`, { method: "DELETE" });
+      loadCards();
+    };
+  });
+}
+
 /* ---------------------------------------------------------------- shell */
 
 function render() {
@@ -589,11 +720,14 @@ function render() {
   }
   $("tabStudy").classList.toggle("on", S.view === "study");
   $("tabProgress").classList.toggle("on", S.view === "progress");
+  $("tabCards").classList.toggle("on", S.view === "cards");
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
+  $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
   renderConfRow();
   renderRail();
   renderProgress();
+  if (S.view === "cards") renderCardsScreen();
 }
 
 /* ---- actions (referenced from rendered HTML) ---- */
@@ -699,6 +833,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewe
 /* ---- static listeners ---- */
 $("tabStudy").onclick = () => { S.view = "study"; render(); };
 $("tabProgress").onclick = () => { S.view = "progress"; render(); };
+$("tabCards").onclick = () => { S.view = "cards"; render(); loadCards(); };
 $("doNext").onclick = () => {
   const best = S.state?.best;
   if (!best) return;

@@ -92,6 +92,16 @@ All five offline suites: **PASSING** as of 2026-07-21.
   labeled page 102…117, bounded start/stop. pdf.js path; text fallback
   untested live (no pasted-text source in DB yet). ✅
 
+### 2026-07-21 — Cards page + progress sorting (web UI)
+- Cards tab: filters populated (2 courses / 6 docs / 45 topics), inline edit
+  round-trip verified (answer edited in UI → persisted in DB), move-to-topic
+  select and delete present. ✅
+- Progress sort control: weakest / strongest / most due / by name / newest
+  reorder the per-course pdf cards; choice persists in localStorage. ✅
+- **DATA BUG FOUND**: orphan duplicate pdf row (RB2302 status=pending, 0
+  topics) left over from the first chat-ingest turn calling read_pdf twice.
+  Orphan deleted. Watch: ingestion agent occasionally re-calls read_pdf.
+
 ## Benchmarks — card creation (2026-07-21, gpt-4o)
 
 | Stage | 2-page topic | 7-page topic |

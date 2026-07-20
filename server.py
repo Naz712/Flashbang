@@ -19,7 +19,7 @@ from database import (
     get_due_forecast, get_time_by_course, get_topic_time_spent,
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
-    get_pdf_pages,
+    get_pdf_pages, get_cards, update_card, delete_card, get_topics,
 )
 
 app = Flask(__name__)
@@ -332,6 +332,35 @@ def serve_pdf_text(pdf_id):
     end = request.args.get("end", type=int)
     pages = get_pdf_pages(pdf_id, start, end)
     return jsonify([{"page": p["page_number"], "text": p["text"]} for p in pages])
+
+
+@app.get("/api/cards")
+def api_cards():
+    rows = get_cards(course_id=request.args.get("course_id", type=int),
+                     pdf_id=request.args.get("pdf_id", type=int),
+                     topic_id=request.args.get("topic_id", type=int))
+    return jsonify([dict(r) for r in rows])
+
+
+@app.get("/api/topics")
+def api_topics():
+    rows = get_topics(pdf_id=request.args.get("pdf_id", type=int),
+                      course_id=request.args.get("course_id", type=int))
+    return jsonify([dict(r) for r in rows])
+
+
+@app.post("/api/cards/<int:card_id>")
+def api_update_card(card_id):
+    body = request.get_json(force=True)
+    update_card(card_id, question=body.get("question"),
+                answer=body.get("answer"), topic_id=body.get("topic_id"))
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/cards/<int:card_id>")
+def api_delete_card(card_id):
+    delete_card(card_id)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/upload")
