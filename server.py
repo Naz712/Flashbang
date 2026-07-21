@@ -175,6 +175,7 @@ def state():
                          "share": round(r["minutes"] / subject_total * 100),
                          "ci": course_index.get(r["course_id"], 3)}
                         for r in subject_rows],
+        "metrics": stats_module.compute_metrics(now),
         "calibration": get_calibration(28),
         "topicFlags": {tid: ("easy" if rate > 95 else "hard" if rate < 60 else None)
                        for tid, rate in topic_accuracy.items()},

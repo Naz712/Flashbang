@@ -655,6 +655,8 @@ function renderProgress() {
         ${evidence("Self-monitoring: seeing your own accuracy trend supports habit formation.")}
       </div>
     </div>
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">STUDY METRICS</span><div class="rule"></div></div>
+    ${renderMetrics(st.metrics)}
     <div class="section-head" style="margin-top:10px"><span class="mono-label">COURSES</span><div class="rule"></div>${sortSelect}</div>
     ${courseCards || '<div class="card" style="color:#8A8F9C; font-size:12.5px">No courses yet — ingest something from the Study tab.</div>'}`;
 
@@ -720,6 +722,106 @@ function renderRecentSessions(sessions) {
       ${accBar}${acc}
     </div>`;
   }).join("") + "</div>";
+}
+
+/* ---------------------------------------------------------------- study metrics */
+
+function renderMetrics(mx) {
+  if (!mx) return "";
+
+  // heatmap: 26 columns of weeks, Monday-first rows, green scale by minutes
+  const shade = (mins) => mins <= 0 ? "#ECECE8"
+    : mins < 10 ? "rgba(0,158,115,.25)" : mins < 25 ? "rgba(0,158,115,.5)"
+    : mins < 45 ? "rgba(0,158,115,.75)" : "#009E73";
+  const cols = [];
+  for (let w = 0; w < mx.weeks; w++) {
+    const cells = mx.heatmap.slice(w * 7, w * 7 + 7).map((c) => `
+      <div class="hm-cell" title="${c.date} · ${c.minutes} min"
+        style="${c.future ? "background:transparent" : `background:${shade(c.minutes)}`}"></div>`).join("");
+    cols.push(`<div class="hm-col">${cells}</div>`);
+  }
+  const activeDays = mx.heatmap.filter((c) => c.minutes > 0).length;
+
+  // maturity funnel
+  const f = mx.funnel;
+  const fTotal = f.new + f.learning + f.young + f.mature || 1;
+  const stages = [
+    ["New", f.new, "#C9CCD4", "never reviewed"],
+    ["Learning", f.learning, "#E69F00", "interval under 7d"],
+    ["Young", f.young, "rgba(0,158,115,.55)", "interval 7–21d"],
+    ["Mature", f.mature, "#009E73", "interval 21d+ — stable"],
+  ];
+  const funnelRows = stages.map(([label, n, color, hint]) => `
+    <div class="fn-row" title="${hint}">
+      <span class="fn-label">${label}</span>
+      <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, n / fTotal * 100)}%; background:${color}"></div></div>
+      <span class="fn-n">${n}</span>
+    </div>`).join("");
+
+  // retention trend
+  const rMax = 100;
+  const retCols = mx.retention.map((r) => `
+    <div class="forecast-col" title="${r.n} answers">
+      <span class="forecast-n">${r.rate == null ? "–" : r.rate + "%"}</span>
+      <div class="forecast-bar" style="height:${r.rate == null ? 4 : Math.max(4, r.rate / rMax * 64)}px;
+        background:${r.rate == null ? "#ECECE8" : r.rate >= 80 ? "#009E73" : r.rate >= 60 ? "#E69F00" : "#D55E00"}"></div>
+      <span class="forecast-day">${r.label}</span>
+    </div>`).join("");
+  const latest = [...mx.retention].reverse().find((r) => r.rate != null);
+
+  // hardest cards
+  const hardRows = mx.hardest.length ? mx.hardest.map((h) => `
+    <div class="hard-row" title="${esc(h.topic || "")}">
+      <span class="mono" style="font-size:10px; color:#D55E00; font-weight:700; flex:none">${h.fails}×</span>
+      <span class="hard-q">${esc(h.question || "(deleted card)")}</span>
+      <span class="mono" style="font-size:9.5px; color:#8A8F9C; flex:none">${h.fail_rate}% fail</span>
+    </div>`).join("")
+    : `<div style="font-size:11.5px; color:#8A8F9C">No repeat-failed cards — nothing is beating you yet.</div>`;
+
+  // best hours
+  const hourRows = mx.hours.map((h) => `
+    <div class="fn-row" title="${h.n} answers">
+      <span class="fn-label" style="text-transform:capitalize">${h.label}</span>
+      <div class="fn-track"><div class="fn-fill" style="width:${h.rate == null ? 0 : Math.max(2, h.rate)}%;
+        background:${h.rate == null ? "#ECECE8" : h.rate >= 80 ? "#009E73" : h.rate >= 60 ? "#E69F00" : "#D55E00"}"></div></div>
+      <span class="fn-n">${h.rate == null ? "–" : h.rate + "%"}</span>
+    </div>`).join("");
+
+  return `
+    <div class="card" style="padding:16px 20px">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+        <span class="mono-label">CONSISTENCY · LAST ${mx.weeks} WEEKS</span>
+        <span class="mono" style="font-size:10.5px; color:#8A8F9C">${activeDays} active days</span>
+      </div>
+      <div class="hm-grid">${cols.join("")}</div>
+      ${evidence("Distributed practice: many short sessions beat few long ones (Cepeda et al., 2006).")}
+    </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+          <span class="mono-label">RETENTION TREND · WEEKLY RECALL</span>
+          ${latest ? `<span class="mono" style="font-size:11px; font-weight:600; color:${latest.rate >= 80 ? "#00794F" : "#8A6100"}">${latest.rate}% now</span>` : ""}
+        </div>
+        <div class="forecast-row">${retCols}</div>
+        ${evidence("The truest signal the system works: recall rate at review time, week over week.")}
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">CARD MATURITY</div>
+        <div style="display:flex; flex-direction:column; gap:9px">${funnelRows}</div>
+        ${evidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams.")}
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:12px">HARDEST CARDS · MOST FAILED</div>
+        <div style="display:flex; flex-direction:column; gap:8px">${hardRows}</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:12px">RECALL BY TIME OF DAY</div>
+        <div style="display:flex; flex-direction:column; gap:9px">${hourRows}</div>
+        ${evidence("Needs 5+ answers per slot before it judges — keep studying and it fills in.")}
+      </div>
+    </div>`;
 }
 
 /* ---------------------------------------------------------------- cards screen */

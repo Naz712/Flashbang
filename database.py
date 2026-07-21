@@ -972,6 +972,26 @@ def get_study_plan(start_date=None, end_date=None):
     return result
 
 
+def get_answer_log(days=90):
+    """Graded answers within the window, joined with card/topic context."""
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT answer_log.at, answer_log.card_id, answer_log.quality,
+               answer_log.confidence,
+               cards.question, topics.title AS topic_title
+        FROM answer_log
+        LEFT JOIN cards  ON cards.id  = answer_log.card_id
+        LEFT JOIN topics ON topics.id = cards.topic_id
+        WHERE answer_log.at >= ?
+        ORDER BY answer_log.at
+    """, (since,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
 # ---------------------------------------------------------------- mastery inputs
 
 def get_mastery_inputs(pdf_id):

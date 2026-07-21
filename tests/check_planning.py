@@ -110,5 +110,17 @@ assert s["total_cards"] == 9
 assert len(s["daily_last_14"]) == 14
 assert s["daily_last_14"][-1]["date"] == today
 
+# --- deeper metrics
+database.log_answer(5, "sure", overdue_ids[0])
+database.log_answer(2, None, overdue_ids[1])
+m = stats_module.compute_metrics()
+assert len(m["heatmap"]) == 26 * 7
+assert sum(m["funnel"].values()) == 9, f"funnel misses cards: {m['funnel']}"
+assert m["funnel"]["new"] == 4 and m["funnel"]["learning"] == 5  # 5 backdated at 3d interval
+this_week = m["retention"][-1]
+assert this_week["n"] == 2 and this_week["rate"] == 50, f"retention wrong: {this_week}"
+assert all(h["rate"] is None for h in m["hours"]), "hour buckets need 5+ answers to judge"
+assert m["hardest"] == [] or m["hardest"][0]["fails"] >= 1  # single-fail cards need n>=2
+
 os.unlink(tmp.name)
 print("check_planning: ALL PASSED")
