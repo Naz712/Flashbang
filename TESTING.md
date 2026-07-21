@@ -102,6 +102,23 @@ All five offline suites: **PASSING** as of 2026-07-21.
   topics) left over from the first chat-ingest turn calling read_pdf twice.
   Orphan deleted. Watch: ingestion agent occasionally re-calls read_pdf.
 
+### 2026-07-21 — structured grading feedback (research-backed format)
+Grading replies restructured per the feedback literature; every graded answer
+now renders six sections:
+- **YOU HAD / THE GAP** — task-level "how am I going", specific, no vague
+  praise (Hattie & Timperley 2007; Shute 2008)
+- **MODEL ANSWER** — always shown (correct-answer feedback beats
+  right/wrong-only)
+- **WHY** — one-sentence elaboration for transfer (elaborated feedback)
+- **REMEMBER** — feed-forward retrieval hook ("where to next")
+- **calibration note** — confidence vs performance; confident errors flagged
+  per the hypercorrection effect (Butterfield & Metcalfe 2001)
+Implementation: grading.py returns structured JSON {quality, right, gap, why,
+hook, calibration} + the stored answer; confidence passes through the
+grade_answer tool; agent told not to restate the card's content.
+Verified live: unsure + partially-correct answer → GRADE 3/5 amber card with
+all sections populated and calibration "unsure but mostly correct". ✅
+
 ## Benchmarks — card creation (2026-07-21, gpt-4o)
 
 | Stage | 2-page topic | 7-page topic |

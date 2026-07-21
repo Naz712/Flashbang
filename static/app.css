@@ -107,6 +107,19 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .gcard-meta { margin: 0 16px; padding: 9px 0 11px; border-top: 1px dashed #E3E3DE;
   font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A8F9C; }
 
+/* structured grade sections (Hattie & Timperley: how am I going / where to next) */
+.gsec { display: flex; gap: 10px; padding: 7px 16px; font-size: 12.5px; line-height: 1.55; }
+.gsec:first-of-type { padding-top: 12px; }
+.gsec-label { flex: none; width: 92px; font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; letter-spacing: 1px; color: #8A8F9C; padding-top: 2px; }
+.gsec.g-right .gsec-label { color: #00794F; }
+.gsec.g-gap .gsec-label { color: #A34700; }
+.gsec.g-hook { background: #FBFBF9; border-top: 1px dashed #ECECE8; margin-top: 5px;
+  padding-top: 9px; padding-bottom: 10px; }
+.gsec.g-hook .gsec-label { color: #005A8E; }
+.gsec.g-hook span:last-child { font-weight: 600; }
+.g-cal { padding: 4px 16px 11px; font-size: 11px; font-style: italic; color: #5C616E; }
+
 /* markdown-lite inside bot bubbles */
 .bubble-bot { white-space: normal; }
 .bubble-bot ul, .bubble-bot ol { margin: 6px 0; padding-left: 20px; }

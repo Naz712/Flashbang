@@ -1,12 +1,28 @@
 from llm_utils import call_for_json
 
 
-def grade_answer(question, correct_answer, user_answer):
+def grade_answer(question, correct_answer, user_answer, confidence=None):
+    """Grade a recall attempt and return STRUCTURED feedback.
+
+    The structure follows the feedback literature:
+    - right/gap  -> task-level "how am I going" (Hattie & Timperley 2007),
+                    specific and concise, no vague praise (Shute 2008)
+    - the model answer is always shown by the app (correct-answer feedback
+      outperforms right/wrong-only feedback)
+    - why        -> elaborated feedback aids transfer, not just retention
+    - hook       -> feed-forward: a cue for the NEXT retrieval attempt
+    - calibration-> hypercorrection effect (Butterfield & Metcalfe 2001):
+                    high-confidence errors are the most correctable and
+                    deserve an explicit flag
+    """
+    confidence_line = (
+        f'\nStated confidence before answering: "{confidence}"' if confidence else "")
+
     prompt = f"""You are grading a student's flashcard recall attempt.
 
 Question: "{question}"
 Stored correct answer: "{correct_answer}"
-Student's attempt: "{user_answer}"
+Student's attempt: "{user_answer}"{confidence_line}
 
 Grade the attempt on a scale of 0 to 5:
 0 = completely wrong, or unable to answer at all
@@ -16,57 +32,53 @@ Grade the attempt on a scale of 0 to 5:
 4 = correct with most details, missing some minor specifics
 5 = fully correct, all key ideas and details present
 
-Grade meaning, not wording: do NOT penalize paraphrasing or a different phrasing
-from the stored answer. If the student's attempt conveys the same facts in their
-own words, it is correct.
+Grade meaning, not wording: do NOT penalize paraphrasing. If the attempt conveys the same facts in different words, it is correct.
 
-After the grade, write feedback:
-- Grade 0: refresher on the concept, then the answer
-- Grade 1-2: explain what the student got wrong and the correct understanding, then the answer
-- Grade 3-4: explain what key words or details were missed, then the answer
-- Grade 5: brief acknowledgment, then restate the answer, stressing key details
+Then produce structured feedback fields:
+- "right": what the attempt got correct, stated specifically ("" if nothing was right). Never generic praise — name the correct elements.
+- "gap": exactly what was missing or wrong ("" if fully correct). Name the missing terms or the misconception, don't just say "some details".
+- "why": ONE sentence of explanation that deepens understanding of the underlying idea — the mechanism or reason, not a restatement of the answer.
+- "hook": a short memory cue for the next recall — a vivid association, contrast, or rule of thumb (max ~12 words).
+- "calibration": ONLY if a stated confidence was given, one short note comparing confidence to performance. For a confident answer graded 0-2, flag it: confidently-held errors are the most correctable, but they come back without extra attention. For unsure-but-correct, note the recall was better than they felt. "" if no confidence stated.
 
-Examples (note the full range — do not cluster grades toward the middle):
+Examples:
 
 Question: "What is the difference between a list and a tuple in Python?"
 Stored answer: "Lists are mutable, tuples are immutable. Lists use [], tuples use (). Tuples can be dict keys, lists cannot."
+
 Attempt: "banana"
-Output:
-{{"quality": 0, "feedback": "Lists and tuples are both ordered collections; the key difference is lists can be modified after creation (mutable) while tuples cannot (immutable). Lists use [], tuples use (), and only tuples can serve as dictionary keys."}}
+{{"quality": 0, "right": "", "gap": "No relevant content — the answer concerns mutability, syntax, and dict-key usability.", "why": "Immutability is the core property: it fixes a tuple's contents at creation, which is what makes it hashable.", "hook": "Tuple = sealed box; list = open box.", "calibration": ""}}
 
-Attempt: "Lists can be changed, tuples can't."
-Output:
-{{"quality": 3, "feedback": "You correctly identified the main difference (mutability), but missed the syntax differences ([] vs ()) and the practical implication that tuples can be used as dictionary keys."}}
+Attempt: "Lists can be changed, tuples can't." (confidence: sure)
+{{"quality": 3, "right": "The core difference — lists are mutable, tuples immutable.", "gap": "Missing the syntax ([] vs ()) and that only tuples can be dictionary keys.", "why": "Because tuples can't change, their hash stays stable, so Python allows them as dict keys.", "hook": "Immutable → hashable → dict key.", "calibration": "Sure and mostly right — well calibrated; push for the last details."}}
 
-Attempt: "Lists are changeable and written with square brackets; tuples can't be modified, use parentheses, and unlike lists they can be dictionary keys."
-Output:
-{{"quality": 5, "feedback": "Fully correct. Lists are mutable ([]), tuples are immutable (()), and immutability is what lets tuples act as dictionary keys."}}
+Attempt: "Lists are changeable with square brackets; tuples are fixed, use parentheses, and can be dict keys." (confidence: unsure)
+{{"quality": 5, "right": "Everything — mutability, syntax, and dict-key usability.", "gap": "", "why": "Immutability is what makes tuples hashable, which is why dicts accept them as keys.", "hook": "Immutable → hashable → dict key.", "calibration": "Unsure but fully correct — trust this memory more; it's stronger than it feels."}}
 
-Feedback must be 1 to 2 sentences. Be direct and concise. No preamble like 'Your answer was...' — just state what's missing.
-Respond with ONLY a JSON object in this exact format. No markdown code fences, no preamble:
-{{"quality": <integer from 0 to 5>, "feedback": "<your feedback as a single string>"}}
+Respond with ONLY a JSON object in this exact format. No markdown fences, no preamble:
+{{"quality": <int 0-5>, "right": "<string>", "gap": "<string>", "why": "<string>", "hook": "<string>", "calibration": "<string>"}}
 """
 
-    # fast tier — grading a short answer doesn't need the main model;
-    # call_for_json retries once if the output isn't valid JSON
-    return call_for_json(prompt, fast=True, max_tokens=300)
+    result = call_for_json(prompt, fast=True, max_tokens=400)
+    result["correct_answer"] = correct_answer
+    # composite text fallback for anything that renders feedback as one block
+    parts = [p for p in [result.get("right"), result.get("gap"), result.get("why")] if p]
+    result["feedback"] = " ".join(parts)
+    return result
 
 
 if __name__ == "__main__":
     question = "What is the difference between a list and a tuple in Python?"
     correct_answer = "Lists are mutable, tuples are immutable. Lists use [], tuples use (). Tuples can be dict keys, lists cannot."
 
-    test_answers = [
-        "Lists can be changed, tuples can't.",
-        "Lists use [] and tuples use ().",
-        "They're both ordered collections.",
-        "Lists are mutable, tuples are immutable. Lists use [], tuples use (). Tuples can be dict keys.",
-        "banana",
+    tests = [
+        ("Lists can be changed, tuples can't.", "sure"),
+        ("banana", None),
+        ("Lists are mutable, tuples are immutable, and tuples can be dict keys.", "unsure"),
     ]
-
-    for i, user_answer in enumerate(test_answers, 1):
-        print(f"--- Test {i}: {user_answer!r} ---")
-        result = grade_answer(question, correct_answer, user_answer)
-        print(f"  Grade: {result['quality']}/5")
-        print(f"  Feedback: {result['feedback']}")
+    for attempt, conf in tests:
+        result = grade_answer(question, correct_answer, attempt, confidence=conf)
+        print(f"--- {attempt!r} (confidence: {conf})")
+        for key in ("quality", "right", "gap", "why", "hook", "calibration"):
+            print(f"  {key}: {result.get(key)}")
         print()

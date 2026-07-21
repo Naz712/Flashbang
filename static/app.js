@@ -99,6 +99,19 @@ function renderMsg(m) {
     const good = m.grade >= 4;
     const cls = good ? "good" : "warn";
     const verdict = good ? "Correct" : m.grade === 3 ? "Partially correct" : "Not quite";
+    // structured feedback (right/gap/model answer/why/hook/calibration) with
+    // plain-text fallback for pre-upgrade history entries
+    const section = (label, text, extraClass = "") => text
+      ? `<div class="gsec ${extraClass}"><span class="gsec-label">${label}</span><span>${esc(text)}</span></div>` : "";
+    const structured = m.right || m.gap || m.answer;
+    const body = structured
+      ? section("✓ YOU HAD", m.right, "g-right")
+        + section("✗ THE GAP", m.gap, "g-gap")
+        + section("MODEL ANSWER", m.answer)
+        + section("WHY", m.why)
+        + section("REMEMBER", m.hook, "g-hook")
+        + (m.calibration ? `<div class="g-cal">${esc(m.calibration)}</div>` : "")
+      : `<div style="padding:12px 16px; font-size:13.5px; line-height:1.6">${md(m.text)}</div>`;
     return `<div class="msg-row-bot"><div class="gcard ${cls}">
       <div class="gcard-head ${cls}">
         <span class="gcard-pill ${cls}">✓ GRADE ${m.grade}/5</span>
@@ -106,7 +119,7 @@ function renderMsg(m) {
         <span style="flex:1"></span>
         <button class="undo-btn" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
       </div>
-      <div class="gcard-body">${md(m.text)}</div>
+      ${body}
       ${m.meta ? `<div class="gcard-meta">${esc(m.meta)}</div>` : ""}
     </div></div>`;
   }
@@ -276,8 +289,7 @@ async function sendChat(text) {
   const finish = (data) => {
     clearInterval(elapsedTimer);
     document.getElementById("thinking")?.remove();
-    (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend",
-      renderMsg({ role: "grade", text: g.feedback, grade: g.quality, meta: g.meta || "" })));
+    (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend", renderMsg(g)));
     if (data.agent) $("agentName").textContent = `${data.agent[0].toUpperCase()}${data.agent.slice(1)} specialist`;
     scroll.insertAdjacentHTML("beforeend",
       `<div class="msg-row-bot" id="typingRow"><div class="bubble-bot" id="typing"></div></div>`);

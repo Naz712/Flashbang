@@ -307,13 +307,14 @@ TOOL_SCHEMAS = {
     },
     "grade_answer": {
         "name": "grade_answer",
-        "description": "Grade the user's recalled answer against a card's stored answer. Use AFTER the user types their attempt and BEFORE review_card. Returns {'quality': 0-5, 'feedback': str}; pass the quality to review_card.",
+        "description": "Grade the user's recalled answer against a card's stored answer. Use AFTER the user types their attempt and BEFORE review_card. Returns structured feedback {'quality': 0-5, 'right', 'gap', 'why', 'hook', 'calibration'} which the app renders as a formatted grade card — do NOT restate its contents in your reply; just transition to the next card. Pass the quality to review_card.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "question": {"type": "string", "description": "The flashcard question."},
                 "correct_answer": {"type": "string", "description": "The card's stored correct answer."},
-                "user_answer": {"type": "string", "description": "The user's attempted recall, verbatim."},
+                "user_answer": {"type": "string", "description": "The user's attempted recall, verbatim (strip any '(my confidence...)' suffix)."},
+                "confidence": {"type": "string", "enum": ["sure", "unsure"], "description": "The user's stated confidence, if their message included one — enables calibration feedback."},
             },
             "required": ["question", "correct_answer", "user_answer"],
         },

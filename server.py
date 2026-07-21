@@ -296,6 +296,15 @@ def chat_stream():
                                      round(passed / len(session_grades) * 100))
             session_grades.clear()
 
+    def grade_entry(g):
+        # structured feedback fields (Hattie & Timperley-style sections) + fallback text
+        return {"role": "grade", "grade": g.get("quality", 0),
+                "text": g.get("feedback", ""), "meta": g.get("meta", ""),
+                "right": g.get("right", ""), "gap": g.get("gap", ""),
+                "why": g.get("why", ""), "hook": g.get("hook", ""),
+                "calibration": g.get("calibration", ""),
+                "answer": g.get("correct_answer", "")}
+
     def worker():
         try:
             reply = orchestrator.handle(sent, on_event=on_event, on_tool=on_tool,
@@ -303,12 +312,10 @@ def chat_stream():
         except Exception as e:
             reply = f"Something went wrong: {type(e).__name__}: {e}"
         for g in grades_this_turn:
-            chat_history.append({"role": "grade", "text": g.get("feedback", ""),
-                                 "grade": g.get("quality", 0), "meta": g.get("meta", "")})
+            chat_history.append(grade_entry(g))
         chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
         q.put({"type": "done", "reply": reply,
-               "grades": [{"quality": g.get("quality", 0), "feedback": g.get("feedback", ""),
-                           "meta": g.get("meta", "")} for g in grades_this_turn],
+               "grades": [grade_entry(g) for g in grades_this_turn],
                "sessionActive": orchestrator.session_active,
                "agent": orchestrator.last_agent})
 
