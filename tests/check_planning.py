@@ -122,5 +122,22 @@ assert this_week["n"] == 2 and this_week["rate"] == 50, f"retention wrong: {this
 assert all(h["rate"] is None for h in m["hours"]), "hour buckets need 5+ answers to judge"
 assert m["hardest"] == [] or m["hardest"][0]["fails"] >= 1  # single-fail cards need n>=2
 
+# --- knowledge in memory: 5 reviewed-overdue cards hold partial retention, 4 new = 0
+assert m["knowledge"]["total"] == 9
+assert 0 < m["knowledge"]["held"] < 5, f"held out of range: {m['knowledge']}"
+# personal curve needs 10 timed recalls before it fits
+assert m["personal"]["k"] is None and m["personal"]["n"] == 0
+# sweet spot / brier respect their minimum-n gates (2 answers so far)
+assert m["sweet"]["rate"] is None and m["brier"]["score"] is None
+
+# --- exam readiness: on-schedule projection must beat stop-today
+exam_day = (now + timedelta(days=21)).date().isoformat()
+database.set_exam_date(course_id, exam_day)
+m = stats_module.compute_metrics()
+exam = m["exams"][course_id]
+assert exam["days_left"] == 21 and exam["cards"] == 9
+assert exam["onPlan"] > exam["today"], f"plan should beat stopping: {exam}"
+assert 0 <= exam["today"] <= 100 and 0 <= exam["onPlan"] <= 100
+
 os.unlink(tmp.name)
 print("check_planning: ALL PASSED")

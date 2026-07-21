@@ -273,6 +273,18 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .hard-q { flex: 1; font-size: 11.5px; color: #1C1E26; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 
+/* sweet-spot meter + exam chip */
+.sweet-track { position: relative; height: 8px; border-radius: 4px; background: #ECECE8; margin-top: 9px; }
+.sweet-band { position: absolute; left: 70%; width: 25%; top: 0; bottom: 0;
+  background: rgba(0,158,115,.25); border-radius: 4px; }
+.sweet-pin { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
+  background: #1C1E26; transform: translateX(-50%); }
+.exam-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 10px;
+  border-radius: 999px; background: #F4F4F1; border: 1px solid #E3E3DE; white-space: nowrap; }
+.exam-input { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A8F9C;
+  border: 1px solid #E3E3DE; border-radius: 8px; padding: 3px 8px; background: #fff; }
+.exam-input:hover { border-color: #B0B4BE; color: #1C1E26; }
+
 /* sort/filter selects */
 .sort-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; color: #1C1E26;
   background: #fff; border: 1px solid #E3E3DE; border-radius: 8px; padding: 5px 8px; cursor: pointer; }

@@ -23,7 +23,7 @@ from database import (
     update_card, delete_card,
     insert_insight, get_insights_for_card, delete_insight,
     start_session, end_session, get_study_log, get_upcoming_reviews,
-    get_mastery_inputs, save_study_plan, get_study_plan,
+    get_mastery_inputs, save_study_plan, get_study_plan, set_exam_date,
 )
 
 def _rows(rows):
@@ -129,6 +129,8 @@ TOOL_HANDLERS = {
     "get_study_plan":      lambda start_date=None, end_date=None:
         _counted("plan entries", get_study_plan(start_date, end_date)),
     "get_study_stats":     lambda: stats_module.compute_stats(),
+    "set_exam_date":       lambda course_id, date=None:
+        (set_exam_date(course_id, date), f"Exam date {'set to ' + date if date else 'cleared'} for course {course_id}.")[1],
     "get_upcoming_reviews": lambda days=7: _counted("topics with upcoming reviews", get_upcoming_reviews(days)),
     "get_study_log":       lambda start_date=None, end_date=None, course_id=None:
         _counted("study sessions", get_study_log(start_date, end_date, course_id)),

@@ -162,6 +162,14 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('study_sessions') WHERE name='accuracy'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE study_sessions ADD COLUMN accuracy REAL")
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('courses') WHERE name='exam_date'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE courses ADD COLUMN exam_date TEXT")
+    # how far along its forgetting curve a card was when answered (t / stability);
+    # 1.0 = exactly at the due date. Feeds the personal forgetting-curve fit.
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='elapsed_ratio'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE answer_log ADD COLUMN elapsed_ratio REAL")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -739,8 +747,37 @@ def log_answer(quality, confidence=None, card_id=None):
 
 
 def attach_card_to_answer(answer_id, card_id):
+    """Link an answer to its card and record how far along the forgetting curve
+    the card was at answer time (t/S from the pre-review snapshot). Ratio stays
+    NULL for a card's first-ever review — there's no decay to measure."""
+    from mastery import _STABILITY_SCALE  # standalone module, no import cycle
     conn = get_conn()
-    conn.execute("UPDATE answer_log SET card_id = ? WHERE id = ?", (card_id, answer_id))
+    cursor = conn.cursor()
+    cursor.execute("SELECT prev_state FROM cards WHERE id = ?", (card_id,))
+    card = cursor.fetchone()
+    cursor.execute("SELECT at FROM answer_log WHERE id = ?", (answer_id,))
+    answer = cursor.fetchone()
+
+    ratio = None
+    if card and card["prev_state"] and answer:
+        prev = json.loads(card["prev_state"])
+        if prev.get("last_reviewed_at"):
+            elapsed_days = (datetime.fromisoformat(answer["at"])
+                            - datetime.fromisoformat(prev["last_reviewed_at"])
+                            ).total_seconds() / 86400
+            stability = _STABILITY_SCALE * max(prev["interval_days"], 1)
+            ratio = round(max(0.0, elapsed_days) / stability, 4)
+
+    cursor.execute("UPDATE answer_log SET card_id = ?, elapsed_ratio = ? WHERE id = ?",
+                   (card_id, ratio, answer_id))
+    conn.commit()
+    conn.close()
+
+
+def set_exam_date(course_id, exam_date):
+    """exam_date: ISO date string, or None to clear."""
+    conn = get_conn()
+    conn.execute("UPDATE courses SET exam_date = ? WHERE id = ?", (exam_date, course_id))
     conn.commit()
     conn.close()
 
@@ -979,7 +1016,7 @@ def get_answer_log(days=90):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT answer_log.at, answer_log.card_id, answer_log.quality,
-               answer_log.confidence,
+               answer_log.confidence, answer_log.elapsed_ratio,
                cards.question, topics.title AS topic_title
         FROM answer_log
         LEFT JOIN cards  ON cards.id  = answer_log.card_id

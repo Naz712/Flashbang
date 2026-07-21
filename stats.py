@@ -1,7 +1,10 @@
 """Study statistics computed from the study log. Pure aggregation — no LLM."""
 
+import math
 from datetime import datetime, timedelta
-from database import get_study_log, get_cards, get_answer_log
+from database import get_study_log, get_cards, get_answer_log, get_courses
+from mastery import card_retention, DUE_RETENTION
+from sm2 import compute_sm2
 
 
 def compute_stats(now=None):
@@ -145,5 +148,77 @@ def compute_metrics(now=None, weeks=26):
         hour_buckets.append({"label": label, "n": n,
                              "rate": round(passed / n * 100) if n >= 5 else None})
 
+    all_cards = get_cards()
+
+    # ---- knowledge in memory: retrievability-weighted total (FSRS-style)
+    held = sum(card_retention(c["interval_days"], c["last_reviewed_at"], now)
+               for c in all_cards)
+    knowledge = {"held": round(held, 1), "total": len(all_cards),
+                 "pct": round(held / len(all_cards) * 100) if all_cards else 0}
+
+    # ---- personal forgetting curve: fit measured recall vs elapsed ratio
+    points = [(a["elapsed_ratio"], 1 if a["quality"] >= 3 else 0)
+              for a in answers if a["elapsed_ratio"] is not None]
+    personal = {"n": len(points), "needed": 10, "k": None,
+                "measured_at_due": None, "model_at_due": round(DUE_RETENTION * 100)}
+    if len(points) >= 10:
+        best_k, best_err = None, float("inf")
+        for step in range(1, 151):                      # grid search k in (0, 3]
+            k = step * 0.02
+            err = sum((math.exp(-k * r) - p) ** 2 for r, p in points)
+            if err < best_err:
+                best_k, best_err = k, err
+        personal["k"] = round(best_k, 3)
+        personal["measured_at_due"] = round(math.exp(-best_k) * 100)
+
+    # ---- exam readiness per course with an exam_date set
+    exams = {}
+    for course in get_courses():
+        if not course["exam_date"]:
+            continue
+        exam_dt = datetime.fromisoformat(course["exam_date"]).replace(hour=9)
+        course_cards = [c for c in all_cards if c["course_id"] == course["id"]]
+        if exam_dt <= now or not course_cards:
+            exams[course["id"]] = {"date": course["exam_date"],
+                                   "days_left": max(0, (exam_dt.date() - today).days),
+                                   "today": None, "onPlan": None,
+                                   "cards": len(course_cards)}
+            continue
+        # "if you stopped today": decay every card forward to exam day untouched
+        stop_today = sum(card_retention(c["interval_days"], c["last_reviewed_at"], exam_dt)
+                         for c in course_cards) / len(course_cards)
+        # "on schedule": assume each review due before the exam happens (quality 4)
+        on_plan = 0.0
+        for c in course_cards:
+            ease, interval, reps = c["ease_factor"], c["interval_days"], c["repetitions"]
+            last, next_review = c["last_reviewed_at"], datetime.fromisoformat(c["next_review"])
+            for _ in range(50):                          # safety bound
+                if next_review >= exam_dt:
+                    break
+                last = next_review.isoformat(timespec="seconds")
+                ease, interval, reps = compute_sm2(ease, interval, reps, 4)
+                next_review = next_review + timedelta(days=interval)
+            on_plan += card_retention(interval, last, exam_dt)
+        exams[course["id"]] = {"date": course["exam_date"],
+                               "days_left": (exam_dt.date() - today).days,
+                               "today": round(stop_today * 100),
+                               "onPlan": round(on_plan / len(course_cards) * 100),
+                               "cards": len(course_cards)}
+
+    # ---- desirable-difficulty sweet spot: last 20 answers vs the ~85% rule
+    recent = answers[-20:]
+    sweet = {"n": len(recent),
+             "rate": round(sum(1 for a in recent if a["quality"] >= 3) / len(recent) * 100)
+             if len(recent) >= 5 else None}
+
+    # ---- Brier score from confidence-tagged answers (sure=0.9, unsure=0.5)
+    conf_points = [(0.9 if a["confidence"] == "sure" else 0.5, 1 if a["quality"] >= 3 else 0)
+                   for a in answers if a["confidence"]]
+    brier = {"n": len(conf_points),
+             "score": round(sum((p - o) ** 2 for p, o in conf_points) / len(conf_points), 3)
+             if len(conf_points) >= 5 else None}
+
     return {"heatmap": heatmap, "weeks": weeks, "funnel": funnel,
-            "retention": retention, "hardest": hardest, "hours": hour_buckets}
+            "retention": retention, "hardest": hardest, "hours": hour_buckets,
+            "knowledge": knowledge, "personal": personal, "exams": exams,
+            "sweet": sweet, "brier": brier}

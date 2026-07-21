@@ -20,6 +20,7 @@ from database import (
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
     get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
+    set_exam_date,
 )
 
 app = Flask(__name__)
@@ -350,6 +351,13 @@ def serve_pdf_text(pdf_id):
     end = request.args.get("end", type=int)
     pages = get_pdf_pages(pdf_id, start, end)
     return jsonify([{"page": p["page_number"], "text": p["text"]} for p in pages])
+
+
+@app.post("/api/exam")
+def api_set_exam():
+    body = request.get_json(force=True)
+    set_exam_date(body["course_id"], body.get("date") or None)
+    return jsonify({"ok": True})
 
 
 @app.get("/api/cards")

@@ -493,6 +493,18 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "set_exam_date": {
+        "name": "set_exam_date",
+        "description": "Set (or clear) the exam date for a course. The dashboard then shows a countdown and projects exam-day readiness (predicted retention if the user stops studying vs sticks to the review schedule). Use whenever the user mentions when their exam/test is.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "course_id": {"type": "integer", "description": "The course the exam belongs to."},
+                "date": {"type": "string", "description": "Exam date as YYYY-MM-DD, or omit/null to clear."},
+            },
+            "required": ["course_id"],
+        },
+    },
     "get_study_stats": {
         "name": "get_study_stats",
         "description": "Study statistics from the log: current/longest day streak, this week's minutes/cards/sessions, lifetime totals, and a per-day series for the last 14 days. THE tool for 'what's my streak' / 'how much did I study'.",

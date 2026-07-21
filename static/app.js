@@ -596,6 +596,13 @@ function renderProgress() {
         <div style="display:flex; flex-direction:column; gap:7px">${topicRows}</div>
       </div>`;
     }).join("");
+    const exam = st.metrics?.exams?.[c.id];
+    const examChip = exam && exam.today != null
+      ? `<span class="exam-chip" title="Predicted average recall on exam day">🎓 ${exam.days_left}d left ·
+           if you stop: <b style="color:${exam.today >= 70 ? "#00794F" : LOW}">${exam.today}%</b> ·
+           on schedule: <b style="color:#00794F">${exam.onPlan}%</b></span>`
+      : exam ? `<span class="exam-chip">🎓 ${exam.days_left}d left</span>` : "";
+    const courseInfo = st.courses.find((x) => x.id === c.id);
     return `
     <div class="course-card">
       <div class="course-head">
@@ -603,6 +610,11 @@ function renderProgress() {
         <span class="course-name">${esc(c.name)}</span>
         <span class="course-meta">${c.pdfCount} PDFs · ${c.timeSpent} invested ·
           <span style="color:${LOW}">${c.dueCount} due</span></span>
+        ${examChip}
+        <span style="flex:1"></span>
+        <input type="date" class="exam-input" value="${courseInfo?.exam_date || ""}"
+          title="Exam date — drives the readiness projection"
+          onchange="setExam(${c.id}, this.value)">
       </div>
       <div class="pdf-grid">${pdfCards}</div>
     </div>`;
@@ -787,7 +799,51 @@ function renderMetrics(mx) {
       <span class="fn-n">${h.rate == null ? "–" : h.rate + "%"}</span>
     </div>`).join("");
 
+  // knowledge in memory (retrievability-weighted, FSRS-style)
+  const kn = mx.knowledge;
+  // personal forgetting curve fit
+  const ps = mx.personal;
+  const personalBody = ps.k == null
+    ? `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">Collecting evidence — ${ps.n} of ${ps.needed} timed recalls. Every review of a previously-seen card adds a datapoint.</div>`
+    : `<div class="stat-num" style="color:${ps.measured_at_due >= ps.model_at_due ? "#00794F" : "#D55E00"}">${ps.measured_at_due}%</div>
+       <div class="stat-sub">measured recall at the due date · model assumes ${ps.model_at_due}%</div>
+       <div style="font-size:11.5px; color:#5C616E; margin-top:8px">${
+         ps.measured_at_due >= ps.model_at_due + 5 ? "Your memory beats the model — intervals could stretch further."
+         : ps.measured_at_due <= ps.model_at_due - 5 ? "You forget faster than the model assumes — review a little earlier."
+         : "Well matched — the schedule fits your memory."}</div>`;
+  // sweet spot + brier
+  const sw = mx.sweet, br = mx.brier;
+  const sweetBody = sw.rate == null
+    ? `<div style="font-size:12px; color:#8A8F9C; flex:1">Needs 5+ recent answers.</div>`
+    : `<div class="stat-num" style="color:${sw.rate > 95 ? "#005A8E" : sw.rate >= 70 ? "#00794F" : "#D55E00"}">${sw.rate}%</div>
+       <div class="stat-sub">recent recall · optimal ≈ 85%</div>
+       <div class="sweet-track"><div class="sweet-band"></div>
+         <div class="sweet-pin" style="left:${Math.min(98, Math.max(2, sw.rate))}%"></div></div>
+       <div style="font-size:11px; color:#5C616E; margin-top:7px">${
+         sw.rate > 95 ? "Too easy — harden cards or stretch intervals." :
+         sw.rate < 70 ? "Overloaded — smaller sessions or re-read first." :
+         "In the productive-struggle zone."}</div>`;
+
   return `
+    <div class="grid3">
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">KNOWLEDGE IN MEMORY</div>
+        <div class="stat-num">${kn.held} <span style="font-size:14px; color:#8A8F9C; font-weight:500">/ ${kn.total} facts</span></div>
+        <div class="stat-sub">${kn.pct}% of your cards, decay-weighted, held right now</div>
+        ${evidence("Retrievability-weighted total (the FSRS 'knowledge' metric): each card counts as its current recall probability.")}
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:9px">YOUR FORGETTING CURVE</div>
+        ${personalBody}
+        ${evidence("Measured recall vs time-since-review, fitted to R = e^(−kt) — the personal-calibration idea behind FSRS.")}
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:9px">CHALLENGE SWEET SPOT</div>
+        ${sweetBody}
+        ${br.score != null ? `<div style="font-size:11px; color:#5C616E; margin-top:8px; padding-top:8px; border-top:1px dashed #E3E3DE">Brier score <b>${br.score}</b> over ${br.n} confidence calls (0 = perfect calibration)</div>` : ""}
+        ${evidence("~85% success is the optimal difficulty for learning (Wilson et al., 2019; Bjork's desirable difficulties).")}
+      </div>
+    </div>
     <div class="card" style="padding:16px 20px">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
         <span class="mono-label">CONSISTENCY · LAST ${mx.weeks} WEEKS</span>
@@ -1016,6 +1072,12 @@ function render() {
 }
 
 /* ---- actions (referenced from rendered HTML) ---- */
+window.setExam = async (courseId, date) => {
+  await fetch("/api/exam", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ course_id: courseId, date: date || null }) });
+  fetchState();
+};
 window.toggleRail = () => { S.railOpen = !S.railOpen; renderRail(); };
 window.pickLen = (m) => { S.sessionLen = m; renderRail(); };
 window.dismissRecap = () => { S.recap = null; renderRail(); };

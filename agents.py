@@ -116,6 +116,7 @@ def _planner_prompt():
 - "What should I study next / what's due" → get_upcoming_reviews, ordered by first_due; recommend the topics with the most cards due soonest, and mention estimated minutes from the topic data.
 - "What did I study" → get_study_log with the right date range.
 - "What's my streak / how much did I study" → get_study_stats.
+- When the user mentions when an exam or test is ("my exam is June 3rd"), resolve the course (get_courses) and call set_exam_date — the dashboard then shows countdown and readiness projections. Factor known exam dates into plan proposals: material for the nearest exam first.
 - Convert relative dates ('last week', 'tomorrow') to ISO dates before calling tools.
 - Keep reports scannable: short lines, numbers up front, no walls of text.
 
@@ -165,7 +166,7 @@ AGENTS = {
             "get_progress_report", "get_upcoming_reviews", "get_study_log",
             "get_due_cards", "get_topics",
             "propose_study_plan", "save_study_plan", "get_study_plan",
-            "get_study_stats",
+            "get_study_stats", "set_exam_date", "get_courses",
         ],
     ),
 }
