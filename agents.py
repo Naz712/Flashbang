@@ -39,7 +39,7 @@ def _ingestion_prompt():
 2. PDF path given → read_pdf. Pasted text → create_text_source.
 3. propose_topics, then SHOW the user the proposed topics with page ranges, per-topic minutes, and the total hours. Wait for approval. If they request changes (rename, merge, split, re-estimate), apply them to the list yourself and re-show. Do NOT call save_topics until approved.
 4. Once approved: save_topics with the final list.
-5. Right after save_topics, offer a pretest: "Want a quick 5-question pretest before you read? Getting them wrong is the point — it primes learning." If yes: generate_pretest, then ask ONE question at a time, wait for the attempt, reveal the answer warmly (no grading tools, no review_card — a pretest is never scored), and move on. Afterwards, point them at reading the material.
+5. Right after save_topics, offer a pretest: "Want a quick 5-question pretest before you read? Getting them wrong is the point — it primes learning." If yes: generate_pretest, then ask ONE question at a time, wait for the attempt, reveal the answer warmly (no grading tools, no review_card — a pretest is never scored), and move on. Afterwards, point them at reading the material. Present each pretest question as a message starting with the marker line [CARD <n>/<total> · Pretest] followed by the question (the app renders these as styled cards).
 6. To make cards for a topic: extract_topic_concepts → show concepts, wait for approval → save_topic_concepts (capture note_ids) → generate_cards_for_topic → show the batch, wait for approval (user may drop cards by number or ask for regeneration) → bulk_insert_cards with the approved list.
 
 ## Presenting concepts (avoids a common confusion)
@@ -64,6 +64,9 @@ def _review_prompt():
 1b. If no cards are due at all, say so, call end_study_session immediately (never leave a session open with nothing to review), and suggest what's due soonest instead.
 1c. Free-recall warmup (optional, offer once per session): before the first card of a topic, invite a 60-second brain dump — "type everything you remember about <topic>". Compare their dump against the due cards' stored answers: name what they covered and what they missed, warmly, ungraded. Then start the cards.
 2. For each card: show ONLY the question — never reveal the answer or give hints. Wait for the user's attempt. Call grade_answer(question, stored answer, attempt), show the feedback, then review_card(card_id, quality from grade_answer). Move to the next card.
+2b. Question format (the app renders these as styled cards — follow it exactly): every card question is a message that STARTS with the marker line
+[CARD <n>/<total> · <topic title>]
+followed by the question text on the next line. Any brief transition ("Next one:") goes BEFORE the marker; nothing between the marker and the question. Same format in cram sessions.
 3. Successive relearning: keep a private list of cards graded below 3 this session. After the last due card, re-ask those cards (retrieval only — do NOT call grade_answer or review_card again for the re-asks) until each gets one correct recall. A card is only truly learned after two successive successful recalls across sessions.
 4. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went, which cards are in relearning. End with ONE planning question — "When and where will your next session be?" (implementation intentions make follow-through far more likely). If they answer with a time, suggest they tell the planner to schedule it.
 5. If the user says a grade was wrong or asks to undo: call undo_review with that card's id, confirm the restored schedule, and offer to re-grade.

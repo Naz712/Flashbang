@@ -86,18 +86,45 @@ async function fetchHistory() {
 
 /* ---------------------------------------------------------------- chat */
 
+/* question-card marker emitted by the review/pretest agents:
+   [CARD 2/4 · Topic Title]\n<question> */
+const CARD_RE = /\[CARD\s+(\d+)\s*(?:\/|of)\s*(\d+)\s*[·\-–:]\s*([^\]]+)\]/i;
+
 function renderMsg(m) {
   if (m.role === "user") {
     const meta = m.meta ? `<div class="grade-head"><span class="grade-meta" style="color:#B9BDC7">${esc(m.meta)}</span></div>` : "";
     return `<div class="msg-row-user"><div class="bubble-user">${meta}${esc(m.text)}</div></div>`;
   }
   if (m.role === "grade") {
-    const cls = m.grade >= 4 ? "good" : "warn";
-    const meta = m.meta ? `<span class="grade-meta">${esc(m.meta)}</span>` : "";
-    return `<div class="msg-row-bot"><div class="bubble-bot">
-      <div class="grade-head"><span class="grade-chip ${cls}">Grade ${m.grade}/5</span>${meta}
+    const good = m.grade >= 4;
+    const cls = good ? "good" : "warn";
+    const verdict = good ? "Correct" : m.grade === 3 ? "Partially correct" : "Not quite";
+    return `<div class="msg-row-bot"><div class="gcard ${cls}">
+      <div class="gcard-head ${cls}">
+        <span class="gcard-pill ${cls}">✓ GRADE ${m.grade}/5</span>
+        <span class="gcard-verdict">${verdict}</span>
+        <span style="flex:1"></span>
         <button class="undo-btn" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
-      </div>${md(m.text)}</div></div>`;
+      </div>
+      <div class="gcard-body">${md(m.text)}</div>
+      ${m.meta ? `<div class="gcard-meta">${esc(m.meta)}</div>` : ""}
+    </div></div>`;
+  }
+  // assistant: question marker → styled card (plain bubble for any lead-in text)
+  const match = m.text.match(CARD_RE);
+  if (match) {
+    const at = m.text.search(CARD_RE);
+    const pre = m.text.slice(0, at).trim();
+    const question = m.text.slice(at + match[0].length).trim();
+    return (pre ? `<div class="msg-row-bot"><div class="bubble-bot">${md(pre)}</div></div>` : "") + `
+      <div class="msg-row-bot"><div class="qcard">
+        <div class="qcard-head">
+          <span class="qcard-label">Q · CARD ${match[1]} OF ${match[2]}</span>
+          <span class="qcard-topic">· ${esc(match[3].trim())}</span>
+        </div>
+        <div class="qcard-body">${md(question)}</div>
+        <div class="qcard-hint">TYPE YOUR ANSWER BELOW</div>
+      </div></div>`;
   }
   return `<div class="msg-row-bot"><div class="bubble-bot">${md(m.text)}</div></div>`;
 }
@@ -253,10 +280,17 @@ async function sendChat(text) {
       renderMsg({ role: "grade", text: g.feedback, grade: g.quality, meta: g.meta || "" })));
     if (data.agent) $("agentName").textContent = `${data.agent[0].toUpperCase()}${data.agent.slice(1)} specialist`;
     scroll.insertAdjacentHTML("beforeend",
-      `<div class="msg-row-bot"><div class="bubble-bot" id="typing"></div></div>`);
+      `<div class="msg-row-bot" id="typingRow"><div class="bubble-bot" id="typing"></div></div>`);
     const el = document.getElementById("typing");
     el.removeAttribute("id");
-    typewrite(el, data.reply || "", () => { S.busy = false; fetchState(); });
+    typewrite(el, data.reply || "", () => {
+      // final render through renderMsg so question-card markers become styled cards
+      const row = document.getElementById("typingRow");
+      if (row) row.outerHTML = renderMsg({ role: "assistant", text: data.reply || "" });
+      scroll.scrollTop = scroll.scrollHeight;
+      S.busy = false;
+      fetchState();
+    });
   };
 
   try {
