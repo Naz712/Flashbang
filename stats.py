@@ -2,9 +2,14 @@
 
 import math
 from datetime import datetime, timedelta
-from database import get_study_log, get_cards, get_answer_log, get_courses
+from database import (get_study_log, get_cards, get_answer_log, get_courses,
+                      get_time_by_course, get_annotation_counts)
 from mastery import card_retention, DUE_RETENTION
 import fsrs_adapter  # exam projection simulates via the live FSRS scheduler
+
+# the flashcard hub's analytics exclude reading blocks — reading time lives
+# in its own hub (compute_reading_stats)
+FLASHCARD_KINDS = ("review", "cram", "ingestion")
 
 
 def _retention(card, at):
@@ -16,7 +21,7 @@ def compute_stats(now=None):
     if now is None:
         now = datetime.now()
     today = now.date()
-    sessions = get_study_log()  # newest first
+    sessions = get_study_log(kinds=FLASHCARD_KINDS)  # newest first
 
     study_days = sorted({datetime.fromisoformat(s["started_at"]).date()
                          for s in sessions})
@@ -80,7 +85,7 @@ def compute_metrics(now=None, weeks=26):
     today = now.date()
 
     # ---- heatmap: daily minutes, last `weeks` weeks, aligned to Monday
-    sessions = get_study_log()
+    sessions = get_study_log(kinds=FLASHCARD_KINDS)
     minutes_by_day = {}
     for s in sessions:
         day = datetime.fromisoformat(s["started_at"]).date()
@@ -241,3 +246,52 @@ def compute_metrics(now=None, weeks=26):
             "retention": retention, "hardest": hardest, "hours": hour_buckets,
             "knowledge": knowledge, "personal": personal, "exams": exams,
             "sweet": sweet, "brier": brier, "fluency": fluency}
+
+
+def compute_reading_stats(now=None):
+    """Reading-hub aggregates: blocks with kind='reading' only, kept fully
+    separate from the flashcard analytics above."""
+    if now is None:
+        now = datetime.now()
+    today = now.date()
+    sessions = get_study_log(kinds=("reading",))  # newest first
+
+    week_start = today - timedelta(days=6)
+    week = [s for s in sessions
+            if datetime.fromisoformat(s["started_at"]).date() >= week_start]
+
+    by_pdf = {}
+    for s in sessions:
+        if s["pdf_id"] is None:
+            continue
+        entry = by_pdf.setdefault(s["pdf_id"], {
+            "pdf_id": s["pdf_id"], "filename": s["pdf_filename"],
+            "course": s["course_name"], "minutes": 0.0, "last_read": None})
+        entry["minutes"] += s["minutes"] or 0
+        if entry["last_read"] is None or s["started_at"] > entry["last_read"]:
+            entry["last_read"] = s["started_at"]
+
+    # reading-day streak (same shape as the flashcard streak, reading only)
+    days = sorted({datetime.fromisoformat(s["started_at"]).date() for s in sessions})
+    streak = 0
+    if days:
+        day = today if today in days else today - timedelta(days=1)
+        while day in days:
+            streak += 1
+            day -= timedelta(days=1)
+
+    notes = get_annotation_counts()
+    return {
+        "total_minutes": round(sum(s["minutes"] or 0 for s in sessions), 1),
+        "week_minutes": round(sum(s["minutes"] or 0 for s in week), 1),
+        "block_count": len(sessions),
+        "week_blocks": len(week),
+        "streak_days": streak,
+        "note_total": sum(notes.values()),
+        "notes_by_pdf": notes,
+        "by_course": get_time_by_course(kinds=("reading",)),
+        "by_pdf": sorted(by_pdf.values(), key=lambda e: -e["minutes"]),
+        "recent": [{"at": s["started_at"], "minutes": s["minutes"],
+                    "pdf": s["pdf_filename"], "course": s["course_name"]}
+                   for s in sessions[:8]],
+    }

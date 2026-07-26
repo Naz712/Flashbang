@@ -169,6 +169,17 @@ assert len(timed) == 1 and timed[0]["latency_ms"] == 8250, "latency_ms should ro
 assert all(a["latency_ms"] is None for a in database.get_answer_log(days=1)
            if a["quality"] == 2), "untimed answers must stay NULL"
 
+# --- session kinds: reading blocks stay out of the flashcard analytics
+database.log_focus_session(10, course_id=course2, kind="reading")
+database.log_focus_session(5, course_id=course2)   # plain focus block -> review
+flash_log = database.get_study_log(kinds=("review", "cram", "ingestion"))
+reading_log = database.get_study_log(kinds=("reading",))
+assert all(r["kind"] != "reading" for r in flash_log), "reading leaked into the flashcard log"
+assert len(reading_log) == 1 and reading_log[0]["minutes"] == 10
+assert reading_log[0]["summary"] == "reading block"
+by_course = {r["name"]: r["minutes"] for r in database.get_time_by_course(kinds=("reading",))}
+assert by_course == {"Cal Course": 10}, by_course
+
 # --- session accuracy column
 sid = database.start_session("review", course_id=course2)
 database.end_session(sid, cards_reviewed=6)

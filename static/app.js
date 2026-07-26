@@ -942,6 +942,91 @@ function renderMetrics(mx) {
     </div>`;
 }
 
+/* ---------------------------------------------------------------- reading hub */
+
+function renderReadingHub() {
+  const st = S.state;
+  if (!st || !st.reading) return;
+  const rd = st.reading;
+  const courseIdx = {};
+  st.courses.forEach((c, i) => { courseIdx[c.id] = i; });
+  const cColor = (id) => SUBJ[(courseIdx[id] ?? 3) % 4];
+
+  const segTotal = rd.by_course.reduce((a, r) => a + r.minutes, 0) || 1;
+  const segs = rd.by_course.map((r) =>
+    `<div style="flex:${r.minutes}; background:${cColor(r.course_id)}"></div>`).join("");
+  const legend = rd.by_course.map((r) => `
+    <div style="display:flex; align-items:center; gap:8px; font-size:11.5px">
+      <span class="cal-dot" style="background:${cColor(r.course_id)}"></span>
+      <span style="flex:1">${esc(r.name)}</span>
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${fmtMin(r.minutes)} · ${Math.round(r.minutes / segTotal * 100)}%</span>
+    </div>`).join("");
+
+  const recent = rd.recent.length ? rd.recent.map((s) => {
+    const day = new Date(s.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    return `<div class="sess-row">
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:74px; flex:none">${day}</span>
+      <span style="font-size:11.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(s.pdf || "(no document)")}</span>
+      <span class="mono" style="font-size:10.5px; color:#8A8F9C; flex:none">${fmtMin(s.minutes)}</span>
+    </div>`;
+  }).join("") : `<div style="font-size:12px; color:#8A8F9C">No reading blocks yet — open a topic below and start one.</div>`;
+
+  const lib = st.libCourses.map((c) => {
+    const pdfRows = c.pdfs.map((p) => {
+      const readMin = rd.by_pdf.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0;
+      const notes = rd.notes_by_pdf[p.pdf_id] || 0;
+      const chips = p.topics.map((t) => `
+        <button class="dur-btn" style="font-size:10.5px" title="Read pages ${t.pages}"
+          onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">${esc(t.title)}</button>`).join("");
+      return `<div style="padding:12px 0 4px; border-top:1px dashed #E3E3DE; margin-top:10px">
+        <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:8px">
+          <span style="font-size:12.5px; font-weight:600">${esc(p.filename)}</span>
+          <span class="mono" style="font-size:10px; color:#8A8F9C">${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px">${chips}</div>
+      </div>`;
+    }).join("");
+    return `<div class="course-card">
+      <div class="course-head">
+        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}"></span>
+        <span class="course-name">${esc(c.name)}</span>
+      </div>${pdfRows}</div>`;
+  }).join("");
+
+  $("readingInner").innerHTML = `
+    <div class="grid3">
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">TIME READ · ALL TIME</div>
+        <div class="stat-num">${fmtMin(rd.total_minutes)}</div>
+        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">READING STREAK</div>
+        <div class="stat-num">${rd.streak_days}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> day${rd.streak_days === 1 ? "" : "s"}</span></div>
+        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week · ${rd.block_count} all time</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">NOTES</div>
+        <div class="stat-num">${rd.note_total}</div>
+        <div class="stat-sub">window-box comments across your documents</div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">READING TIME BY COURSE</div>
+        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:10px">${legend}</div>`
+          : `<div style="font-size:12px; color:#8A8F9C; flex:1">Nothing logged yet.</div>`}
+        ${evidence("Reading time lives here, separate from the flashcard analytics — mastery only ever moves through retrieval.")}
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:14px">RECENT READING BLOCKS</div>
+        <div style="display:flex; flex-direction:column; gap:8px">${recent}</div>
+      </div>
+    </div>
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">LIBRARY · CLICK A TOPIC TO READ</span><div class="rule"></div></div>
+    ${lib}`;
+}
+
 /* ---------------------------------------------------------------- cards screen */
 
 async function loadCards() {
@@ -1122,14 +1207,17 @@ function render() {
       `· ${st.currentCourse.name} · ${st.current.filename.replace(/\.pdf$/i, "")}`;
   }
   $("tabStudy").classList.toggle("on", S.view === "study");
+  $("tabReading").classList.toggle("on", S.view === "reading");
   $("tabProgress").classList.toggle("on", S.view === "progress");
   $("tabCards").classList.toggle("on", S.view === "cards");
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
+  $("readingScreen").style.display = S.view === "reading" ? "block" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
   $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
   renderConfRow();
   renderRail();
   renderProgress();
+  renderReadingHub();
   if (S.view === "cards") renderCardsScreen();
 }
 
@@ -1162,23 +1250,31 @@ window.startReview = () => {
                : "Review my due cards");
 };
 
-window.toggleFocus = async () => {
+window.toggleFocus = async (kind) => {
   if (S.focusStart) {
     const mins = Math.max(1, Math.round((Date.now() - S.focusStart) / 60000));
     S.focusStart = null;
     clearInterval(S._tick);
     $("focusChip").style.display = "none";
+    // reading blocks attribute to the doc open in the reader, not the rail's doc
     const cur = S.state?.current;
+    let course_id = cur?.course_id, pdf_id = cur?.pdf_id;
+    if (S.focusKind === "reading" && RD.pdfId) {
+      pdf_id = RD.pdfId;
+      course_id = S.state?.libCourses?.find((c) =>
+        c.pdfs.some((p) => p.pdf_id === RD.pdfId))?.id ?? course_id;
+    }
     try {
       const res = await fetch("/api/focus", { method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ minutes: mins, course_id: cur?.course_id, pdf_id: cur?.pdf_id }) });
+        body: JSON.stringify({ minutes: mins, course_id, pdf_id, kind: S.focusKind }) });
       S.recap = await res.json();
     } catch { S.recap = null; }
     S.blockDone = true;   // reading sidebar: show "logged" state until the next start
     renderReadSide();
     fetchState();
   } else {
+    S.focusKind = kind === "reading" ? "reading" : "review";
     S.focusStart = Date.now();
     S.blockDone = false;
     $("focusChip").style.display = "flex";
@@ -1206,10 +1302,11 @@ window.toggleFocus = async () => {
 window.renderReadSide = () => {
   const side = $("viewerSide");
   if (!side || $("viewer").style.display === "none") return;
+  AN.pendingText = $("annInput")?.value ?? AN.pendingText;   // survive re-renders
   const running = !!S.focusStart;
   const remain = running ? Math.max(0, S.sessionLen * 60 - Math.floor((Date.now() - S.focusStart) / 1000)) : S.sessionLen * 60;
-  side.innerHTML = `
-    <div class="mono-label">STUDY BLOCK</div>
+  const timer = `
+    <div class="mono-label">READING BLOCK</div>
     ${running ? `
       <div class="read-timer" id="readRemain">${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}</div>
       <div style="font-size:11px; color:#8A8F9C">of a ${S.sessionLen}-min block</div>
@@ -1219,13 +1316,44 @@ window.renderReadSide = () => {
       <button class="btn-block ghost" style="margin-top:2px" onclick="toggleFocus()">End early</button>
     ` : `
       ${S.blockDone ? `<div style="font-size:12px; color:#00794F; font-weight:600">Block logged ✓</div>
-        <div style="font-size:11px; color:#8A8F9C; margin-top:-6px">It counts toward your streak and heatmap.</div>` : ""}
+        <div style="font-size:11px; color:#8A8F9C; margin-top:-6px">It lands in your Reading hub, separate from flashcard time.</div>` : ""}
       <div class="dur-row">
         ${[15, 25, 45].map((m) => `<button class="dur-btn ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}m</button>`).join("")}
       </div>
-      <button class="btn-block" style="margin-top:2px" onclick="toggleFocus()">Start ${S.sessionLen}-min block</button>
-    `}
-    <div class="evidence" style="margin-top:auto">Read with the timer, then hit the due cards while it's fresh — retrieval right after reading beats re-reading (Roediger &amp; Karpicke, 2006).</div>`;
+      <button class="btn-block" style="margin-top:2px" onclick="toggleFocus('reading')">Start ${S.sessionLen}-min block</button>
+    `}`;
+
+  const pageNotes = AN.items.filter((a) => a.page === RD.page);
+  const notes = `
+    <div class="mono-label" style="margin-top:12px">NOTES · PAGE ${RD.page ?? "–"}</div>
+    ${AN.pending ? `
+      <div class="note-item">
+        <textarea id="annInput" rows="3" placeholder="Your comment for the boxed area…">${esc(AN.pendingText)}</textarea>
+        <div style="display:flex; gap:6px">
+          <button class="btn-block" style="margin:0; padding:7px" onclick="saveAnnotation()">Save note</button>
+          <button class="btn-block ghost" style="margin:0; padding:7px; flex:none; width:44px" onclick="cancelAnnotation()">✕</button>
+        </div>
+      </div>` : ""}
+    ${pageNotes.map((a, i) => `
+      <div class="note-item" id="note-${a.id}" onclick="flashAnnBox(${a.id})" title="Click to locate the box">
+        <div style="display:flex; align-items:baseline; gap:7px">
+          <span class="note-num">${i + 1}</span>
+          <span style="flex:1; font-size:12px; line-height:1.55">${esc(a.comment)}</span>
+          <button class="icon-btn" style="font-size:11px; flex:none" title="Delete this note"
+            onclick="event.stopPropagation(); deleteAnnotation(${a.id})">✕</button>
+        </div>
+      </div>`).join("")}
+    ${!pageNotes.length && !AN.pending ? `<div style="font-size:11.5px; color:#8A8F9C; line-height:1.6">
+      No notes on this page yet. Hit <b>✎ Note</b> and drag a box over anything worth a comment.</div>` : ""}`;
+
+  side.innerHTML = timer + notes;
+};
+
+window.flashAnnBox = (annId) => {
+  const el = document.querySelector(`.ann-box[data-ann="${annId}"]`);
+  if (!el) return;
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1200);
 };
 
 /* ---------------------------------------------------------------- topic page viewer */
@@ -1235,11 +1363,18 @@ const pdfDocCache = {};
 /* blackout (image occlusion): draw black boxes over key facts, recall, peek.
    Coords stored 0-1 relative to the page box so any render width works. */
 const BO = { pdfId: null, boxes: [], edit: false, revealAll: false };
+/* annotations: comments anchored to outlined "window boxes" on a page */
+const AN = { items: [], mode: false, pending: null, pendingText: "" };
+/* reader: one page at a time */
+const RD = { pdfId: null, title: "", start: null, end: null, page: null,
+             mode: null, textPages: null, seq: 0 };
 
-function syncBlackoutButtons() {
+function syncModes() {
   $("blackoutToggle").classList.toggle("bo-on", BO.edit);
   $("blackoutReveal").classList.toggle("bo-on", BO.revealAll);
+  $("annToggle").classList.toggle("bo-on", AN.mode);
   $("viewerBody").classList.toggle("bo-edit", BO.edit);
+  $("viewerBody").classList.toggle("ann-edit", AN.mode);
 }
 
 function renderBox(wrap, b) {
@@ -1261,9 +1396,34 @@ function renderBox(wrap, b) {
   wrap.appendChild(el);
 }
 
+function renderAnnBoxes(wrap) {
+  wrap.querySelectorAll(".ann-box:not(.pending)").forEach((el) => el.remove());
+  AN.items.filter((a) => a.page === RD.page).forEach((a, i) => {
+    const el = document.createElement("div");
+    el.className = "ann-box";
+    el.dataset.ann = a.id;
+    el.title = a.comment;
+    Object.assign(el.style, { left: `${a.x * 100}%`, top: `${a.y * 100}%`,
+      width: `${a.w * 100}%`, height: `${a.h * 100}%` });
+    el.innerHTML = `<span class="ann-num">${i + 1}</span>`;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const item = document.getElementById(`note-${a.id}`);
+      if (item) {
+        item.scrollIntoView({ block: "nearest" });
+        item.classList.add("flash");
+        setTimeout(() => item.classList.remove("flash"), 1200);
+      }
+    };
+    wrap.appendChild(el);
+  });
+}
+
 function wireDrawing(wrap) {
   wrap.addEventListener("mousedown", (e) => {
-    if (!BO.edit || e.target.classList.contains("blackout-box")) return;
+    const mode = BO.edit ? "blackout" : AN.mode ? "note" : null;
+    if (!mode || e.target.closest(".blackout-box") || e.target.closest(".ann-box")) return;
+    if (mode === "note" && AN.pending) return;   // finish the open note first
     e.preventDefault();
     const rect = wrap.getBoundingClientRect();
     const norm = (ev) => ({
@@ -1272,7 +1432,7 @@ function wireDrawing(wrap) {
     });
     const p0 = norm(e);
     const ghost = document.createElement("div");
-    ghost.className = "blackout-box drawing";
+    ghost.className = mode === "blackout" ? "blackout-box drawing" : "ann-box drawing";
     wrap.appendChild(ghost);
     let box = null;
     const update = (ev) => {
@@ -1286,53 +1446,91 @@ function wireDrawing(wrap) {
     const up = async () => {
       document.removeEventListener("mousemove", update);
       document.removeEventListener("mouseup", up);
-      ghost.remove();
-      if (box.w < 0.01 || box.h < 0.01) return;   // a click, not a drag
-      const res = await fetch("/api/occlusions", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdf_id: BO.pdfId, page_number: +wrap.dataset.page, ...box }) });
-      if (!res.ok) return;
-      const { id } = await res.json();
-      const saved = { id, page: +wrap.dataset.page, ...box };
-      BO.boxes.push(saved);
-      renderBox(wrap, saved);
+      if (box.w < 0.01 || box.h < 0.01) { ghost.remove(); return; }   // a click, not a drag
+      if (mode === "blackout") {
+        ghost.remove();
+        const res = await fetch("/api/occlusions", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pdf_id: BO.pdfId, page_number: +wrap.dataset.page, ...box }) });
+        if (!res.ok) return;
+        const { id } = await res.json();
+        const saved = { id, page: +wrap.dataset.page, ...box };
+        BO.boxes.push(saved);
+        renderBox(wrap, saved);
+      } else {
+        // the box stays as a dashed outline until the comment is saved
+        ghost.classList.remove("drawing");
+        ghost.classList.add("pending");
+        AN.pending = { page: +wrap.dataset.page, box, ghost };
+        renderReadSide();
+        $("annInput")?.focus();
+      }
     };
     document.addEventListener("mousemove", update);
     document.addEventListener("mouseup", up);
   });
 }
 
+window.saveAnnotation = async () => {
+  if (!AN.pending) return;
+  const comment = ($("annInput")?.value || "").trim();
+  if (!comment) { $("annInput")?.focus(); return; }
+  const { page, box, ghost } = AN.pending;
+  const res = await fetch("/api/annotations", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pdf_id: RD.pdfId, page_number: page, comment, ...box }) });
+  if (!res.ok) return;
+  const { id } = await res.json();
+  AN.items.push({ id, page, ...box, comment });
+  AN.pending = null;
+  AN.pendingText = "";
+  ghost.remove();
+  const wrap = document.querySelector("#viewerBody .page-wrap");
+  if (wrap) renderAnnBoxes(wrap);
+  renderReadSide();
+};
+
+window.cancelAnnotation = () => {
+  AN.pending?.ghost?.remove();
+  AN.pending = null;
+  AN.pendingText = "";
+  renderReadSide();
+};
+
+window.deleteAnnotation = async (annId) => {
+  const res = await fetch(`/api/annotations/${annId}`, { method: "DELETE" });
+  if (!res.ok) return;
+  AN.items = AN.items.filter((a) => a.id !== annId);
+  const wrap = document.querySelector("#viewerBody .page-wrap");
+  if (wrap) renderAnnBoxes(wrap);
+  renderReadSide();
+};
+
 window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
-  const title = decodeURIComponent(encTitle);
-  $("viewerTitle").textContent = title;
-  $("viewerSub").textContent = `pages ${pageStart}–${pageEnd}`;
-  const body = $("viewerBody");
-  body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">Loading pages…</div>`;
+  RD.pdfId = pdfId;
+  RD.title = decodeURIComponent(encTitle);
+  RD.start = pageStart;
+  RD.end = pageEnd;
+  RD.page = pageStart;
+  RD.mode = null;
+  RD.textPages = null;
+  $("viewerTitle").textContent = RD.title;
+  $("viewerSub").textContent = `p.${pageStart} of ${pageEnd}`;
+  $("viewerBody").innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">Loading pages…</div>`;
   $("viewer").style.display = "flex";
   BO.pdfId = pdfId;
   BO.edit = false;
   BO.revealAll = false;
-  syncBlackoutButtons();
-  renderReadSide();
-  try { BO.boxes = await fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()); }
-  catch { BO.boxes = []; }
-
-  // wrap a rendered page so its blackout boxes can sit on top of it
-  const addPage = (n, el, stretch) => {
-    const wrap = document.createElement("div");
-    wrap.className = "page-wrap" + (stretch ? " page-wrap-stretch" : "");
-    wrap.dataset.page = n;
-    wrap.appendChild(el);
-    body.appendChild(wrap);
-    BO.boxes.filter((b) => b.page === n).forEach((b) => renderBox(wrap, b));
-    wireDrawing(wrap);
-  };
-  const addLabel = (n) => {
-    const label = document.createElement("div");
-    label.className = "viewer-page-label";
-    label.textContent = `page ${n}`;
-    body.appendChild(label);
-  };
+  AN.mode = false;
+  AN.pending = null;
+  AN.pendingText = "";
+  syncModes();
+  const [boxes, anns] = await Promise.all([
+    fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()).catch(() => []),
+    fetch(`/api/annotations/${pdfId}`).then((r) => r.json()).catch(() => []),
+  ]);
+  BO.boxes = boxes;
+  AN.items = anns;
 
   try {
     if (!window.pdfjsLib) throw new Error("pdf.js unavailable");
@@ -1341,59 +1539,104 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
     if (!pdfDocCache[pdfId]) {
       pdfDocCache[pdfId] = await pdfjsLib.getDocument(`/api/pdf/${pdfId}`).promise;
     }
-    const doc = pdfDocCache[pdfId];
-    body.innerHTML = "";
-    const width = Math.min(920, body.clientWidth - 40);
-    const last = Math.min(pageEnd, doc.numPages);
-    for (let n = pageStart; n <= last; n++) {
-      const page = await doc.getPage(n);
-      const base = page.getViewport({ scale: 1 });
-      const scale = width / base.width;
-      const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      canvas.style.width = `${width}px`;
-      canvas.style.display = "block";
-      canvas.className = "viewer-page";
-      addLabel(n);
-      addPage(n, canvas);
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-    }
+    RD.mode = "pdf";
+    RD.end = Math.min(pageEnd, pdfDocCache[pdfId].numPages);
   } catch {
     // fallback: extracted text (pasted-text sources, moved files, no pdf.js)
     try {
-      const res = await fetch(`/api/pdf/${pdfId}/text?start=${pageStart}&end=${pageEnd}`);
-      const pages = await res.json();
+      const pages = await fetch(`/api/pdf/${pdfId}/text?start=${pageStart}&end=${pageEnd}`)
+        .then((r) => r.json());
       if (!pages.length) throw new Error("no pages");
-      body.innerHTML = "";
-      for (const p of pages) {
-        const div = document.createElement("div");
-        div.className = "viewer-text";
-        div.innerHTML = md(p.text);
-        addLabel(p.page);
-        addPage(p.page, div, true);
-      }
+      RD.mode = "text";
+      RD.textPages = pages;
     } catch {
-      body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">
+      $("viewerBody").innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">
         Couldn't load these pages — the original file may have moved.</div>`;
+      renderReadSide();
+      return;
     }
   }
+  await renderReaderPage();
 };
 
-$("blackoutToggle").onclick = () => { BO.edit = !BO.edit; syncBlackoutButtons(); };
+window.renderReaderPage = async () => {
+  const seq = ++RD.seq;
+  const body = $("viewerBody");
+  $("viewerSub").textContent = `p.${RD.page} of ${RD.end}`;
+  $("readerPrev").disabled = RD.page <= RD.start;
+  $("readerNext").disabled = RD.page >= RD.end;
+
+  const wrap = document.createElement("div");
+  wrap.dataset.page = RD.page;
+  if (RD.mode === "pdf") {
+    wrap.className = "page-wrap";
+    const doc = pdfDocCache[RD.pdfId];
+    const page = await doc.getPage(RD.page);
+    if (seq !== RD.seq) return;   // user paged on before this fetch finished
+    const width = Math.min(920, body.clientWidth - 40);
+    const base = page.getViewport({ scale: 1 });
+    const scale = width / base.width;
+    const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${Math.round(viewport.height / (window.devicePixelRatio || 1))}px`;
+    canvas.style.display = "block";
+    canvas.className = "viewer-page";
+    wrap.appendChild(canvas);
+    // paint in the background — the page (and its boxes/notes) is usable
+    // immediately, and a throttled tab can't leave the reader blank
+    page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.catch(() => {});
+  } else {
+    wrap.className = "page-wrap page-wrap-stretch";
+    const p = RD.textPages.find((x) => x.page === RD.page);
+    const div = document.createElement("div");
+    div.className = "viewer-text";
+    div.innerHTML = md(p ? p.text : "(no text stored for this page)");
+    wrap.appendChild(div);
+  }
+  body.innerHTML = "";
+  body.appendChild(wrap);
+  BO.boxes.filter((b) => b.page === RD.page).forEach((b) => renderBox(wrap, b));
+  renderAnnBoxes(wrap);
+  wireDrawing(wrap);
+  renderReadSide();
+};
+
+window.readerNav = (delta) => {
+  if (RD.mode === null) return;
+  const target = Math.min(RD.end, Math.max(RD.start, RD.page + delta));
+  if (target === RD.page) return;
+  if (AN.pending) cancelAnnotation();   // an unsaved note doesn't survive a page turn
+  RD.page = target;
+  renderReaderPage();
+};
+
+$("readerPrev").onclick = () => readerNav(-1);
+$("readerNext").onclick = () => readerNav(1);
+$("blackoutToggle").onclick = () => { BO.edit = !BO.edit; if (BO.edit) AN.mode = false; syncModes(); };
+$("annToggle").onclick = () => { AN.mode = !AN.mode; if (AN.mode) BO.edit = false; syncModes(); };
 $("blackoutReveal").onclick = () => {
   BO.revealAll = !BO.revealAll;
   document.querySelectorAll(".blackout-box").forEach((b) => b.classList.toggle("peek", BO.revealAll));
-  syncBlackoutButtons();
+  syncModes();
 };
 
 window.closeViewer = () => { $("viewer").style.display = "none"; };
 $("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeViewer(); });
+document.addEventListener("keydown", (e) => {
+  if ($("viewer").style.display === "none") return;
+  const typing = /TEXTAREA|INPUT/.test(e.target.tagName);
+  if (e.key === "Escape") { typing ? e.target.blur() : closeViewer(); return; }
+  if (typing) return;
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); readerNav(1); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); readerNav(-1); }
+});
 
 /* ---- static listeners ---- */
 $("tabStudy").onclick = () => { S.view = "study"; render(); };
+$("tabReading").onclick = () => { S.view = "reading"; render(); };
 $("tabProgress").onclick = () => { S.view = "progress"; render(); };
 $("tabCards").onclick = () => { S.view = "cards"; render(); loadCards(); };
 $("doNext").onclick = () => {

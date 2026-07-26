@@ -18,6 +18,7 @@
     </div>
     <div class="tabs">
       <button id="tabStudy" class="tab on">Study</button>
+      <button id="tabReading" class="tab">Reading</button>
       <button id="tabProgress" class="tab">Progress</button>
       <button id="tabCards" class="tab">Cards</button>
     </div>
@@ -64,6 +65,11 @@
     <button id="railReopen" class="rail-reopen" title="Show panel" style="display:none">⇤</button>
   </div>
 
+  <!-- reading hub -->
+  <div id="readingScreen" class="progress-wrap" style="display:none">
+    <div id="readingInner" class="progress"></div>
+  </div>
+
   <!-- progress screen -->
   <div id="progressScreen" class="progress-wrap" style="display:none">
     <div id="progressInner" class="progress"></div>
@@ -83,6 +89,9 @@
         <div id="viewerTitle" style="font-size:13.5px; font-weight:700"></div>
         <div id="viewerSub" class="doc-meta"></div>
       </div>
+      <button id="readerPrev" class="icon-btn reader-nav" title="Previous page (←)">‹</button>
+      <button id="readerNext" class="icon-btn reader-nav" title="Next page (→ or space)">›</button>
+      <button id="annToggle" class="icon-btn" title="Note mode: drag a box over an area and attach a comment">✎ Note</button>
       <button id="blackoutToggle" class="icon-btn" title="Blackout mode: drag to draw boxes over key facts; click a box to delete it">▮ Blackout</button>
       <button id="blackoutReveal" class="icon-btn" title="Reveal / re-hide every box">Reveal all</button>
       <button class="icon-btn" style="font-size:15px" onclick="closeViewer()">✕</button>

@@ -22,6 +22,7 @@ from database import (
     get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
     set_exam_date, delete_pdf,
     save_occlusion, get_occlusions, delete_occlusion,
+    save_annotation, get_annotations, update_annotation, delete_annotation,
 )
 
 app = Flask(__name__)
@@ -219,7 +220,7 @@ def state():
         week.append({"day": "MTWTFSS"[i], "lit": bool(entry and entry["minutes"] > 0),
                      "future": i > today_idx})
 
-    subject_rows = get_time_by_course()
+    subject_rows = get_time_by_course(kinds=stats_module.FLASHCARD_KINDS)
     subject_total = sum(r["minutes"] for r in subject_rows) or 1
     course_index = {c["id"]: i for i, c in enumerate(courses)}
     topic_accuracy = get_topic_accuracy()
@@ -248,12 +249,15 @@ def state():
             {"at": r["started_at"], "kind": r["kind"],
              "cards": r["cards_reviewed"], "minutes": r["minutes"],
              "accuracy": r["accuracy"], "topics": r["topic_titles"]}
-            for r in get_study_log()[:8] if r["ended_at"]],
+            for r in get_study_log(kinds=stats_module.FLASHCARD_KINDS)[:8] if r["ended_at"]],
         "stats": {"weekTime": fmt_min(s["week_minutes"]),
                   "sessionCount": s["week_sessions"],
                   "week": week,
                   "litCount": sum(1 for d in week if d["lit"]),
                   "streak": s["current_streak_days"]},
+        # reading hub: kind='reading' blocks + annotation counts, fully
+        # separate from the flashcard analytics above
+        "reading": stats_module.compute_reading_stats(now),
         # drives the confidence widget — only review sessions ask for confidence
         "sessionActive": orchestrator.session_active and orchestrator.pinned == "review",
     })
@@ -545,6 +549,46 @@ def delete_pdf_route(pdf_id):
     return jsonify({"ok": True, "deleted": pdf["filename"]})
 
 
+@app.get("/api/annotations/<int:pdf_id>")
+def annotations_list(pdf_id):
+    return jsonify([{"id": r["id"], "page": r["page_number"],
+                     "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"],
+                     "comment": r["comment"], "at": r["created_at"]}
+                    for r in get_annotations(pdf_id)])
+
+
+@app.post("/api/annotations")
+def annotations_create():
+    body = request.get_json(force=True)
+    pdf_id = body.get("pdf_id")
+    if get_pdf(pdf_id) is None:
+        return jsonify({"error": f"no pdf with id {pdf_id}"}), 404
+    try:
+        ann_id = save_annotation(pdf_id, body.get("page_number"),
+                                 body.get("x"), body.get("y"),
+                                 body.get("w"), body.get("h"),
+                                 body.get("comment"))
+    except (TypeError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"id": ann_id})
+
+
+@app.patch("/api/annotations/<int:ann_id>")
+def annotations_update(ann_id):
+    body = request.get_json(force=True)
+    try:
+        update_annotation(ann_id, body.get("comment"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/annotations/<int:ann_id>")
+def annotations_delete(ann_id):
+    delete_annotation(ann_id)
+    return jsonify({"ok": True})
+
+
 @app.get("/api/occlusions/<int:pdf_id>")
 def occlusions_list(pdf_id):
     return jsonify([{"id": r["id"], "page": r["page_number"],
@@ -579,7 +623,8 @@ def focus():
     minutes = max(1, int(body.get("minutes", 1)))
     result = log_focus_session(minutes,
                                course_id=body.get("course_id"),
-                               pdf_id=body.get("pdf_id"))
+                               pdf_id=body.get("pdf_id"),
+                               kind="reading" if body.get("kind") == "reading" else "review")
     window_start = datetime.now() - timedelta(minutes=minutes)
     grades = [g["quality"] for g in grade_log if g["at"] >= window_start]
     passed = sum(1 for q in grades if q >= 3)

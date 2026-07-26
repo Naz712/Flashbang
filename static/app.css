@@ -363,3 +363,27 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .blackout-box.drawing { background: rgba(28, 30, 38, .55); pointer-events: none; }
 .viewer-body.bo-edit .blackout-box:hover { border-color: #D55E00; background: #43302B; }
 .icon-btn.bo-on { color: #1C1E26; background: #F0F0EC; }
+
+/* annotations: "window box" notes anchored to page areas */
+.viewer-body.ann-edit .page-wrap { cursor: crosshair; }
+.ann-box { position: absolute; border: 2px solid #0072B2; border-radius: 4px;
+  background: rgba(0, 114, 178, .05); cursor: pointer; }
+.ann-box:hover { background: rgba(0, 114, 178, .12); }
+.ann-box.drawing { pointer-events: none; background: rgba(0, 114, 178, .12); }
+.ann-box.pending { border-style: dashed; pointer-events: none; }
+.ann-box.flash { box-shadow: 0 0 0 3px rgba(230, 159, 0, .6); }
+.ann-num { position: absolute; top: -9px; right: -9px; min-width: 17px; height: 17px;
+  padding: 0 4px; border-radius: 999px; background: #0072B2; color: #fff;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; }
+.reader-nav { font-size: 17px; font-weight: 600; padding: 2px 9px; }
+.reader-nav:disabled { opacity: .3; cursor: default; }
+.note-item { background: #F7F7F4; border: 1px solid #E3E3DE; border-radius: 8px;
+  padding: 8px 10px; cursor: pointer; }
+.note-item:hover { border-color: #C9CCD4; }
+.note-item.flash { border-color: #E69F00; box-shadow: 0 0 0 2px rgba(230, 159, 0, .35); }
+.note-num { flex: none; min-width: 16px; height: 16px; border-radius: 999px; background: #0072B2;
+  color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; }
+.note-item textarea { width: 100%; border: 1px solid #C9CCD4; border-radius: 6px; padding: 6px 8px;
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; resize: vertical; margin-bottom: 6px; }

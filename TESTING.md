@@ -95,6 +95,34 @@ Verified live: sidebar renders on open, 15m block started, countdown 14:58
 after 2.6s with bar + rail chip synced, End early → logged with recap →
 done-state. Test row (1 min) removed from the real study log afterwards. ✅
 
+### 2026-07-27 — Reading hub: page-by-page reader, window-box notes, split time
+Reading becomes its own space, fully separate from flashcard analytics:
+- **Migration (table rebuild):** study_sessions.kind now allows 'reading' —
+  the CHECK is baked into CREATE TABLE, so pre-existing DBs get a one-time
+  rename→recreate→copy rebuild. Rehearsed on a copy of the real DB first
+  (3 sessions + ids + accuracy preserved, 0 FK violations), then applied at
+  boot. Backup at Desktop\flashbang-fork-backup-2026-07-27.db.
+- **Page-by-page reader:** one page at a time, ‹ › buttons + ←/→/space,
+  bounds clamped to the topic range. Pages append instantly and pdf.js
+  paints in the background (a throttled tab could otherwise leave the
+  reader blank — found because a hidden preview pane never finishes
+  page.render()).
+- **Window-box notes:** ✎ Note mode drags an outlined box; comment saved in
+  the right panel with a numbered badge on the box; box↔note click-to-
+  locate; page-scoped; delete from the panel; pdf-delete cascades.
+- **Split time:** reader blocks log kind='reading' attributed to the doc
+  being read; flashcard analytics (Progress stats, heatmap, recent
+  sessions, time-by-course) now filter to review/cram/ingestion.
+- **Reading hub tab:** time read (all-time + week), reading streak, note
+  count, reading-time-by-course, recent blocks, and a library where every
+  topic chip opens the reader.
+- Suites: new check_annotations (CRUD, trim, empty-comment rejection,
+  clamp, counts, cascade) + check_db kinds-split asserts. All seven PASS.
+- Live on :5002: hub renders; reader pages 1→2→1 with bounds; drag→pending
+  box→save→numbered box + panel entry + stored row; note hidden on p.2,
+  back on p.1; reading block logged as kind='reading' under the read doc,
+  visible in hub recents, absent from Progress. Test artifacts removed. ✅
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

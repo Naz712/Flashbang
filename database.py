@@ -116,7 +116,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS study_sessions (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            kind           TEXT NOT NULL CHECK (kind IN ('review','cram','ingestion')),
+            kind           TEXT NOT NULL CHECK (kind IN ('review','cram','ingestion','reading')),
             course_id      INTEGER REFERENCES courses(id) ON DELETE SET NULL,
             pdf_id         INTEGER REFERENCES pdfs(id)    ON DELETE SET NULL,
             started_at     TEXT NOT NULL,
@@ -143,6 +143,20 @@ def init_db():
             minutes    INTEGER NOT NULL,
             reason     TEXT,
             created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS annotations (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            pdf_id      INTEGER NOT NULL REFERENCES pdfs(id) ON DELETE CASCADE,
+            page_number INTEGER NOT NULL,
+            x           REAL NOT NULL,
+            y           REAL NOT NULL,
+            w           REAL NOT NULL,
+            h           REAL NOT NULL,
+            comment     TEXT NOT NULL,
+            created_at  TEXT NOT NULL
         )
     """)
 
@@ -201,6 +215,38 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topics') WHERE name='kind'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE topics ADD COLUMN kind TEXT NOT NULL DEFAULT 'content'")
+    # widen study_sessions.kind to allow 'reading' (reading-hub blocks).
+    # The CHECK is baked into the original CREATE TABLE and SQLite cannot
+    # alter a CHECK in place, so pre-'reading' DBs get a one-time rebuild.
+    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='study_sessions'")
+    if "'reading'" not in (cursor.fetchone()["sql"] or ""):
+        conn.commit()                              # close any open transaction
+        cursor.execute("PRAGMA foreign_keys = OFF")  # session_topics points here
+        cursor.execute("""
+            CREATE TABLE study_sessions_new (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind           TEXT NOT NULL CHECK (kind IN ('review','cram','ingestion','reading')),
+                course_id      INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+                pdf_id         INTEGER REFERENCES pdfs(id)    ON DELETE SET NULL,
+                started_at     TEXT NOT NULL,
+                ended_at       TEXT,
+                cards_reviewed INTEGER NOT NULL DEFAULT 0,
+                minutes        REAL,
+                summary        TEXT,
+                accuracy       REAL
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO study_sessions_new (id, kind, course_id, pdf_id, started_at,
+                                            ended_at, cards_reviewed, minutes, summary, accuracy)
+            SELECT id, kind, course_id, pdf_id, started_at,
+                   ended_at, cards_reviewed, minutes, summary, accuracy
+            FROM study_sessions
+        """)
+        cursor.execute("DROP TABLE study_sessions")
+        cursor.execute("ALTER TABLE study_sessions_new RENAME TO study_sessions")
+        conn.commit()
+        cursor.execute("PRAGMA foreign_keys = ON")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -208,6 +254,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_topic       ON notes(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started  ON study_sessions(started_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_occlusions_pdf    ON occlusions(pdf_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_pdf   ON annotations(pdf_id)")
 
     conn.commit()
     conn.close()
@@ -314,6 +361,69 @@ def delete_pdf(pdf_id):
     conn.commit()
     conn.close()
     vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
+
+
+# ---------------------------------------------------------------- annotations
+
+def save_annotation(pdf_id, page_number, x, y, w, h, comment):
+    """A comment anchored to a boxed area of a page ("window box" note).
+    Coords normalized 0-1 like occlusions; the comment is required."""
+    comment = (comment or "").strip()
+    if not comment:
+        raise ValueError("annotation needs a comment")
+    x = max(0.0, min(1.0, float(x)))
+    y = max(0.0, min(1.0, float(y)))
+    w = max(0.0, min(1.0 - x, float(w)))
+    h = max(0.0, min(1.0 - y, float(h)))
+    if w < 0.005 or h < 0.005:
+        raise ValueError("annotation box too small")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO annotations (pdf_id, page_number, x, y, w, h, comment, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (pdf_id, int(page_number), x, y, w, h, comment, now_iso()))
+    ann_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return ann_id
+
+
+def get_annotations(pdf_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM annotations WHERE pdf_id = ? ORDER BY page_number, id",
+                   (pdf_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def update_annotation(annotation_id, comment):
+    comment = (comment or "").strip()
+    if not comment:
+        raise ValueError("annotation needs a comment")
+    conn = get_conn()
+    conn.execute("UPDATE annotations SET comment = ? WHERE id = ?", (comment, annotation_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_annotation(annotation_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM annotations WHERE id = ?", (annotation_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_annotation_counts():
+    """{pdf_id: note count} for the reading hub library."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT pdf_id, COUNT(*) AS n FROM annotations GROUP BY pdf_id")
+    counts = {r["pdf_id"]: r["n"] for r in cursor.fetchall()}
+    conn.close()
+    return counts
 
 
 # ---------------------------------------------------------------- occlusions
@@ -784,7 +894,9 @@ def end_session(session_id, cards_reviewed=None, summary=None):
     return {"session_id": session_id, "cards_reviewed": cards_reviewed, "minutes": minutes}
 
 
-def get_study_log(start_date=None, end_date=None, course_id=None):
+def get_study_log(start_date=None, end_date=None, course_id=None, kinds=None):
+    """kinds: tuple of session kinds to include; None = all. The flashcard
+    hub passes ('review','cram','ingestion'), the reading hub ('reading',)."""
     conn = get_conn()
     cursor = conn.cursor()
     query = """
@@ -798,6 +910,9 @@ def get_study_log(start_date=None, end_date=None, course_id=None):
         WHERE 1=1
     """
     params = []
+    if kinds:
+        query += f" AND s.kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
     if start_date:
         query += " AND s.started_at >= ?"
         params.append(start_date)
@@ -955,10 +1070,13 @@ def set_session_accuracy(session_id, accuracy):
     conn.close()
 
 
-def log_focus_session(minutes, course_id=None, pdf_id=None):
+def log_focus_session(minutes, course_id=None, pdf_id=None, kind="review"):
     """Log a UI focus-timer session that just ended (started `minutes` ago).
-    Cards reviewed and topics touched during the window are derived from the
-    cards table, same as end_session."""
+    kind='reading' for reading-hub blocks (kept separate from flashcard
+    analytics). Cards reviewed and topics touched during the window are
+    derived from the cards table, same as end_session."""
+    if kind not in ("review", "reading"):
+        kind = "review"
     ended = datetime.now()
     started = ended - timedelta(minutes=minutes)
     started_iso = started.isoformat(timespec="seconds")
@@ -973,8 +1091,9 @@ def log_focus_session(minutes, course_id=None, pdf_id=None):
     cursor.execute("""
         INSERT INTO study_sessions (kind, course_id, pdf_id, started_at, ended_at,
                                     cards_reviewed, minutes, summary)
-        VALUES ('review', ?, ?, ?, ?, ?, ?, 'focus session')
-    """, (course_id, pdf_id, started_iso, ended_iso, cards_reviewed, float(minutes)))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (kind, course_id, pdf_id, started_iso, ended_iso, cards_reviewed, float(minutes),
+          "reading block" if kind == "reading" else "focus session"))
     session_id = cursor.lastrowid
     cursor.execute("""
         INSERT OR IGNORE INTO session_topics (session_id, topic_id)
@@ -1006,18 +1125,22 @@ def get_due_forecast(days=7):
     return [{"day": day, "count": counts[day]} for day in sorted(counts)]
 
 
-def get_time_by_course():
-    """Total logged study minutes per course, all time."""
+def get_time_by_course(kinds=None):
+    """Total logged study minutes per course, all time. kinds as get_study_log."""
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
+    query = """
         SELECT s.course_id, courses.name, SUM(s.minutes) AS minutes
         FROM study_sessions s
         LEFT JOIN courses ON courses.id = s.course_id
         WHERE s.minutes IS NOT NULL
-        GROUP BY s.course_id
-        ORDER BY minutes DESC
-    """)
+    """
+    params = []
+    if kinds:
+        query += f" AND s.kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
+    query += " GROUP BY s.course_id ORDER BY minutes DESC"
+    cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
     return [{"course_id": r["course_id"], "name": r["name"] or "Other",

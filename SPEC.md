@@ -135,6 +135,26 @@ Decisions:
 - **Cascade with the pdf** (`ON DELETE CASCADE`) so deleting a document
   can't orphan boxes or block the manual-delete button.
 
+### Reading hub (2026-07-27, frameworks branch)
+
+A separate top-level space for reading: page-at-a-time reader (the topic
+viewer, now with ‹ ›/arrow-key nav), window-box annotations (outlined box +
+comment in the side panel, `annotations` table), and reading blocks — the
+sidebar countdown logs `study_sessions.kind='reading'` attributed to the
+open document.
+
+Decisions:
+- **Reading time is logged in the same table, separated by kind** rather
+  than a second sessions table — one migration (CHECK rebuild) instead of
+  duplicated session tooling, and each hub filters by kind. (Rejected: a
+  `reading_sessions` table — would fork streak/heatmap/time logic.)
+- **Flashcard analytics exclude reading** (`FLASHCARD_KINDS` filter):
+  Progress answers "is retrieval working", the Reading hub answers "am I
+  putting in reading time". Mastery still only ever moves through reviews.
+- **Annotations are their own table, not occlusions-with-text** — the two
+  overlays have different lifecycles (notes are read-mostly reference,
+  blackouts are self-testing) and different UI affordances.
+
 ### Gaps vs new spec
 1. No Course/Pdf/Topic entities — cards tagged with strings, not IDs.
 2. No page-range tracking; concepts aren't tied to PDF pages.
