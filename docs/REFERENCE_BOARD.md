@@ -51,7 +51,7 @@ LiteLLM (100+ providers, one `completion()` call) — the right choice if
 single-shot pipelines (grading/segmentation) should also switch providers
 freely.
 
-## 3. Spaced repetition — `sm2.py` → **py-fsrs** (ADOPTED)
+## 3. Spaced repetition — `sm2.py` → **py-fsrs** (EVALUATED → REVERTED by choice)
 
 **Hand-rolled:** textbook SM-2, 17 lines — quality < 3 resets to 1 day, else
 interval 1 → 6 → interval × ease.
@@ -75,6 +75,14 @@ card, _ = scheduler.review_card(card, QUALITY_TO_RATING[quality])
 gave 1 day; FSRS gave **13 days**. FSRS also (correctly) gives ~zero
 stability gain for an immediate same-day repeat — massed repetition adds no
 durable memory.
+
+**Eval outcome → reverted to SM-2.** At `desired_retention=0.75`, intervals
+stretched to months (13 → 156 → 1294 days on steady Good) — mathematically
+consistent ("review only when recall falls to 75%") but too sparse for
+exam-driven study. The decision: SM-2's tighter rhythm wins for this use
+case. `fsrs_adapter.py` stays; re-adoption is one import plus
+`Scheduler(desired_retention=0.9, maximum_interval=90)` for Anki-like
+intervals (1d, 4d, 10d, 25d).
 
 ## 4. Semantic search — `embeddings.py` + `search.py` → **Chroma** (ADOPTED)
 
