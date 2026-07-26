@@ -44,7 +44,58 @@ Same prompts into both, results recorded here:
 Both servers verified running SIMULTANEOUSLY (2026-07-26): same /next probe
 answered correctly by both; dashboards live on :5001 and :5002.
 
-*(fill further rows as you use both apps day-to-day)*
+### Full A/B eval battery — 2026-07-26
+
+**1. Scheduling (deterministic, identical answer sequences):**
+
+```
+                     SM-2 intervals        FSRS intervals (desired_retention=.75)
+steady good 4,4,4,4  [1, 6, 15, 38]        [13, 156, 1294, 7944]
+perfect     5,5,5    [1, 6, 17]            [46, 915, 11405]
+one lapse   4,4,2,4  [1, 6, 1, 1]          [13, 156, 17, 90]
+struggling  3,2,3,3  [1, 1, 1, 6]          [7, 3, 10, 26]
+
+retention 30d after one Good review:  SM-2 model ~0%   FSRS 49.7%
+reviews to maturity (21d+):           SM-2: 4          FSRS: 2
+```
+
+Findings: FSRS recovers from a lapse (17d→90d) where SM-2 collapses to 1-day
+grind; the power-law fat tail matches memory research. **TUNING FLAG:** at
+desired_retention=0.75, FSRS intervals explode (156d after two good reviews;
+years after four) — mathematically consistent with "only 75% recall
+required," but risky for exam prep. Recommend desired_retention 0.85–0.9
+and/or Scheduler(maximum_interval=90) before real use.
+
+**2. Search relevance (4 identical queries, same 8 notes):**
+
+Top-1 hit IDENTICAL on all 4 queries (incl. correctly rejecting the
+irrelevant one at the 0.3 threshold). Scores: OpenAI 0.51/0.57/0.44/0.01 vs
+MiniLM 0.46/0.56/0.33/0.03 — MiniLM margins are tighter (0.33 vs 0.44 on the
+paraphrased query), so the 0.3 threshold has less headroom; watch for false
+negatives on loosely-worded questions. Latency: Chroma local 200–800ms vs
+330–4600ms with the API round-trip. Cost: $0 vs ~$0.00001/query.
+
+**3. Turn latency (alternating, live, n=2 plan + 1 review-start + 1 end each):**
+
+```
+            plan avg   review-start   end
+original      5.7s         5.8s       4.4s
+framework     6.1s         5.9s       4.5s
+```
+
+LangGraph adds no measurable latency; the earlier 10.4s sample was API
+variance. Behavior parity held on every turn (session open/close, derived
+counts, pinning).
+
+**4. Grading:** identical by construction — both branches share grading.py
+(gpt-4o-mini, structured sections); not separately evaluated.
+
+**Verdict summary:** Chroma = clear win (free, faster, same relevance on this
+corpus; re-check threshold as the corpus grows). FSRS = better memory model
+(lapse recovery, honest fat-tail retention) but NEEDS the retention/interval
+retuning above before daily use. LangGraph = neutral on latency/behavior;
+value is code deletion + ecosystem, cost is debuggability (the thread-local
+callback bug was invisible until live testing).
 
 ---
 
