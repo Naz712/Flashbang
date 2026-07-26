@@ -1,8 +1,8 @@
 import json
 import sqlite3
 from datetime import datetime, timedelta
-from sm2 import compute_sm2   # scheduler: SM-2 (FSRS evaluated & reverted — see /reference)
-import vector_store           # frameworks fork: Chroma replaces JSON embeddings + cosine
+import fsrs_adapter   # scheduler: FSRS @ desired_retention=0.95 (see /reference for the eval journey)
+import vector_store    # frameworks fork: Chroma replaces JSON embeddings + cosine
 
 DB_PATH = "flashbang.db"
 
@@ -538,11 +538,11 @@ def get_due_cards(course_id=None, pdf_id=None, topic_id=None):
 
 
 def review_card(card_id, quality):
-    """SM-2 review. (FSRS was adopted, evaluated, and reverted by choice —
-    its intervals at desired_retention=0.75 stretch to months; see the
-    reference board. fsrs_adapter.py remains for a future retune.) Clears any
-    FSRS fields left from the evaluation period so mastery falls back to the
-    exponential curve consistently."""
+    """FSRS review at desired_retention=0.95 (settled after the A/B eval:
+    0.75 stretched intervals to months → reverted → retuned to 0.95 for an
+    Anki-like ladder with per-card adaptation). Quality 0-5 maps to
+    Again/Hard/Good/Easy; `repetitions` keeps its successive-relearning
+    meaning (consecutive successful recalls, reset on failure)."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
@@ -556,21 +556,22 @@ def review_card(card_id, quality):
         raise ValueError(f"No card with id {card_id}")
     prev_state = json.dumps(dict(row))  # one-level undo snapshot
     old_interval = row["interval_days"]
-    new_ease, new_interval, new_reps = compute_sm2(
-        row["ease_factor"], row["interval_days"], row["repetitions"], quality)
 
-    next_review = (datetime.now() + timedelta(days=new_interval)).isoformat(timespec="seconds")
+    result = fsrs_adapter.review(row, quality)
+    new_reps = row["repetitions"] + 1 if quality >= 3 else 0
+
     cursor.execute("""
         UPDATE cards
-        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?,
-            last_reviewed_at=?, stability=NULL, difficulty=NULL, fsrs_state=NULL,
-            prev_state=?
+        SET interval_days=?, repetitions=?, next_review=?, last_reviewed_at=?,
+            stability=?, difficulty=?, fsrs_state=?, prev_state=?
         WHERE id=?
-    """, (new_ease, new_interval, new_reps, next_review, now_iso(), prev_state, card_id))
+    """, (result["interval_days"], new_reps, result["next_review"], now_iso(),
+          result["stability"], result["difficulty"], result["fsrs_state"],
+          prev_state, card_id))
     conn.commit()
     conn.close()
-    return {"old_interval": old_interval, "new_interval": new_interval,
-            "next_review": next_review[:10]}
+    return {"old_interval": old_interval, "new_interval": result["interval_days"],
+            "next_review": result["next_review"][:10]}
 
 
 def undo_review(card_id):

@@ -3,10 +3,12 @@ reference board). FSRS is the scheduler behind modern Anki: each card carries
 a learned *stability* (days until predicted recall drops to 90%) and
 *difficulty*, updated per review by a research-fitted model.
 
-Configuration choices:
-- desired_retention=0.75 keeps the app's story intact — a card comes due
-  exactly when predicted recall hits 75%, same threshold the dashboards and
-  decay math have always used.
+Configuration choices (settled after the A/B eval journey — 0.75 stretched
+intervals to months and was reverted; 0.95 chosen for exam-driven study):
+- desired_retention=0.95: reviews land when predicted recall falls to 95% —
+  Anki-like ladder (steady Good ≈ 1, 3, 8, 19, 43d), a high everyday floor
+  for exam season, ~1.5× the workload of the 0.90 default.
+- maximum_interval=180: no card silently disappears for more than a semester.
 - learning_steps=() / relearning_steps=(): no intra-day micro-steps; this is
   a study app reviewed in daily sessions, and empty steps keep scheduling
   deterministic for tests.
@@ -18,7 +20,8 @@ from datetime import datetime, timezone
 from fsrs import Scheduler, Card, Rating, State
 
 scheduler = Scheduler(
-    desired_retention=0.75,
+    desired_retention=0.95,
+    maximum_interval=180,
     learning_steps=(),
     relearning_steps=(),
     enable_fuzzing=False,

@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timedelta
 from database import get_study_log, get_cards, get_answer_log, get_courses
 from mastery import card_retention, DUE_RETENTION
-from sm2 import compute_sm2
+import fsrs_adapter  # exam projection simulates via the live FSRS scheduler
 
 
 def _retention(card, at):
@@ -190,18 +190,12 @@ def compute_metrics(now=None, weeks=26):
             continue
         # "if you stopped today": decay every card forward to exam day untouched
         stop_today = sum(_retention(c, exam_dt) for c in course_cards) / len(course_cards)
-        # "on schedule": assume each review due before the exam happens (quality 4)
+        # "on schedule": every due review happens (Good), simulated by py-fsrs
         on_plan = 0.0
         for c in course_cards:
-            ease, interval, reps = c["ease_factor"], c["interval_days"], c["repetitions"]
-            last, next_review = c["last_reviewed_at"], datetime.fromisoformat(c["next_review"])
-            for _ in range(50):                          # safety bound
-                if next_review >= exam_dt:
-                    break
-                last = next_review.isoformat(timespec="seconds")
-                ease, interval, reps = compute_sm2(ease, interval, reps, 4)
-                next_review = next_review + timedelta(days=interval)
-            on_plan += card_retention(interval, last, exam_dt)
+            stability, last = fsrs_adapter.simulate_forward(c, exam_dt)
+            on_plan += card_retention(c["interval_days"], last, exam_dt,
+                                      stability=stability)
         exams[course["id"]] = {"date": course["exam_date"],
                                "days_left": (exam_dt.date() - today).days,
                                "today": round(stop_today * 100),

@@ -44,24 +44,38 @@ assert card["last_reviewed_at"] is None
 assert "T" in card["next_review"], f"next_review not full timestamp: {card['next_review']}"
 datetime.fromisoformat(card["created_at"])
 
-# --- review stamps last_reviewed_at and grows interval (SM-2; FSRS reverted
-# by choice — its fields stay NULL and mastery uses the exponential curve)
+# --- review stamps last_reviewed_at, grows interval, and sets FSRS state
+# (scheduler: FSRS @ desired_retention=0.95, maximum_interval=180)
 result = database.review_card(card_id, 5)
 assert result["new_interval"] >= 1 and result["old_interval"] == 0
+assert result["new_interval"] <= 180, "maximum_interval cap violated"
 card = database.get_cards(topic_id=topic_ids[0])[0]
 assert card["last_reviewed_at"] is not None
-assert card["stability"] is None, "SM-2 reviews must not set FSRS stability"
+assert card["stability"] is not None and card["stability"] > 0, "FSRS stability not stored"
 
-# --- undo restores the pre-review state, one level deep
+# --- undo restores the pre-review state, one level deep (incl. FSRS fields)
 prev = database.undo_review(card_id)
 card = database.get_cards(topic_id=topic_ids[0])[0]
 assert card["last_reviewed_at"] is None and card["interval_days"] == 0
+assert card["stability"] is None, "undo should clear FSRS stability on a first review"
 try:
     database.undo_review(card_id)
     raise AssertionError("second undo should have raised")
 except ValueError:
     pass
 database.review_card(card_id, 5)  # re-review so later session checks still hold
+# --- FSRS memory model: a SPACED successful review must grow stability
+stability_1 = database.get_cards(topic_id=topic_ids[0])[0]["stability"]
+conn = database.get_conn()
+conn.execute("UPDATE cards SET last_reviewed_at = ?, next_review = ? WHERE id = ?",
+             ((datetime.now() - timedelta(days=6)).isoformat(timespec="seconds"),
+              datetime.now().isoformat(timespec="seconds"), card_id))
+conn.commit()
+conn.close()
+database.review_card(card_id, 4)
+stability_2 = database.get_cards(topic_id=topic_ids[0])[0]["stability"]
+assert stability_2 > stability_1, \
+    f"stability should grow after a spaced success: {stability_1} -> {stability_2}"
 
 # --- FK enforcement: orphan insert must fail
 try:

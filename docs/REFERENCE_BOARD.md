@@ -51,7 +51,7 @@ LiteLLM (100+ providers, one `completion()` call) — the right choice if
 single-shot pipelines (grading/segmentation) should also switch providers
 freely.
 
-## 3. Spaced repetition — `sm2.py` → **py-fsrs** (EVALUATED → REVERTED by choice)
+## 3. Spaced repetition — `sm2.py` → **py-fsrs** (ADOPTED @ 0.95 after a full eval journey)
 
 **Hand-rolled:** textbook SM-2, 17 lines — quality < 3 resets to 1 day, else
 interval 1 → 6 → interval × ease.
@@ -76,13 +76,20 @@ gave 1 day; FSRS gave **13 days**. FSRS also (correctly) gives ~zero
 stability gain for an immediate same-day repeat — massed repetition adds no
 durable memory.
 
-**Eval outcome → reverted to SM-2.** At `desired_retention=0.75`, intervals
-stretched to months (13 → 156 → 1294 days on steady Good) — mathematically
-consistent ("review only when recall falls to 75%") but too sparse for
-exam-driven study. The decision: SM-2's tighter rhythm wins for this use
-case. `fsrs_adapter.py` stays; re-adoption is one import plus
-`Scheduler(desired_retention=0.9, maximum_interval=90)` for Anki-like
-intervals (1d, 4d, 10d, 25d).
+**The eval journey (the best story on this board):**
+1. Adopted at `desired_retention=0.75` (to match the app's decay threshold) →
+   intervals exploded (13 → 156 → 1294 days on steady Good). Mathematically
+   consistent — "review only when recall falls to 75%" — but absurd for
+   exam-driven study. **Reverted to SM-2.**
+2. Workload simulation across targets showed the cost curve: 90% ≈ 4 reviews
+   per card / 90 days, 95% ≈ 6, 97% ≈ 8, 99% ≈ 17 (a 1-day treadmill).
+3. **Re-adopted at `desired_retention=0.95, maximum_interval=180`** — an
+   Anki-like ladder (steady Good: 1, 3, 8, 19, 43d), a high everyday floor
+   for exam season, and FSRS's per-card spread preserved (steady Hard: 1, 1,
+   2, 3d vs steady Easy: 3, 14, 52, 167d — SM-2 cannot differentiate cards
+   this strongly).
+Lesson: the algorithm was never wrong — the *retention target* is the
+product decision, and it took measuring the workload curve to set it.
 
 ## 4. Semantic search — `embeddings.py` + `search.py` → **Chroma** (ADOPTED)
 
