@@ -347,3 +347,14 @@ a:hover { color: #005A8E; text-decoration: underline; }
   font-size: 9.5px; color: #8A8F9C; margin: 8px 0 2px; }
 .viewer-text { align-self: stretch; background: #fff; border: 1px solid #E3E3DE; border-radius: 8px;
   padding: 14px 18px; font-size: 12.5px; line-height: 1.7; }
+
+/* blackout (image occlusion) */
+.page-wrap { position: relative; }
+.page-wrap-stretch { align-self: stretch; }
+.viewer-body.bo-edit .page-wrap { cursor: crosshair; }
+.blackout-box { position: absolute; background: #1C1E26; border: 1px solid #1C1E26;
+  border-radius: 3px; cursor: pointer; }
+.blackout-box.peek { background: rgba(28, 30, 38, .05); border: 1.5px dashed #8A8F9C; }
+.blackout-box.drawing { background: rgba(28, 30, 38, .55); pointer-events: none; }
+.viewer-body.bo-edit .blackout-box:hover { border-color: #D55E00; background: #43302B; }
+.icon-btn.bo-on { color: #1C1E26; background: #F0F0EC; }

@@ -147,6 +147,19 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS occlusions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            pdf_id      INTEGER NOT NULL REFERENCES pdfs(id) ON DELETE CASCADE,
+            page_number INTEGER NOT NULL,
+            x           REAL NOT NULL,
+            y           REAL NOT NULL,
+            w           REAL NOT NULL,
+            h           REAL NOT NULL,
+            created_at  TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS answer_log (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             at         TEXT NOT NULL,
@@ -194,6 +207,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_pdf        ON topics(pdf_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_topic       ON notes(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started  ON study_sessions(started_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_occlusions_pdf    ON occlusions(pdf_id)")
 
     conn.commit()
     conn.close()
@@ -300,6 +314,47 @@ def delete_pdf(pdf_id):
     conn.commit()
     conn.close()
     vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
+
+
+# ---------------------------------------------------------------- occlusions
+
+def save_occlusion(pdf_id, page_number, x, y, w, h):
+    """One blackout box over a page, coords normalized 0-1 relative to the
+    rendered page box (so they survive any render width). Clamped server-side;
+    boxes smaller than 0.5% in either dimension are rejected as accidental."""
+    x = max(0.0, min(1.0, float(x)))
+    y = max(0.0, min(1.0, float(y)))
+    w = max(0.0, min(1.0 - x, float(w)))
+    h = max(0.0, min(1.0 - y, float(h)))
+    if w < 0.005 or h < 0.005:
+        raise ValueError("occlusion box too small")
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO occlusions (pdf_id, page_number, x, y, w, h, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (pdf_id, int(page_number), x, y, w, h, now_iso()))
+    occ_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return occ_id
+
+
+def get_occlusions(pdf_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM occlusions WHERE pdf_id = ? ORDER BY page_number, id",
+                   (pdf_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def delete_occlusion(occlusion_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM occlusions WHERE id = ?", (occlusion_id,))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------- topics

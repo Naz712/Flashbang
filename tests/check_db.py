@@ -10,11 +10,15 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import database
+import vector_store
 
-# point the module at a throwaway file
+# point BOTH stores at throwaways — delete_pdf/delete_course mirror their
+# cascade into Chroma, and temp-db ids collide with real ones (a real pdf's
+# embeddings were once wiped by this suite running against the live store)
 tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 tmp.close()
 database.DB_PATH = tmp.name
+vector_store.reset(path=tempfile.mkdtemp(prefix="chroma-check-"))
 
 database.init_db()
 

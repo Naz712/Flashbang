@@ -114,6 +114,27 @@ Still missing: search.py, app.py (Streamlit), .env, calendar.db.
 
 Old calendar CRUD is gone: the calendar is now the auto-written study log.
 
+### Blackout tool (2026-07-26, frameworks branch)
+
+Image occlusion in the topic page viewer: drag black boxes over key facts in
+blackout mode; boxes persist (`occlusions` table, coords normalized 0-1 to
+the page box) and render hidden on every reopen — recall, then click to
+peek. Reveal-all toggle; blackout-mode click deletes. Works on both the
+pdf.js canvas path and the extracted-text fallback (boxes overlay the page
+container, not the canvas).
+
+Decisions:
+- **Boxes are visual only, not cards.** A box never touches SM-2/FSRS or
+  mastery — occlusion recall is self-checked, unscheduled study. (Rejected:
+  auto-creating a card per box — grading a visual recall needs image cards
+  the review flow doesn't have, and silent card creation would pollute the
+  deck.)
+- **Normalized coords over pixels** so any render width, DPR, or future
+  page-at-a-time layout shows boxes correctly. (Rejected: pixel coords tied
+  to one canvas size.)
+- **Cascade with the pdf** (`ON DELETE CASCADE`) so deleting a document
+  can't orphan boxes or block the manual-delete button.
+
 ### Gaps vs new spec
 1. No Course/Pdf/Topic entities — cards tagged with strings, not IDs.
 2. No page-range tracking; concepts aren't tied to PDF pages.

@@ -64,6 +64,26 @@ the frozen hand-rolled reference — no more parity cherry-picks.
   Programming" → "OOP Inheritance"). Verified live: zero titles over 35
   chars across the library.
 
+### 2026-07-26 — blackout tool (image occlusion) + Chroma test-isolation bug
+Blackout tool shipped in the topic viewer: drag boxes over key facts, boxes
+persist per pdf page (normalized 0-1 coords), hidden on reopen, click to
+peek, reveal-all toggle, blackout-mode click deletes. Visual-only by design
+— never touches scheduling or mastery (see SPEC.md decisions).
+- New suite `check_occlusions`: round-trip, edge clamping, degenerate-box
+  rejection, delete, pdf-delete cascade. PASSING.
+- Live on :5002 (simulated drag events through the real handlers): draw →
+  box at 20%/30% sized 40%×15% → stored row matches; persists across viewer
+  reopen; peek toggles; blackout-mode click deletes; DB left clean. ✅
+- **BUG FOUND (pre-existing): offline suites were wiping real Chroma
+  entries.** check_db's temp-database ids collide with real ids, and
+  delete_pdf/delete_course mirror their cascade into the LIVE vector store —
+  pdf 4's six embeddings were gone (SQLite notes intact, search silently
+  missing them). Repair: backfill_embedding.py re-indexed 8/8 notes; search
+  probe retrieves Data Encapsulation at 0.57 again. Fix: check_db and
+  check_occlusions now call `vector_store.reset(path=<temp dir>)` so tests
+  can never touch the real index. Lesson: a mirrored cascade needs mirrored
+  test isolation.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

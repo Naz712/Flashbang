@@ -21,6 +21,7 @@ from database import (
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
     get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
     set_exam_date, delete_pdf,
+    save_occlusion, get_occlusions, delete_occlusion,
 )
 
 app = Flask(__name__)
@@ -542,6 +543,34 @@ def delete_pdf_route(pdf_id):
             except OSError:
                 pass   # already gone or locked — the DB row is what matters
     return jsonify({"ok": True, "deleted": pdf["filename"]})
+
+
+@app.get("/api/occlusions/<int:pdf_id>")
+def occlusions_list(pdf_id):
+    return jsonify([{"id": r["id"], "page": r["page_number"],
+                     "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]}
+                    for r in get_occlusions(pdf_id)])
+
+
+@app.post("/api/occlusions")
+def occlusions_create():
+    body = request.get_json(force=True)
+    pdf_id = body.get("pdf_id")
+    if get_pdf(pdf_id) is None:
+        return jsonify({"error": f"no pdf with id {pdf_id}"}), 404
+    try:
+        occ_id = save_occlusion(pdf_id, body.get("page_number"),
+                                body.get("x"), body.get("y"),
+                                body.get("w"), body.get("h"))
+    except (TypeError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"id": occ_id})
+
+
+@app.delete("/api/occlusions/<int:occ_id>")
+def occlusions_delete(occ_id):
+    delete_occlusion(occ_id)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/focus")

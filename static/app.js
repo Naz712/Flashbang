@@ -1194,6 +1194,76 @@ window.toggleFocus = async () => {
 
 const pdfDocCache = {};
 
+/* blackout (image occlusion): draw black boxes over key facts, recall, peek.
+   Coords stored 0-1 relative to the page box so any render width works. */
+const BO = { pdfId: null, boxes: [], edit: false, revealAll: false };
+
+function syncBlackoutButtons() {
+  $("blackoutToggle").classList.toggle("bo-on", BO.edit);
+  $("blackoutReveal").classList.toggle("bo-on", BO.revealAll);
+  $("viewerBody").classList.toggle("bo-edit", BO.edit);
+}
+
+function renderBox(wrap, b) {
+  const el = document.createElement("div");
+  el.className = "blackout-box";
+  el.title = "Recall what's under here, then click to peek (blackout mode: click deletes)";
+  Object.assign(el.style, { left: `${b.x * 100}%`, top: `${b.y * 100}%`,
+    width: `${b.w * 100}%`, height: `${b.h * 100}%` });
+  if (BO.revealAll) el.classList.add("peek");
+  el.onclick = async (e) => {
+    e.stopPropagation();
+    if (BO.edit) {
+      const res = await fetch(`/api/occlusions/${b.id}`, { method: "DELETE" });
+      if (res.ok) { BO.boxes = BO.boxes.filter((x) => x.id !== b.id); el.remove(); }
+    } else {
+      el.classList.toggle("peek");
+    }
+  };
+  wrap.appendChild(el);
+}
+
+function wireDrawing(wrap) {
+  wrap.addEventListener("mousedown", (e) => {
+    if (!BO.edit || e.target.classList.contains("blackout-box")) return;
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const norm = (ev) => ({
+      x: Math.min(Math.max((ev.clientX - rect.left) / rect.width, 0), 1),
+      y: Math.min(Math.max((ev.clientY - rect.top) / rect.height, 0), 1),
+    });
+    const p0 = norm(e);
+    const ghost = document.createElement("div");
+    ghost.className = "blackout-box drawing";
+    wrap.appendChild(ghost);
+    let box = null;
+    const update = (ev) => {
+      const p1 = norm(ev);
+      box = { x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y),
+              w: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y) };
+      Object.assign(ghost.style, { left: `${box.x * 100}%`, top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`, height: `${box.h * 100}%` });
+    };
+    update(e);
+    const up = async () => {
+      document.removeEventListener("mousemove", update);
+      document.removeEventListener("mouseup", up);
+      ghost.remove();
+      if (box.w < 0.01 || box.h < 0.01) return;   // a click, not a drag
+      const res = await fetch("/api/occlusions", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdf_id: BO.pdfId, page_number: +wrap.dataset.page, ...box }) });
+      if (!res.ok) return;
+      const { id } = await res.json();
+      const saved = { id, page: +wrap.dataset.page, ...box };
+      BO.boxes.push(saved);
+      renderBox(wrap, saved);
+    };
+    document.addEventListener("mousemove", update);
+    document.addEventListener("mouseup", up);
+  });
+}
+
 window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   const title = decodeURIComponent(encTitle);
   $("viewerTitle").textContent = title;
@@ -1201,6 +1271,29 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   const body = $("viewerBody");
   body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">Loading pages…</div>`;
   $("viewer").style.display = "flex";
+  BO.pdfId = pdfId;
+  BO.edit = false;
+  BO.revealAll = false;
+  syncBlackoutButtons();
+  try { BO.boxes = await fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()); }
+  catch { BO.boxes = []; }
+
+  // wrap a rendered page so its blackout boxes can sit on top of it
+  const addPage = (n, el, stretch) => {
+    const wrap = document.createElement("div");
+    wrap.className = "page-wrap" + (stretch ? " page-wrap-stretch" : "");
+    wrap.dataset.page = n;
+    wrap.appendChild(el);
+    body.appendChild(wrap);
+    BO.boxes.filter((b) => b.page === n).forEach((b) => renderBox(wrap, b));
+    wireDrawing(wrap);
+  };
+  const addLabel = (n) => {
+    const label = document.createElement("div");
+    label.className = "viewer-page-label";
+    label.textContent = `page ${n}`;
+    body.appendChild(label);
+  };
 
   try {
     if (!window.pdfjsLib) throw new Error("pdf.js unavailable");
@@ -1222,12 +1315,10 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       canvas.style.width = `${width}px`;
+      canvas.style.display = "block";
       canvas.className = "viewer-page";
-      const label = document.createElement("div");
-      label.className = "viewer-page-label";
-      label.textContent = `page ${n}`;
-      body.appendChild(label);
-      body.appendChild(canvas);
+      addLabel(n);
+      addPage(n, canvas);
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
     }
   } catch {
@@ -1236,14 +1327,26 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
       const res = await fetch(`/api/pdf/${pdfId}/text?start=${pageStart}&end=${pageEnd}`);
       const pages = await res.json();
       if (!pages.length) throw new Error("no pages");
-      body.innerHTML = pages.map((p) => `
-        <div class="viewer-page-label">page ${p.page}</div>
-        <div class="viewer-text">${md(p.text)}</div>`).join("");
+      body.innerHTML = "";
+      for (const p of pages) {
+        const div = document.createElement("div");
+        div.className = "viewer-text";
+        div.innerHTML = md(p.text);
+        addLabel(p.page);
+        addPage(p.page, div, true);
+      }
     } catch {
       body.innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">
         Couldn't load these pages — the original file may have moved.</div>`;
     }
   }
+};
+
+$("blackoutToggle").onclick = () => { BO.edit = !BO.edit; syncBlackoutButtons(); };
+$("blackoutReveal").onclick = () => {
+  BO.revealAll = !BO.revealAll;
+  document.querySelectorAll(".blackout-box").forEach((b) => b.classList.toggle("peek", BO.revealAll));
+  syncBlackoutButtons();
 };
 
 window.closeViewer = () => { $("viewer").style.display = "none"; };
