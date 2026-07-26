@@ -220,6 +220,26 @@ grade_answer tool; agent told not to restate the card's content.
 Verified live: unsure + partially-correct answer → GRADE 3/5 amber card with
 all sections populated and calibration "unsure but mostly correct". ✅
 
+### 2026-07-26 — response-latency tracking + retrieval fluency metric
+Client stamps when a question card renders (`[CARD n/m · topic]` marker) and
+sends `latency_ms` with the next message; server keeps it only for turns that
+produce a grade (same first-grade-of-turn rule as confidence), stores it in
+`answer_log.latency_ms`. New Progress panel "RETRIEVAL FLUENCY · 28 DAYS":
+2×2 of fast/slow (vs personal median — typing speed and question length wash
+out) × right/wrong, plus median time-to-correct. Needs 6+ timed answers.
+Research basis: speed of correct recall predicts retention beyond accuracy
+(Benjamin & Bjork 1996); slow-but-right cards are the ones to keep spacing.
+- check_db extended: latency round-trip + untimed-answers-stay-NULL. All five
+  offline suites PASSING.
+- Verified live (no API spend): fetch stubbed with a fake SSE reply — turn
+  without a question card sent `latency_ms: null`; card marker armed the
+  clock; answer sent 1.3s later carried `latency_ms: 1378`. ✅ Panel verified
+  in both empty ("0 of 6 timed answers") and populated states (injected
+  display data: 42% fluent, quad bars). ✅
+- Known approximations: latency includes typing time (median split absorbs
+  it); a mid-card detour question inflates that one measurement; answers
+  after a page reload go untimed (NULL, excluded).
+
 ## Benchmarks — card creation (2026-07-21, gpt-4o)
 
 | Stage | 2-page topic | 7-page topic |

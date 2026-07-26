@@ -177,6 +177,11 @@ def init_db():
         cursor.execute(f"SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='{column}'")
         if cursor.fetchone()["n"] == 0:
             cursor.execute(f"ALTER TABLE cards ADD COLUMN {column} {decl}")
+    # ms from question card shown to answer sent (client-measured); NULL when
+    # no question was on screen. Feeds the retrieval-fluency metric.
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='latency_ms'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE answer_log ADD COLUMN latency_ms INTEGER")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -770,12 +775,12 @@ def get_upcoming_reviews(days=7):
     return rows
 
 
-def log_answer(quality, confidence=None, card_id=None):
+def log_answer(quality, confidence=None, card_id=None, latency_ms=None):
     """Record one graded recall attempt (feeds calibration + 85%-rule flags)."""
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO answer_log (at, card_id, quality, confidence) VALUES (?, ?, ?, ?)",
-                   (now_iso(), card_id, quality, confidence))
+    cursor.execute("INSERT INTO answer_log (at, card_id, quality, confidence, latency_ms) VALUES (?, ?, ?, ?, ?)",
+                   (now_iso(), card_id, quality, confidence, latency_ms))
     answer_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -1057,6 +1062,7 @@ def get_answer_log(days=90):
     cursor.execute("""
         SELECT answer_log.at, answer_log.card_id, answer_log.quality,
                answer_log.confidence, answer_log.elapsed_ratio,
+               answer_log.latency_ms,
                cards.question, topics.title AS topic_title
         FROM answer_log
         LEFT JOIN cards  ON cards.id  = answer_log.card_id

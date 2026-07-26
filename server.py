@@ -263,11 +263,20 @@ def history():
     return jsonify(chat_history)
 
 
+def _clean_latency(value):
+    """Client-reported ms from question shown to answer sent. Reject anything
+    non-numeric, non-positive, or over 30 min (stale tab, walked away)."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return int(value) if 0 < value < 30 * 60 * 1000 else None
+
+
 @app.post("/api/chat")
 def chat():
     body = request.get_json(force=True)
     message = (body.get("message") or "").strip()
     confidence = body.get("confidence")
+    latency_ms = _clean_latency(body.get("latency_ms"))
     if not message:
         return jsonify({"error": "empty message"}), 400
 
@@ -281,9 +290,10 @@ def chat():
         if name == "grade_answer" and isinstance(result, dict):
             grade_log.append({"at": datetime.now(), "quality": result["quality"]})
             session_grades.append(result["quality"])
-            # confidence applies to the attempt that produced the first grade of the turn
+            # confidence + latency apply to the attempt that produced the first grade of the turn
             conf = confidence if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf)
+            lat = latency_ms if not grades_this_turn else None
+            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
             grades_this_turn.append(result)
         elif name == "review_card" and grades_this_turn:
             grades_this_turn[-1]["meta"] = str(result)
@@ -323,6 +333,7 @@ def chat_stream():
     display = (body.get("display") or message).strip()   # raw "/command" for history
     force_agent = body.get("agent")
     confidence = body.get("confidence")
+    latency_ms = _clean_latency(body.get("latency_ms"))
     if not message:
         return jsonify({"error": "empty message"}), 400
 
@@ -345,7 +356,8 @@ def chat_stream():
             grade_log.append({"at": datetime.now(), "quality": result["quality"]})
             session_grades.append(result["quality"])
             conf = confidence if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf)
+            lat = latency_ms if not grades_this_turn else None
+            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
             grades_this_turn.append(result)
         elif name == "review_card" and grades_this_turn:
             grades_this_turn[-1]["meta"] = str(result)

@@ -208,6 +208,28 @@ def compute_metrics(now=None, weeks=26):
              "rate": round(sum(1 for a in recent if a["quality"] >= 3) / len(recent) * 100)
              if len(recent) >= 5 else None}
 
+    # ---- retrieval fluency: how FAST correct answers come, not just whether
+    # they come. Fast+correct signals a strong memory; the fast/slow line is
+    # the personal median so typing speed and question length wash out.
+    timed = [a for a in answers if a["latency_ms"] is not None
+             and (today - datetime.fromisoformat(a["at"]).date()).days < 28]
+    fluency = {"n": len(timed), "needed": 6, "split_ms": None, "pass_ms": None,
+               "fail_ms": None, "fluent_pct": None,
+               "quads": {"fluent": 0, "effortful": 0, "fast_wrong": 0, "slow_wrong": 0}}
+    if len(timed) >= 6:
+        med = lambda xs: sorted(xs)[len(xs) // 2] if xs else None
+        split = med([a["latency_ms"] for a in timed])
+        quads = fluency["quads"]
+        for a in timed:
+            fast, right = a["latency_ms"] <= split, a["quality"] >= 3
+            quads["fluent" if fast and right else "effortful" if right
+                  else "fast_wrong" if fast else "slow_wrong"] += 1
+        fluency.update({
+            "split_ms": split,
+            "pass_ms": med([a["latency_ms"] for a in timed if a["quality"] >= 3]),
+            "fail_ms": med([a["latency_ms"] for a in timed if a["quality"] < 3]),
+            "fluent_pct": round(quads["fluent"] / len(timed) * 100)})
+
     # ---- Brier score from confidence-tagged answers (sure=0.9, unsure=0.5)
     conf_points = [(0.9 if a["confidence"] == "sure" else 0.5, 1 if a["quality"] >= 3 else 0)
                    for a in answers if a["confidence"]]
@@ -218,4 +240,4 @@ def compute_metrics(now=None, weeks=26):
     return {"heatmap": heatmap, "weeks": weeks, "funnel": funnel,
             "retention": retention, "hardest": hardest, "hours": hour_buckets,
             "knowledge": knowledge, "personal": personal, "exams": exams,
-            "sweet": sweet, "brier": brier}
+            "sweet": sweet, "brier": brier, "fluency": fluency}
