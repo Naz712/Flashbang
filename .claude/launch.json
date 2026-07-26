@@ -12,6 +12,12 @@
       "runtimeExecutable": "C:\\Users\\Nazzoom\\Desktop\\Flashbang\\flashbang\\Scripts\\python.exe",
       "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8501"],
       "port": 8501
+    },
+    {
+      "name": "flashbang-frameworks",
+      "runtimeExecutable": "C:\\Users\\Nazzoom\\Desktop\\Flashbang-frameworks\\flashbang\\Scripts\\launch_fork.cmd",
+      "runtimeArgs": [],
+      "port": 5002
     }
   ]
 }
