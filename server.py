@@ -20,7 +20,7 @@ from database import (
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
     get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
-    set_exam_date,
+    set_exam_date, delete_pdf,
 )
 
 app = Flask(__name__)
@@ -433,6 +433,24 @@ def upload():
         suffix += 1
     f.save(path)
     return jsonify({"path": path, "filename": os.path.basename(path)})
+
+
+@app.delete("/api/pdfs/<int:pdf_id>")
+def delete_pdf_route(pdf_id):
+    """Manual delete from the Progress screen — same cascade the organizer
+    agent's delete_pdf tool runs, plus removal of the uploaded file copy."""
+    pdf = get_pdf(pdf_id)
+    if pdf is None:
+        return jsonify({"error": f"no pdf with id {pdf_id}"}), 404
+    delete_pdf(pdf_id)
+    if pdf["file_path"]:
+        file_path = os.path.abspath(pdf["file_path"])
+        if os.path.normcase(os.path.dirname(file_path)) == os.path.normcase(UPLOAD_DIR):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass   # already gone or locked — the DB row is what matters
+    return jsonify({"ok": True, "deleted": pdf["filename"]})
 
 
 @app.post("/api/focus")

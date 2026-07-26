@@ -228,6 +228,9 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .pdf-card { border-radius: 12px; background: #FBFBF9; border: 1px solid #E9E9E5; padding: 16px 18px; cursor: pointer; }
 .pdf-card:hover { border-color: #B0B4BE; background: #fff; }
 .badge { flex: none; font-size: 10.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.pdf-del { flex: none; border: none; background: transparent; color: #C9CCD4; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 6px; }
+.pdf-del:hover { color: #D55E00; background: rgba(213, 94, 0, .08); }
 .trow { display: flex; align-items: center; gap: 10px; }
 .trow .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
 .trow .name { font-size: 11px; color: #5C616E; width: 40%; flex: none; overflow: hidden;

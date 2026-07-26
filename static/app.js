@@ -574,7 +574,8 @@ function renderProgress() {
   const courseCards = st.libCourses.map((c) => {
     const pdfCards = [...c.pdfs].sort(sortFn).map((p) => {
       const started = p.topics.some((t) => t.status !== "not_started");
-      const [badge, bg, fg] = p.completion_pct >= 70 ? ["On track", "rgba(0,158,115,.10)", "#00794F"]
+      const [badge, bg, fg] = p.status === "pending" ? ["Ingest incomplete", "rgba(213,94,0,.12)", "#D55E00"]
+        : p.completion_pct >= 70 ? ["On track", "rgba(0,158,115,.10)", "#00794F"]
         : started ? ["In progress", "rgba(230,159,0,.13)", "#8A6100"] : ["Not started", "#F0F0EC", "#8A8F9C"];
       const d = deltaBits(p.delta);
       const topicRows = p.topics.map((t) => `
@@ -594,6 +595,8 @@ function renderProgress() {
               <span style="${p.due > 0 ? `color:${LOW}; font-weight:600` : "color:#8A8F9C"}">${p.due} due</span></div>
           </div>
           <span class="badge" style="background:${bg}; color:${fg}">${badge}</span>
+          <button class="pdf-del" title="Delete this document (topics, cards, and schedule included)"
+            onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encodeURIComponent(p.filename)}')">✕</button>
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
           <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${p.completion_pct}%; background:${retColor(p.completion_pct)}"></div></div>
@@ -1121,6 +1124,18 @@ window.toggleRail = () => { S.railOpen = !S.railOpen; renderRail(); };
 window.pickLen = (m) => { S.sessionLen = m; renderRail(); };
 window.dismissRecap = () => { S.recap = null; renderRail(); };
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
+
+window.deletePdf = async (pdfId, encName) => {
+  const name = decodeURIComponent(encName);
+  if (!confirm(`Delete "${name}"?\nIts topics, cards, and scheduled reviews are removed. This cannot be undone.`)) return;
+  const res = await fetch(`/api/pdfs/${pdfId}`, { method: "DELETE" });
+  if (!res.ok) {
+    alert(`Delete failed (${res.status}) — check the server log.`);
+    return;
+  }
+  if (S.pdfId === pdfId) S.pdfId = null;   // let /api/state pick a new current doc
+  fetchState();
+};
 window.startReview = () => {
   const cur = S.state?.current;
   sendChat(cur ? `Review my due cards in "${cur.filename}" (pdf_id ${cur.pdf_id})`
