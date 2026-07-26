@@ -4,7 +4,12 @@ import math
 from datetime import datetime, timedelta
 from database import get_study_log, get_cards, get_answer_log, get_courses
 from mastery import card_retention, DUE_RETENTION
-from sm2 import compute_sm2
+import fsrs_adapter  # frameworks fork: exam projection simulates via py-fsrs
+
+
+def _retention(card, at):
+    return card_retention(card["interval_days"], card["last_reviewed_at"], at,
+                          stability=card["stability"] if "stability" in card.keys() else None)
 
 
 def compute_stats(now=None):
@@ -151,8 +156,7 @@ def compute_metrics(now=None, weeks=26):
     all_cards = get_cards()
 
     # ---- knowledge in memory: retrievability-weighted total (FSRS-style)
-    held = sum(card_retention(c["interval_days"], c["last_reviewed_at"], now)
-               for c in all_cards)
+    held = sum(_retention(c, now) for c in all_cards)
     knowledge = {"held": round(held, 1), "total": len(all_cards),
                  "pct": round(held / len(all_cards) * 100) if all_cards else 0}
 
@@ -185,20 +189,13 @@ def compute_metrics(now=None, weeks=26):
                                    "cards": len(course_cards)}
             continue
         # "if you stopped today": decay every card forward to exam day untouched
-        stop_today = sum(card_retention(c["interval_days"], c["last_reviewed_at"], exam_dt)
-                         for c in course_cards) / len(course_cards)
-        # "on schedule": assume each review due before the exam happens (quality 4)
+        stop_today = sum(_retention(c, exam_dt) for c in course_cards) / len(course_cards)
+        # "on schedule": every due review happens (Good), simulated by py-fsrs
         on_plan = 0.0
         for c in course_cards:
-            ease, interval, reps = c["ease_factor"], c["interval_days"], c["repetitions"]
-            last, next_review = c["last_reviewed_at"], datetime.fromisoformat(c["next_review"])
-            for _ in range(50):                          # safety bound
-                if next_review >= exam_dt:
-                    break
-                last = next_review.isoformat(timespec="seconds")
-                ease, interval, reps = compute_sm2(ease, interval, reps, 4)
-                next_review = next_review + timedelta(days=interval)
-            on_plan += card_retention(interval, last, exam_dt)
+            stability, last = fsrs_adapter.simulate_forward(c, exam_dt)
+            on_plan += card_retention(c["interval_days"], last, exam_dt,
+                                      stability=stability)
         exams[course["id"]] = {"date": course["exam_date"],
                                "days_left": (exam_dt.date() - today).days,
                                "today": round(stop_today * 100),

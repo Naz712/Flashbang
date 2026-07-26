@@ -1,26 +1,28 @@
 """Decay and completion math. Pure functions — no database, no API calls.
 Everything is computed at read time from card review state; nothing is stored.
 
-Model: Ebbinghaus forgetting curve, R(t) = exp(-t/S).
-  t = days since the card was last reviewed
-  S = stability, derived from the card's SM-2 interval so that a card sitting
-      exactly at its due date has retention DUE_RETENTION. Well-known cards
-      (long intervals) decay slowly; fresh or lapsed cards decay fast.
-A card that has never been reviewed has retention 0 — creating cards proves
-nothing, reviewing is the only evidence of knowledge. Topic coverage falls out
-of this rule via the mean, with no separate status weighting.
+Frameworks fork: cards reviewed under py-fsrs carry a learned *stability* and
+decay on FSRS's power-law forgetting curve, R(t) = (1 + F·t/S)^C with
+F = 19/81, C = -0.5 (calibrated so R(S) = 0.9). The scheduler picks due dates
+where R hits DUE_RETENTION = 0.75, so "due ⇒ 75%" still holds. Legacy cards
+without stability fall back to the original Ebbinghaus exponential
+R = e^(−t/(3.476·interval)). Never-reviewed cards are always 0 — reviewing is
+the only evidence of knowledge.
 """
 
 import math
 from datetime import datetime
 
-DUE_RETENTION = 0.75  # retention of a card exactly at its SM-2 due date
-_STABILITY_SCALE = -1 / math.log(DUE_RETENTION)  # ≈ 3.476
+DUE_RETENTION = 0.75  # retention of a card exactly at its due date
+_STABILITY_SCALE = -1 / math.log(DUE_RETENTION)  # ≈ 3.476 (legacy exponential model)
+_FSRS_FACTOR = 19 / 81   # FSRS-4.5+ power curve constants
+_FSRS_DECAY = -0.5
 
 
-def card_retention(interval_days, last_reviewed_at, now=None):
+def card_retention(interval_days, last_reviewed_at, now=None, stability=None):
     """Retention in [0, 1] for one card. last_reviewed_at is an ISO string or
-    None (never reviewed → 0.0)."""
+    None (never reviewed → 0.0). With FSRS stability: power-law curve; without:
+    legacy exponential from the SM-2 interval."""
     if not last_reviewed_at:
         return 0.0
     if now is None:
@@ -28,8 +30,18 @@ def card_retention(interval_days, last_reviewed_at, now=None):
     elapsed_days = (now - datetime.fromisoformat(last_reviewed_at)).total_seconds() / 86400
     if elapsed_days <= 0:
         return 1.0
-    stability = max(interval_days, 1) * _STABILITY_SCALE  # max() guards interval_days=0
-    return math.exp(-elapsed_days / stability)
+    if stability:
+        return (1 + _FSRS_FACTOR * elapsed_days / stability) ** _FSRS_DECAY
+    legacy_stability = max(interval_days, 1) * _STABILITY_SCALE  # guards interval_days=0
+    return math.exp(-elapsed_days / legacy_stability)
+
+
+def _stability(card):
+    # tolerate inputs without a stability field (older callers/tests)
+    try:
+        return card["stability"]
+    except (KeyError, IndexError):
+        return None
 
 
 def topic_mastery(cards, now=None):
@@ -37,7 +49,8 @@ def topic_mastery(cards, now=None):
     so partial coverage caps the mean). 0.0 if the topic has no cards."""
     if not cards:
         return 0.0
-    total = sum(card_retention(c["interval_days"], c["last_reviewed_at"], now) for c in cards)
+    total = sum(card_retention(c["interval_days"], c["last_reviewed_at"], now,
+                               stability=_stability(c)) for c in cards)
     return total / len(cards)
 
 

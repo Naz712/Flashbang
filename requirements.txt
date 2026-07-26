@@ -5,3 +5,9 @@ pypdf
 streamlit
 numpy
 flask
+fsrs
+chromadb
+langchain
+langgraph
+langchain-openai
+langchain-anthropic

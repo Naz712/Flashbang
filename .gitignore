@@ -13,3 +13,6 @@ uploads/
 # Python artifacts
 __pycache__/
 *.pyc
+
+# Chroma vector store
+chroma/

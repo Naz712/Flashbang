@@ -38,6 +38,23 @@ assert abs(card_retention(10, iso(20), now) - DUE_RETENTION ** 2) < 1e-6
 assert card_retention(10, None, now) == 0.0
 assert 0 < card_retention(0, iso(0.5 / 24), now) <= 1.0
 
+# --- FSRS power-law branch (frameworks fork): stability drives the curve
+S = 12.0
+assert abs(card_retention(0, iso(0), now, stability=S) - 1.0) < 1e-9
+# FSRS calibration: retention at t = S is exactly 0.9
+assert abs(card_retention(0, iso(S), now, stability=S) - 0.9) < 1e-6
+# scheduler places the due date at t = S·63/19, where the curve hits 0.75
+t_due = S * 63 / 19
+assert abs(card_retention(0, iso(t_due), now, stability=S) - 0.75) < 1e-6
+# monotone decreasing on the power curve too
+fs = [card_retention(0, iso(d), now, stability=S) for d in (0, 6, 12, 30, 90)]
+assert all(a > b for a, b in zip(fs, fs[1:])), f"FSRS curve not monotone: {fs}"
+# power-law forgets SLOWER in the far tail than the old exponential (fat tail)
+assert card_retention(0, iso(120), now, stability=S) > card_retention(3, iso(120), now)
+# topic_mastery picks up stability from card dicts when present
+assert abs(topic_mastery([{"interval_days": 0, "last_reviewed_at": iso(S),
+                           "stability": S}], now) - 0.9) < 1e-6
+
 # topic mastery: mean over ALL cards, unreviewed count as 0
 cards = [
     {"interval_days": 10, "last_reviewed_at": iso(0)},   # 1.0

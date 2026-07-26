@@ -5,7 +5,7 @@ import os
 import sys
 import sqlite3
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,22 +44,39 @@ assert card["last_reviewed_at"] is None
 assert "T" in card["next_review"], f"next_review not full timestamp: {card['next_review']}"
 datetime.fromisoformat(card["created_at"])
 
-# --- review stamps last_reviewed_at and grows interval
+# --- review stamps last_reviewed_at, grows interval, and sets FSRS state
 result = database.review_card(card_id, 5)
 assert result["new_interval"] >= 1 and result["old_interval"] == 0
 card = database.get_cards(topic_id=topic_ids[0])[0]
 assert card["last_reviewed_at"] is not None
+assert card["stability"] is not None and card["stability"] > 0, "FSRS stability not stored"
+assert card["difficulty"] is not None
 
-# --- undo restores the pre-review state, one level deep
+# --- undo restores the pre-review state, one level deep (incl. FSRS fields)
 prev = database.undo_review(card_id)
 card = database.get_cards(topic_id=topic_ids[0])[0]
 assert card["last_reviewed_at"] is None and card["interval_days"] == 0
+assert card["stability"] is None, "undo should clear FSRS stability on a first review"
 try:
     database.undo_review(card_id)
     raise AssertionError("second undo should have raised")
 except ValueError:
     pass
 database.review_card(card_id, 5)  # re-review so later session checks still hold
+# --- FSRS memory model: a SPACED successful review must grow stability.
+# (An immediate same-second repeat correctly gives ~zero gain — massed
+# repetition adds no durable memory in FSRS.)
+stability_1 = database.get_cards(topic_id=topic_ids[0])[0]["stability"]
+conn = database.get_conn()
+conn.execute("UPDATE cards SET last_reviewed_at = ?, next_review = ? WHERE id = ?",
+             ((datetime.now() - timedelta(days=6)).isoformat(timespec="seconds"),
+              datetime.now().isoformat(timespec="seconds"), card_id))
+conn.commit()
+conn.close()
+database.review_card(card_id, 4)
+stability_2 = database.get_cards(topic_id=topic_ids[0])[0]["stability"]
+assert stability_2 > stability_1, \
+    f"stability should grow after a spaced success: {stability_1} -> {stability_2}"
 
 # --- FK enforcement: orphan insert must fail
 try:
@@ -87,8 +104,9 @@ log = database.get_study_log()
 assert len(log) == 1 and log[0]["topic_titles"] == "Topic A"
 assert log[0]["minutes"] is not None
 
-# --- upcoming reviews sees the card
-upcoming = database.get_upcoming_reviews(days=30)
+# --- upcoming reviews sees the card (FSRS intervals reach further out than
+# SM-2's, so use a generous horizon)
+upcoming = database.get_upcoming_reviews(days=365)
 assert len(upcoming) == 1 and upcoming[0]["topic_id"] == topic_ids[0]
 
 # --- cascade: deleting the course wipes everything, log survives with NULL refs

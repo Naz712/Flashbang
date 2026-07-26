@@ -1,8 +1,8 @@
 import json
 import sqlite3
 from datetime import datetime, timedelta
-from sm2 import compute_sm2
-from embeddings import embed_text
+import fsrs_adapter   # frameworks fork: py-fsrs replaces the hand-rolled SM-2
+import vector_store   # frameworks fork: Chroma replaces JSON embeddings + cosine
 
 DB_PATH = "flashbang.db"
 
@@ -170,6 +170,13 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='elapsed_ratio'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE answer_log ADD COLUMN elapsed_ratio REAL")
+    # frameworks fork: FSRS memory-model state per card (py-fsrs). Legacy SM-2
+    # cards keep NULL stability until their first FSRS review migrates them.
+    for column, decl in (("stability", "REAL"), ("difficulty", "REAL"),
+                         ("fsrs_state", "INTEGER")):
+        cursor.execute(f"SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='{column}'")
+        if cursor.fetchone()["n"] == 0:
+            cursor.execute(f"ALTER TABLE cards ADD COLUMN {column} {decl}")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -207,6 +214,7 @@ def delete_course(course_id):
     conn.execute("DELETE FROM courses WHERE id=?", (course_id,))
     conn.commit()
     conn.close()
+    vector_store.delete_where(course_id=course_id)  # mirror the SQL cascade
 
 
 # ---------------------------------------------------------------- pdfs & pages
@@ -280,6 +288,7 @@ def delete_pdf(pdf_id):
     conn.execute("DELETE FROM pdfs WHERE id=?", (pdf_id,))
     conn.commit()
     conn.close()
+    vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
 
 
 # ---------------------------------------------------------------- topics
@@ -368,25 +377,41 @@ def update_topic(topic_id, title=None, summary=None, est_minutes=None):
 def save_concepts(topic_id, concepts):
     """concepts: [{'name','content', optional 'page_start','page_end'}].
     pdf_id/course_id are resolved from the topic so they can never desync.
-    Embeds each concept's content. Returns note ids in order."""
+    Content is indexed into the Chroma vector store (local embeddings) with
+    citation metadata. Returns note ids in order."""
     topic = get_topic(topic_id)
     if topic is None:
         raise ValueError(f"No topic with id {topic_id}")
 
     conn = get_conn()
     cursor = conn.cursor()
+    cursor.execute("""
+        SELECT courses.name AS course_name, pdfs.filename AS pdf_filename
+        FROM courses, pdfs WHERE courses.id = ? AND pdfs.id = ?
+    """, (topic["course_id"], topic["pdf_id"]))
+    names = cursor.fetchone()
+
     note_ids = []
     for c in concepts:
-        vector = embed_text(c["content"])
         cursor.execute("""
             INSERT INTO notes (topic_id, pdf_id, course_id, name, content,
-                               page_start, page_end, embedding, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               page_start, page_end, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (topic_id, topic["pdf_id"], topic["course_id"], c["name"], c["content"],
-              c.get("page_start"), c.get("page_end"), json.dumps(vector), now_iso()))
+              c.get("page_start"), c.get("page_end"), now_iso()))
         note_ids.append(cursor.lastrowid)
     conn.commit()
     conn.close()
+
+    for note_id, c in zip(note_ids, concepts):
+        vector_store.add_note(note_id, c["content"], {
+            "name": c["name"],
+            "topic_id": topic_id, "pdf_id": topic["pdf_id"],
+            "course_id": topic["course_id"],
+            "topic_title": topic["title"],
+            "course_name": names["course_name"],
+            "pdf_filename": names["pdf_filename"],
+        })
     return note_ids
 
 
@@ -404,6 +429,7 @@ def delete_note(note_id):
     conn.execute("DELETE FROM notes WHERE id=?", (note_id,))
     conn.commit()
     conn.close()
+    vector_store.delete_notes([note_id])
 
 
 def get_notes_with_embeddings(course_id=None, pdf_id=None, topic_id=None):
@@ -512,10 +538,15 @@ def get_due_cards(course_id=None, pdf_id=None, topic_id=None):
 
 
 def review_card(card_id, quality):
+    """FSRS review (frameworks fork): quality 0-5 maps to Again/Hard/Good/Easy;
+    py-fsrs updates stability/difficulty and picks the due date where predicted
+    recall hits 75%. `repetitions` keeps its successive-relearning meaning
+    (consecutive successful recalls, reset on failure)."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT ease_factor, interval_days, repetitions, next_review, last_reviewed_at
+        SELECT ease_factor, interval_days, repetitions, next_review, last_reviewed_at,
+               stability, difficulty, fsrs_state
         FROM cards WHERE id=?
     """, (card_id,))
     row = cursor.fetchone()
@@ -524,25 +555,27 @@ def review_card(card_id, quality):
         raise ValueError(f"No card with id {card_id}")
     prev_state = json.dumps(dict(row))  # one-level undo snapshot
     old_interval = row["interval_days"]
-    new_ease, new_interval, new_reps = compute_sm2(
-        row["ease_factor"], row["interval_days"], row["repetitions"], quality)
 
-    next_review = (datetime.now() + timedelta(days=new_interval)).isoformat(timespec="seconds")
+    result = fsrs_adapter.review(row, quality)
+    new_reps = row["repetitions"] + 1 if quality >= 3 else 0
+
     cursor.execute("""
         UPDATE cards
-        SET ease_factor=?, interval_days=?, repetitions=?, next_review=?,
-            last_reviewed_at=?, prev_state=?
+        SET interval_days=?, repetitions=?, next_review=?, last_reviewed_at=?,
+            stability=?, difficulty=?, fsrs_state=?, prev_state=?
         WHERE id=?
-    """, (new_ease, new_interval, new_reps, next_review, now_iso(), prev_state, card_id))
+    """, (result["interval_days"], new_reps, result["next_review"], now_iso(),
+          result["stability"], result["difficulty"], result["fsrs_state"],
+          prev_state, card_id))
     conn.commit()
     conn.close()
-    return {"old_interval": old_interval, "new_interval": new_interval,
-            "next_review": next_review[:10]}
+    return {"old_interval": old_interval, "new_interval": result["interval_days"],
+            "next_review": result["next_review"][:10]}
 
 
 def undo_review(card_id):
-    """Restore the card's SM-2 state from before its most recent review.
-    One level deep; the snapshot is cleared after use."""
+    """Restore the card's scheduling state (incl. FSRS stability/difficulty)
+    from before its most recent review. One level deep; snapshot cleared."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT prev_state FROM cards WHERE id=?", (card_id,))
@@ -557,10 +590,12 @@ def undo_review(card_id):
     cursor.execute("""
         UPDATE cards
         SET ease_factor=?, interval_days=?, repetitions=?, next_review=?,
-            last_reviewed_at=?, prev_state=NULL
+            last_reviewed_at=?, stability=?, difficulty=?, fsrs_state=?,
+            prev_state=NULL
         WHERE id=?
     """, (prev["ease_factor"], prev["interval_days"], prev["repetitions"],
-          prev["next_review"], prev["last_reviewed_at"], card_id))
+          prev["next_review"], prev["last_reviewed_at"], prev.get("stability"),
+          prev.get("difficulty"), prev.get("fsrs_state"), card_id))
     conn.commit()
     conn.close()
     return prev
@@ -765,7 +800,11 @@ def attach_card_to_answer(answer_id, card_id):
             elapsed_days = (datetime.fromisoformat(answer["at"])
                             - datetime.fromisoformat(prev["last_reviewed_at"])
                             ).total_seconds() / 86400
-            stability = _STABILITY_SCALE * max(prev["interval_days"], 1)
+            # FSRS stability when the card has one; legacy interval proxy otherwise
+            if prev.get("stability"):
+                stability = prev["stability"]
+            else:
+                stability = _STABILITY_SCALE * max(prev["interval_days"], 1)
             ratio = round(max(0.0, elapsed_days) / stability, 4)
 
     cursor.execute("UPDATE answer_log SET card_id = ?, elapsed_ratio = ? WHERE id = ?",
@@ -1038,7 +1077,8 @@ def get_mastery_inputs(pdf_id):
     cursor.execute("SELECT * FROM topics WHERE pdf_id = ? ORDER BY position", (pdf_id,))
     topics = cursor.fetchall()
     cursor.execute("""
-        SELECT id, topic_id, interval_days, repetitions, last_reviewed_at, next_review
+        SELECT id, topic_id, interval_days, repetitions, last_reviewed_at,
+               next_review, stability
         FROM cards WHERE pdf_id = ?
     """, (pdf_id,))
     cards = cursor.fetchall()

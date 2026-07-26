@@ -446,4 +446,6 @@ def focus():
 
 
 if __name__ == "__main__":
-    app.run(port=5001, debug=False)
+    # frameworks fork: 5002 by default so it can run beside the original (5001);
+    # 0.0.0.0 + PORT env make it deployable (e.g. on a Zo Computer machine)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5002)), debug=False)
