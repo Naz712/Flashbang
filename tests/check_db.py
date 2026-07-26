@@ -136,6 +136,17 @@ acc = database.get_topic_accuracy(min_answers=6)
 assert acc == {tid: 83}, f"expected {{{tid}: 83}}, got {acc}"  # 5 of 6 passed
 assert database.get_topic_accuracy(min_answers=7) == {}, "min_answers threshold ignored"
 
+# --- delete_pdf cascade: pdf + topics + cards gone, course and log survive
+pdf3 = database.create_pdf(course2, "doomed.pdf", total_pages=1)
+tid3 = database.save_topics(pdf3, [
+    {"title": "Doomed Topic", "summary": "", "page_start": 1, "page_end": 1, "est_minutes": 5}])[0]
+database.insert_card(tid3, "Q?", "A.")
+database.delete_pdf(pdf3)
+assert all(p["id"] != pdf3 for p in database.get_pdfs()), "pdf row should be gone"
+assert all(t["pdf_id"] != pdf3 for t in database.get_topics()), "topics should cascade"
+assert all(c["pdf_id"] != pdf3 for c in database.get_cards()), "cards should cascade"
+assert any(c["id"] == course2 for c in database.get_courses()), "course must survive pdf delete"
+
 # --- response latency round-trip (retrieval fluency input)
 aid = database.log_answer(4, "sure", latency_ms=8250)
 timed = [a for a in database.get_answer_log(days=1) if a["latency_ms"] is not None]

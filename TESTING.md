@@ -247,6 +247,21 @@ Research basis: speed of correct recall predicts retention beyond accuracy
   it); a mid-card detour question inflates that one measurement; answers
   after a page reload go untimed (NULL, excluded).
 
+### 2026-07-26 — manual PDF delete + "Ingest incomplete" badge
+Real-use bug (11-file batch upload, frameworks fork): one chat turn tried to
+ingest all 11 paths, blew the agent-loop step budget mid-batch, and left 6
+`read_pdf` stub rows (status=pending, 0 topics) showing as empty slates on
+Progress. Fixes:
+- `DELETE /api/pdfs/<id>` + ✕ button on each Progress pdf card (confirm
+  dialog): same cascade the organizer agent's delete_pdf tool runs, plus
+  removal of the uploaded file copy so a re-upload keeps its clean name.
+- Pending pdfs now badge as **Ingest incomplete** (red) instead of a blank
+  "Not started" card.
+- check_db extended: delete_pdf cascade (topics + cards gone, course and
+  study log survive).
+- (fork only) ingestion turns get a larger LangGraph recursion_limit —
+  batch ingests are legitimately long.
+
 ## Benchmarks — card creation (2026-07-21, gpt-4o)
 
 | Stage | 2-page topic | 7-page topic |
