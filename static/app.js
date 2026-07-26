@@ -10,6 +10,7 @@ const S = {
   pdfId: null,          // current doc
   railOpen: true,
   pendingConf: null,    // "sure" | "unsure" attached to next message
+  qShownAt: null,       // Date.now() when the current question card appeared
   sessionLen: 25,
   focusStart: null,     // Date when focus timer started
   recap: null,
@@ -73,6 +74,7 @@ async function fetchState() {
   const res = await fetch(`/api/state${q}`);
   S.state = await res.json();
   if (S.state.current) S.pdfId = S.state.current.pdf_id;
+  if (!S.state.sessionActive) S.qShownAt = null;   // latency only means something mid-review
   render();
 }
 
@@ -279,6 +281,9 @@ async function sendChat(text) {
   const confidence = S.pendingConf;
   S.pendingConf = null;
   renderConfRow();
+  // question shown -> answer sent, in ms; the server only keeps it for turns
+  // that actually produce a grade, so ordinary chat is a no-op
+  const latency_ms = S.qShownAt && S.state?.sessionActive ? Date.now() - S.qShownAt : null;
 
   const startedAt = Date.now();
   const elapsedTimer = setInterval(() => {
@@ -299,6 +304,8 @@ async function sendChat(text) {
       // final render through renderMsg so question-card markers become styled cards
       const row = document.getElementById("typingRow");
       if (row) row.outerHTML = renderMsg({ role: "assistant", text: data.reply || "" });
+      // a fresh question card starts the response-latency clock
+      S.qShownAt = CARD_RE.test(data.reply || "") ? Date.now() : S.qShownAt;
       scroll.scrollTop = scroll.scrollHeight;
       S.busy = false;
       fetchState();
@@ -308,7 +315,7 @@ async function sendChat(text) {
   try {
     const res = await fetch("/api/chat/stream", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, display, agent, confidence }) });
+      body: JSON.stringify({ message, display, agent, confidence, latency_ms }) });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -811,6 +818,33 @@ function renderMetrics(mx) {
          ps.measured_at_due >= ps.model_at_due + 5 ? "Your memory beats the model — intervals could stretch further."
          : ps.measured_at_due <= ps.model_at_due - 5 ? "You forget faster than the model assumes — review a little earlier."
          : "Well matched — the schedule fits your memory."}</div>`;
+  // retrieval fluency: 2×2 of fast/slow (vs personal median) × right/wrong
+  const fl = mx.fluency || { n: 0, needed: 6, fluent_pct: null };
+  const sec = (ms) => ms == null ? "–" : `${(ms / 1000).toFixed(1)}s`;
+  let fluencyBody;
+  if (fl.fluent_pct == null) {
+    fluencyBody = `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">
+      Collecting timing data — ${fl.n} of ${fl.needed} timed answers.
+      Each question card you answer in a review adds one.</div>`;
+  } else {
+    const q = fl.quads, total = fl.n || 1;
+    const quadRow = (label, n, color, hint) => `
+      <div class="fn-row" title="${hint}">
+        <span class="fn-label">${label}</span>
+        <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, n / total * 100)}%; background:${color}"></div></div>
+        <span class="fn-n">${n}</span>
+      </div>`;
+    fluencyBody = `
+      <div class="stat-num" style="color:${fl.fluent_pct >= 50 ? "#00794F" : "#8A6100"}">${fl.fluent_pct}%</div>
+      <div class="stat-sub">fast AND correct · right answers take ${sec(fl.pass_ms)}${fl.fail_ms != null ? ` · wrong ${sec(fl.fail_ms)}` : ""}</div>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px">
+        ${quadRow("Fluent", q.fluent, "#009E73", "faster than your median AND correct — strong memories")}
+        ${quadRow("Effortful", q.effortful, "rgba(0,158,115,.55)", "correct but slower than your median — still fragile, keep spacing")}
+        ${quadRow("Hasty miss", q.fast_wrong, "#D55E00", "fast but wrong — check for a misconception")}
+        ${quadRow("Slow miss", q.slow_wrong, "#C9CCD4", "slow and wrong — not there yet")}
+      </div>`;
+  }
+
   // sweet spot + brier
   const sw = mx.sweet, br = mx.brier;
   const sweetBody = sw.rate == null
@@ -867,7 +901,7 @@ function renderMetrics(mx) {
         ${evidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams.")}
       </div>
     </div>
-    <div class="grid2">
+    <div class="grid3">
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:12px">HARDEST CARDS · MOST FAILED</div>
         <div style="display:flex; flex-direction:column; gap:8px">${hardRows}</div>
@@ -876,6 +910,11 @@ function renderMetrics(mx) {
         <div class="mono-label" style="margin-bottom:12px">RECALL BY TIME OF DAY</div>
         <div style="display:flex; flex-direction:column; gap:9px">${hourRows}</div>
         ${evidence("Needs 5+ answers per slot before it judges — keep studying and it fills in.")}
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:9px">RETRIEVAL FLUENCY · 28 DAYS</div>
+        ${fluencyBody}
+        ${evidence("How fast a correct answer comes predicts retention beyond accuracy alone (Benjamin &amp; Bjork, 1996) — slow rights are the ones to keep spacing.")}
       </div>
     </div>`;
 }

@@ -119,6 +119,13 @@ acc = database.get_topic_accuracy(min_answers=6)
 assert acc == {tid: 83}, f"expected {{{tid}: 83}}, got {acc}"  # 5 of 6 passed
 assert database.get_topic_accuracy(min_answers=7) == {}, "min_answers threshold ignored"
 
+# --- response latency round-trip (retrieval fluency input)
+aid = database.log_answer(4, "sure", latency_ms=8250)
+timed = [a for a in database.get_answer_log(days=1) if a["latency_ms"] is not None]
+assert len(timed) == 1 and timed[0]["latency_ms"] == 8250, "latency_ms should round-trip"
+assert all(a["latency_ms"] is None for a in database.get_answer_log(days=1)
+           if a["quality"] == 2), "untimed answers must stay NULL"
+
 # --- session accuracy column
 sid = database.start_session("review", course_id=course2)
 database.end_session(sid, cards_reviewed=6)
