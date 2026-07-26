@@ -201,6 +201,14 @@ Rules:
 - A topic must span at least 1 page; topics typically span 2-10 pages.
 - Title pages / outlines / admin pages belong to the nearest real topic (usually the following one).
 - "summary" is 1-2 sentences on what the topic covers.
+- "kind" separates studyable material from everything else:
+  - "content": actual course material — concepts, techniques, worked examples, exercises.
+  - "general": course admin and framing — schedules, assessment weightings, reading lists,
+    lecturer/contact info, agenda/outline sections, "what we covered" recaps, homework
+    instructions, closing/thank-you pages. These stay in the split (pages must be covered)
+    but are flagged so no flashcards get made from them.
+  - A MOSTLY-admin stretch is "general" even if it name-drops concepts; a real topic that
+    merely opens with a title slide is still "content".
 
 <pages>
 {pages_text}
@@ -215,7 +223,8 @@ Respond with ONLY a JSON object in this exact format. No markdown code fences, n
             "summary": "<string, 1-2 sentences>",
             "page_start": <integer>,
             "page_end": <integer>,
-            "est_minutes": <integer>
+            "est_minutes": <integer>,
+            "kind": "<'content' or 'general'>"
         }}
     ]
 }}

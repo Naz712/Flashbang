@@ -181,7 +181,7 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .topic-row { display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: 8px; }
 .topic-row:hover { background: #F7F7F4; }
 .ret-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
-.topic-title { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic-title { font-size: 11.5px; line-height: 1.35; overflow-wrap: break-word; }
 .mini-track { height: 3px; border-radius: 2px; background: #ECECE8; margin-top: 5px; overflow: hidden; }
 .mini-fill { height: 100%; border-radius: 2px; }
 .topic-pct { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A8F9C; flex: none;
@@ -231,10 +231,17 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .pdf-del { flex: none; border: none; background: transparent; color: #C9CCD4; cursor: pointer;
   font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 6px; }
 .pdf-del:hover { color: #D55E00; background: rgba(213, 94, 0, .08); }
+.info-tag { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #8A8F9C;
+  background: #F0F0EC; padding: 2px 6px; border-radius: 999px; text-transform: uppercase; }
+/* ingest preview card rendered in chat after save_topics */
+.chat-pdfcard { background: #fff; border: 1px solid #E3E3DE; border-radius: 14px;
+  padding: 14px 16px; max-width: 480px; cursor: pointer; }
+.chat-pdfcard:hover { border-color: #C9CCD4; }
+.chat-pdfcard .trow .name { width: 55%; }
 .trow { display: flex; align-items: center; gap: 10px; }
 .trow .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
-.trow .name { font-size: 11px; color: #5C616E; width: 40%; flex: none; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
+.trow .name { font-size: 11px; color: #5C616E; width: 40%; flex: none;
+  line-height: 1.35; overflow-wrap: break-word; }
 .trow .track { flex: 1; height: 5px; border-radius: 3px; background: #ECECE8; overflow: hidden; }
 .trow .fill { height: 100%; border-radius: 3px; background: #B9BDC7; }
 .trow .time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A8F9C; width: 78px;

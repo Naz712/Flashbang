@@ -125,6 +125,22 @@ function renderMsg(m) {
       ${m.meta ? `<div class="gcard-meta">${esc(m.meta)}</div>` : ""}
     </div></div>`;
   }
+  // ingest preview: the course card for a just-saved pdf, like Progress shows
+  if (m.role === "pdfcard" && m.pdf) {
+    const p = m.pdf;
+    const rows = p.topics.map((t) => `
+      <div class="trow">
+        <span class="dot" style="background:${t.kind === "general" ? "#C9CCD4" : "#0072B2"}"></span>
+        <span class="name">${esc(t.title)}</span>
+        ${t.kind === "general" ? `<span class="info-tag">info</span>` : ""}
+        <span class="time" style="margin-left:auto; flex:none">p.${t.pages} · ${fmtMin(t.est_minutes)}</span>
+      </div>`).join("");
+    return `<div class="msg-row-bot"><div class="chat-pdfcard" onclick="openDoc(${p.pdf_id})" title="Open in Study">
+      <div style="font-size:13px; font-weight:600; line-height:1.4">📄 ${esc(p.filename)}</div>
+      <div class="doc-meta" style="margin-bottom:10px">${p.total_pages} pages · ${esc(p.est)} est · ${p.topics.length} topics</div>
+      <div style="display:flex; flex-direction:column; gap:6px">${rows}</div>
+    </div></div>`;
+  }
   // assistant: question marker → styled card (plain bubble for any lead-in text)
   const match = m.text.match(CARD_RE);
   if (match) {
@@ -295,6 +311,7 @@ async function sendChat(text) {
     clearInterval(elapsedTimer);
     document.getElementById("thinking")?.remove();
     (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend", renderMsg(g)));
+    (data.pdfCards || []).forEach((p) => scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "pdfcard", pdf: p })));
     if (data.agent) $("agentName").textContent = `${data.agent[0].toUpperCase()}${data.agent.slice(1)} specialist`;
     scroll.insertAdjacentHTML("beforeend",
       `<div class="msg-row-bot" id="typingRow"><div class="bubble-bot" id="typing"></div></div>`);
@@ -416,10 +433,10 @@ function renderRail() {
     ${evidence("Retrieval practice: testing yourself strengthens memory more than re-reading (Roediger &amp; Karpicke, 2006).")}
   </div>`;
 
-  // TOPICS · WEAKEST FIRST
+  // TOPICS · WEAKEST FIRST (general-info topics sink to the bottom — nothing to study)
   const sorted = [...cur.topics].sort((a, b) => {
-    const ra = a.cards_due > 0 ? 0 : a.mastery_pct > 0 ? 1 : 2;
-    const rb = b.cards_due > 0 ? 0 : b.mastery_pct > 0 ? 1 : 2;
+    const ra = a.kind === "general" ? 3 : a.cards_due > 0 ? 0 : a.mastery_pct > 0 ? 1 : 2;
+    const rb = b.kind === "general" ? 3 : b.cards_due > 0 ? 0 : b.mastery_pct > 0 ? 1 : 2;
     return ra !== rb ? ra - rb : a.mastery_pct - b.mastery_pct;
   });
   html += `<div class="card">
@@ -428,12 +445,13 @@ function renderRail() {
       ${sorted.map((t) => `
       <div class="topic-row" style="cursor:pointer" title="Open pages ${t.pages}"
            onclick="openTopic(${cur.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
-        <span class="ret-dot" style="background:${retColor(t.mastery_pct)}"></span>
+        <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
         <div style="flex:1; min-width:0">
           <div class="topic-title">${esc(t.title)}</div>
-          <div class="mini-track"><div class="mini-fill" style="width:${t.mastery_pct}%; background:${retColor(t.mastery_pct)}"></div></div>
+          ${t.kind === "general" ? "" : `<div class="mini-track"><div class="mini-fill" style="width:${t.mastery_pct}%; background:${retColor(t.mastery_pct)}"></div></div>`}
         </div>
-        <span class="topic-pct">${t.mastery_pct.toFixed(0)}%</span>
+        ${t.kind === "general" ? `<span class="info-tag" title="General info — no cards, not counted in completion">info</span>`
+          : `<span class="topic-pct">${t.mastery_pct.toFixed(0)}%</span>`}
         ${flagTag(t.id)}
         ${t.cards_due > 0 ? `<span class="due-tag">${t.cards_due} due</span>` : ""}
       </div>`).join("")}
@@ -581,8 +599,9 @@ function renderProgress() {
       const topicRows = p.topics.map((t) => `
         <div class="trow" style="cursor:pointer" title="Open pages ${t.pages}"
              onclick="event.stopPropagation(); openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
-          <span class="dot" style="background:${retColor(t.mastery_pct)}"></span>
+          <span class="dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
           <span class="name">${esc(t.title)}</span>
+          ${t.kind === "general" ? `<span class="info-tag" title="General info (admin/logistics) — no cards, not counted in completion">info</span>` : ""}
           <div class="track"><div class="fill" style="width:${Math.min(100, t.spent / Math.max(t.est_minutes, 1) * 100)}%"></div></div>
           <span class="time">${fmtMin(t.spent)} / ${fmtMin(t.est_minutes)}</span>
         </div>`).join("");

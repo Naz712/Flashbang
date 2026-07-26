@@ -201,6 +201,22 @@ def history():
     return jsonify(chat_history)
 
 
+def _ingest_preview(pdf_id):
+    """Light course-card payload rendered in chat right after save_topics —
+    the same shape the Progress pdf cards show, minus mastery (no cards yet)."""
+    pdf = get_pdf(pdf_id)
+    if pdf is None:
+        return None
+    topics = get_topics(pdf_id=pdf_id)
+    return {"pdf_id": pdf_id, "filename": pdf["filename"],
+            "total_pages": pdf["total_pages"],
+            "est": fmt_min(pdf["est_total_minutes"] or 0),
+            "topics": [{"title": t["title"],
+                        "pages": f"{t['page_start']}-{t['page_end']}",
+                        "est_minutes": t["est_minutes"],
+                        "kind": t["kind"] or "content"} for t in topics]}
+
+
 def _clean_latency(value):
     """Client-reported ms from question shown to answer sent. Reject anything
     non-numeric, non-positive, or over 30 min (stale tab, walked away)."""
@@ -223,6 +239,7 @@ def chat():
                          "meta": f"confidence: {confidence}" if confidence else ""})
 
     grades_this_turn = []
+    saved_pdfs_this_turn = []
 
     def on_tool(name, args, result):
         if name == "grade_answer" and isinstance(result, dict):
@@ -233,6 +250,8 @@ def chat():
             lat = latency_ms if not grades_this_turn else None
             result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
             grades_this_turn.append(result)
+        elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
+            saved_pdfs_this_turn.append(args.get("pdf_id"))
         elif name == "review_card" and grades_this_turn:
             grades_this_turn[-1]["meta"] = str(result)
             if "answer_id" in grades_this_turn[-1] and "card_id" in args:
@@ -251,12 +270,15 @@ def chat():
     except Exception as e:
         reply = f"Something went wrong: {type(e).__name__}: {e}"
 
+    pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
     for g in grades_this_turn:
         chat_history.append({"role": "grade", "text": g.get("feedback", ""),
                              "grade": g.get("quality", 0), "meta": g.get("meta", "")})
+    for p in pdf_cards:
+        chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
     chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
 
-    return jsonify({"reply": reply, "grades": grades_this_turn,
+    return jsonify({"reply": reply, "grades": grades_this_turn, "pdfCards": pdf_cards,
                     "sessionActive": orchestrator.session_active,
                     "agent": orchestrator.last_agent})
 
@@ -281,6 +303,7 @@ def chat_stream():
 
     q = queue.Queue()
     grades_this_turn = []
+    saved_pdfs_this_turn = []
 
     def on_event(msg):
         # "[tool: name({...})]" fires BEFORE the tool runs — that's the status signal
@@ -297,6 +320,8 @@ def chat_stream():
             lat = latency_ms if not grades_this_turn else None
             result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
             grades_this_turn.append(result)
+        elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
+            saved_pdfs_this_turn.append(args.get("pdf_id"))
         elif name == "review_card" and grades_this_turn:
             grades_this_turn[-1]["meta"] = str(result)
             if "answer_id" in grades_this_turn[-1] and "card_id" in args:
@@ -325,11 +350,15 @@ def chat_stream():
                                         force_agent=force_agent)
         except Exception as e:
             reply = f"Something went wrong: {type(e).__name__}: {e}"
+        pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
         for g in grades_this_turn:
             chat_history.append(grade_entry(g))
+        for p in pdf_cards:
+            chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
         chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
         q.put({"type": "done", "reply": reply,
                "grades": [grade_entry(g) for g in grades_this_turn],
+               "pdfCards": pdf_cards,
                "sessionActive": orchestrator.session_active,
                "agent": orchestrator.last_agent})
 

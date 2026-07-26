@@ -154,7 +154,26 @@ Progress. Fixes:
 - (fork only) ingestion turns get a larger LangGraph recursion_limit —
   batch ingests are legitimately long.
 
-## Benchmarks — card creation (2026-07-21, gpt-4o)
+### 2026-07-26 — card-crafting research, content/general flag, ingest preview, wrap titles
+Four real-use refinements in one pass:
+- **Card-crafting prompt** (generation.py): rules now encode the researched
+  formulation principles — minimum information (Wozniak), context-free
+  questions, forced recall (no yes/no), cloze for formulas, one explicit
+  discrimination card for confusable pairs (interference), bidirectional
+  cards for core terms only, example-anchored questions.
+- **Topic kind flag**: segmentation labels each topic `content` vs `general`
+  (admin/logistics/outline). General topics: kept for page coverage, badge
+  "info" in both topic lists, sink to the bottom of WEAKEST FIRST, excluded
+  from completion math (else the pdf could never hit 100%), and the
+  ingestion agent refuses to make cards from them unless the user insists.
+  Migration defaults every existing topic to `content`.
+- **Ingest preview card**: after save_topics the chat renders the saved
+  document as a Progress-style course card (pages, est time, topic list with
+  ranges + kind tags; click opens Study). Server captures save_topics in
+  on_tool → `pdfCards` in the done payload + a `pdfcard` history entry.
+- **Topic titles wrap** instead of ellipsizing (rail + Progress rows).
+- check_db: kind persists/defaults/sanitizes; check_mastery: completion
+  excludes general, all-general falls back. All five suites PASSING.
 
 | Stage | 2-page topic | 7-page topic |
 |---|---|---|
