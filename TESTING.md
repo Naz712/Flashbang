@@ -36,9 +36,13 @@ Same prompts into both, results recorded here:
 | Immediate repeat review | interval grows again | ~zero stability gain (correct: massed practice) |
 | Embedding cost per concept | ~$0.00001 (OpenAI API) | **$0 (local ONNX)** |
 | Search scores | OpenAI embedding cosine (threshold 0.3 tuned) | MiniLM cosine (rescaled; watch relevance) |
-| Turn latency | 2 provider dialects, no framework overhead | comparable (LangGraph adds ~no visible latency; measure per turn) |
+| Turn latency (same /next prompt, 2026-07-26) | **7.8s** | **10.4s** (single sample; rerun before concluding) |
+| Knowledge held (same data, 5 days after reviews) | 0.5 / 35 facts | **1.5 / 35 facts** (power-law holds retention longer) |
 | Behavior parity | — | warmup offer, marker cards, grade sections, pinning: all intact |
 | Code owned | ~100-line loop + sm2 + search owned | ~half deleted; framework versions |
+
+Both servers verified running SIMULTANEOUSLY (2026-07-26): same /next probe
+answered correctly by both; dashboards live on :5001 and :5002.
 
 *(fill further rows as you use both apps day-to-day)*
 
