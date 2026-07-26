@@ -248,8 +248,12 @@ def run_turn(messages, agent, on_event=None, on_tool=None):
     try:
         graph = _graph_for(agent)
         log(f"[{agent.name} | langgraph]")
+        # ingestion turns are legitimately long: a batch upload runs
+        # read_pdf -> propose_topics -> save_topics per file (an 11-PDF batch
+        # exhausted the default 60 and stranded pending stubs, 2026-07-26)
+        limit = 240 if agent.name == "ingestion" else 60
         result = graph.invoke({"messages": list(messages)},
-                              config={"recursion_limit": 60})
+                              config={"recursion_limit": limit})
         messages[:] = result["messages"]
         final = messages[-1]
         return final.content if isinstance(final.content, str) else str(final.content)
