@@ -26,6 +26,13 @@ both can be evaluated side by side.
   first Good review; pin set on start_study_session, cleared on /end;
   session accuracy derived (100%, 1 card).
 
+### 2026-07-26 — response-latency tracking ported (parity with master)
+Cherry-picked master 68f0568 (one trivial conflict: both branches add
+migrations in the same spot). Both apps now record `latency_ms` per graded
+answer and show the RETRIEVAL FLUENCY panel, so the A/B comparison stays
+fair. All five offline suites pass; live check on :5002 — /api/state serves
+the fluency block, panel renders. ✅
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
