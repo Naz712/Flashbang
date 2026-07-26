@@ -1,4 +1,50 @@
-# Flashbang — Test & Eval Log
+# Flashbang — Test & Eval Log (FRAMEWORKS BRANCH)
+
+This is the `frameworks` fork: py-fsrs (scheduling), Chroma (search), and
+LangGraph (agent loop) replace the hand-rolled subsystems — see `/reference`
+or docs/REFERENCE_BOARD.md for the full mapping. The original lives on
+`master` in `Desktop\Flashbang` (port 5001); this fork runs on port 5002 so
+both can be evaluated side by side.
+
+## Frameworks-branch log
+
+### 2026-07-26 — the port itself
+- Steps: fork worktree → py-fsrs → Chroma → LangGraph. All five offline
+  suites pass at each step (check_search now runs against a real temp Chroma
+  collection with local embeddings — no stubs, no API).
+- **BUG (LangGraph)**: per-turn callbacks were thread-local, but LangGraph
+  tool nodes can execute on worker threads → session pinning + grade cards
+  silently dead while the tools themselves ran fine. Fix: module-level turn
+  context. Lesson: framework internals (their threading) can break invisible
+  side-channels.
+- **Test-expectation bug (FSRS)**: asserted stability growth on an immediate
+  re-review; FSRS correctly gives ~zero gain for massed repetition. Test now
+  spaces the reviews 6 days apart.
+- Live smoke through the UI (:5002): /next planner tool round-trip via
+  LangGraph; review session — question card marker intact, structured grade
+  card + calibration, **FSRS scheduled 13d where SM-2 gave 1d** for the same
+  first Good review; pin set on start_study_session, cleared on /end;
+  session accuracy derived (100%, 1 card).
+
+## A/B evaluation — original (:5001) vs frameworks (:5002)
+
+Same prompts into both, results recorded here:
+
+| Probe | Original (SM-2 / cosine / hand loop) | Frameworks (FSRS / Chroma / LangGraph) |
+|---|---|---|
+| First Good review interval | 1d (SM-2 fixed first step) | **13d** (FSRS memory model) |
+| Immediate repeat review | interval grows again | ~zero stability gain (correct: massed practice) |
+| Embedding cost per concept | ~$0.00001 (OpenAI API) | **$0 (local ONNX)** |
+| Search scores | OpenAI embedding cosine (threshold 0.3 tuned) | MiniLM cosine (rescaled; watch relevance) |
+| Turn latency | 2 provider dialects, no framework overhead | comparable (LangGraph adds ~no visible latency; measure per turn) |
+| Behavior parity | — | warmup offer, marker cards, grade sections, pinning: all intact |
+| Code owned | ~100-line loop + sm2 + search owned | ~half deleted; framework versions |
+
+*(fill further rows as you use both apps day-to-day)*
+
+---
+
+# Original test & eval log (inherited from master)
 
 Running record of every check suite, live end-to-end test, benchmark, and the
 bugs they caught. Offline checks are repeatable any time; live tests hit the

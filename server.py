@@ -93,6 +93,68 @@ def architecture():
                                   "docs", "architecture.html"))
 
 
+def _md_lite(md):
+    """Tiny markdown→HTML for the reference board (headers, fenced code,
+    bold/italic/inline code, hr, list items). Escape first — content is ours
+    but the habit is the habit."""
+    import html as html_mod
+    import re
+    out, in_code = [], False
+    for line in md.splitlines():
+        if line.startswith("```"):
+            out.append("</pre>" if in_code else '<pre class="code">')
+            in_code = not in_code
+            continue
+        if in_code:
+            out.append(html_mod.escape(line))
+            continue
+        text = html_mod.escape(line)
+        text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+        text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"(?<!\*)\*([^*\s][^*]*)\*(?!\*)", r"<em>\1</em>", text)
+        if text.startswith("# "):
+            out.append(f"<h1>{text[2:]}</h1>")
+        elif text.startswith("## "):
+            out.append(f"<h2>{text[3:]}</h2>")
+        elif text.strip() == "---":
+            out.append("<hr>")
+        elif text.startswith("- "):
+            out.append(f"<div class='li'>• {text[2:]}</div>")
+        elif text.strip() == "":
+            out.append("<div class='gap'></div>")
+        else:
+            out.append(f"<p>{text}</p>")
+    return "\n".join(out)
+
+
+@app.route("/reference")
+def reference():
+    """The hand-rolled ↔ framework reference board, rendered from
+    docs/REFERENCE_BOARD.md (single source of truth)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "docs", "REFERENCE_BOARD.md")
+    with open(path, encoding="utf-8") as f:
+        body = _md_lite(f.read())
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashbang — Reference Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{{background:#F2F2EF;color:#1C1E26;font-family:'IBM Plex Sans',system-ui,sans-serif;
+  max-width:860px;margin:0 auto;padding:34px 28px 60px;line-height:1.65;font-size:14px}}
+h1{{font-size:21px;letter-spacing:-.3px;margin:0 0 4px}}
+h2{{font-size:15px;margin:30px 0 6px;padding-top:18px;border-top:1px solid #E3E3DE}}
+p{{margin:6px 0}} .gap{{height:6px}} .li{{margin:3px 0 3px 10px}}
+hr{{border:none;border-top:1px dashed #C9CCD4;margin:22px 0}}
+code{{font-family:'IBM Plex Mono',monospace;font-size:12px;background:#ECECE8;
+  padding:1px 5px;border-radius:4px}}
+.code{{font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.55;
+  background:#fff;border:1px solid #E3E3DE;border-radius:10px;padding:13px 16px;
+  overflow-x:auto;box-shadow:0 1px 2px rgba(16,18,24,.04)}}
+</style></head><body>{body}</body></html>"""
+
+
 @app.get("/api/state")
 def state():
     now = datetime.now()
