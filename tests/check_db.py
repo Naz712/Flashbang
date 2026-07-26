@@ -136,6 +136,17 @@ acc = database.get_topic_accuracy(min_answers=6)
 assert acc == {tid: 83}, f"expected {{{tid}: 83}}, got {acc}"  # 5 of 6 passed
 assert database.get_topic_accuracy(min_answers=7) == {}, "min_answers threshold ignored"
 
+# --- topic kind flag: persists, defaults to content, rejects junk values
+pdf_k = database.create_pdf(course2, "kinds.pdf", total_pages=3)
+kind_ids = database.save_topics(pdf_k, [
+    {"title": "Real Topic", "summary": "", "page_start": 1, "page_end": 2, "est_minutes": 10, "kind": "content"},
+    {"title": "Course Admin", "summary": "", "page_start": 3, "page_end": 3, "est_minutes": 2, "kind": "general"},
+    {"title": "No Kind Given", "summary": "", "page_start": 3, "page_end": 3, "est_minutes": 2},
+])
+kinds = {t["title"]: t["kind"] for t in database.get_topics(pdf_id=pdf_k)}
+assert kinds == {"Real Topic": "content", "Course Admin": "general", "No Kind Given": "content"}, kinds
+database.delete_pdf(pdf_k)
+
 # --- delete_pdf cascade: pdf + topics + cards gone, course and log survive
 pdf3 = database.create_pdf(course2, "doomed.pdf", total_pages=1)
 tid3 = database.save_topics(pdf3, [

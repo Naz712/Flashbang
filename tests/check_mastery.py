@@ -92,4 +92,14 @@ topics_zero = [{"id": 1, "est_minutes": 0}, {"id": 2, "est_minutes": 0}]
 pct = pdf_completion(topics_zero, cards_by_topic, now)
 assert abs(pct - 50.0) < 1e-6
 
+# kind='general' topics are excluded from completion (they never get cards)
+topics_kinds = [
+    {"id": 1, "est_minutes": 30, "kind": "content"},   # mastery 1.0
+    {"id": 2, "est_minutes": 90, "kind": "general"},   # admin pages — ignored
+]
+pct = pdf_completion(topics_kinds, cards_by_topic, now)
+assert abs(pct - 100.0) < 1e-6, f"general topic should not drag completion, got {pct}"
+# an all-general pdf falls back to counting everything rather than dividing by zero
+assert pdf_completion([{"id": 2, "est_minutes": 10, "kind": "general"}], {}, now) == 0.0
+
 print("check_mastery: ALL PASSED")

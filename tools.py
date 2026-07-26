@@ -82,7 +82,7 @@ TOOL_SCHEMAS = {
     },
     "propose_topics": {
         "name": "propose_topics",
-        "description": "Analyze an ingested document's pages and propose a split into real content topics, each with a page range, summary, and estimated study minutes (plus the document total). Saves NOTHING — show the proposal to the user for approval/edits before calling save_topics.",
+        "description": "Analyze an ingested document's pages and propose a split into real content topics, each with a page range, summary, estimated study minutes, and a kind flag ('content' = studyable material, 'general' = admin/logistics/outline pages that get no cards). Saves NOTHING — show the proposal to the user for approval/edits before calling save_topics.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -100,7 +100,7 @@ TOOL_SCHEMAS = {
                 "pdf_id": {"type": "integer", "description": "The document these topics belong to."},
                 "topics": {
                     "type": "array",
-                    "description": "The approved topics, each with title, summary, page_start, page_end, est_minutes.",
+                    "description": "The approved topics, each with title, summary, page_start, page_end, est_minutes, and kind — pass each topic's kind through from propose_topics (or the user's reflag) unchanged.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -109,6 +109,8 @@ TOOL_SCHEMAS = {
                             "page_start": {"type": "integer"},
                             "page_end": {"type": "integer"},
                             "est_minutes": {"type": "integer"},
+                            "kind": {"type": "string", "enum": ["content", "general"],
+                                     "description": "'general' = admin/logistics pages; no cards get made from these. Defaults to 'content'."},
                         },
                         "required": ["title", "page_start", "page_end", "est_minutes"],
                     },

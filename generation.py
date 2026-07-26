@@ -63,14 +63,20 @@ The concepts and their verbatim text:
 TASK:
 Create up to {count} flashcards from these concepts — only as many as the content genuinely supports; never invent or pad.
 
-Rules:
-- One fact per card. If a sentence in the source uses 'and', 'or', or lists items, those items must become separate cards. For example: 'open addressing uses linear probing or quadratic probing' should produce THREE cards (one on open addressing, one on linear probing, one on quadratic probing), not one bundled card.
-- You may paraphrase the source when writing the question and answer to make them clearer and more concise, but the meaning must be fully preserved.
+Rules (grounded in the card-formulation research — Wozniak's minimum-information principle, retrieval practice, elaborative interrogation):
+- MINIMUM INFORMATION: one fact per card. If a sentence in the source uses 'and', 'or', or lists items, those items must become separate cards. For example: 'open addressing uses linear probing or quadratic probing' should produce THREE cards (one on open addressing, one on linear probing, one on quadratic probing), not one bundled card. Simple cards are answered fast and schedule accurately; compound cards fail on their weakest part.
+- CONTEXT-FREE: every question must be answerable on its own weeks later, with no memory of the deck. Name the thing being asked about — never 'this method', 'the algorithm above', or 'step 2'.
+- FORCED RECALL, never recognition: no yes/no or true/false questions (guessable at 50%). Rephrase as what/why/how so the answer must be generated from memory.
+- Mix factual recall ('what...') with 'why'/'how' questions — explanatory questions build the understanding that transfers (elaborative interrogation).
+- CLOZE for formulas and precise phrasings: ask for one missing part ("In F = ma, what does m stand for?") rather than the whole formula at once.
+- FIGHT INTERFERENCE: when the source contains two easily-confused ideas (e.g. overriding vs overloading), add ONE explicit discrimination card ("How does X differ from Y?") alongside their individual cards.
+- BIDIRECTIONAL only for the most important terms: term→definition plus definition→term doubles the retrieval routes; reserve it for the concepts the topic centers on, not every card.
+- ANCHOR IN EXAMPLES: if the source gives a concrete example, prefer asking about the concept THROUGH the example ("Why does the currency-converter subclass override convert()?") over abstract restatement.
 - Questions must be unambiguous with a single correct answer directly supported by the verbatim text. No opinion-based or open-ended questions, and none that require synthesizing multiple concepts.
 - Do not create questions whose answers are lists or sets of items — make one card per item instead.
 - For code-related cards, test concepts over derivable facts: ask what the code is for or how it works, not what its output is.
+- You may paraphrase the source for clarity, but the meaning must be fully preserved.
 - Answers should be 1 to 3 sentences: long enough to include reasoning, short enough to recall.
-- Mix factual recall questions ('what...') with 'why' questions that probe understanding.
 
 EXAMPLE OUTPUT:
 [

@@ -75,14 +75,25 @@ def topic_status(cards):
     return "in_progress"
 
 
+def _topic_kind(topic):
+    # tolerate rows/dicts from before the kind column existed
+    try:
+        return topic["kind"] or "content"
+    except (KeyError, IndexError):
+        return "content"
+
+
 def pdf_completion(topics, cards_by_topic, now=None):
     """Completion % (0-100) of a pdf: topic masteries weighted by est_minutes.
-    Unstudied topics drag the number down proportionally to their size."""
-    if not topics:
+    Unstudied topics drag the number down proportionally to their size.
+    kind='general' topics (admin/logistics) never get cards, so they are
+    excluded — otherwise the pdf could never reach 100%."""
+    studyable = [t for t in topics if _topic_kind(t) == "content"] or topics
+    if not studyable:
         return 0.0
     weighted_sum = 0.0
     weight_total = 0.0
-    for topic in topics:
+    for topic in studyable:
         weight = topic["est_minutes"] or 1  # fallback weight for un-estimated topics
         mastery = topic_mastery(cards_by_topic.get(topic["id"], []), now)
         weighted_sum += weight * mastery
@@ -110,6 +121,7 @@ def build_pdf_report(pdf_row, topics, cards, now=None):
             "id": topic["id"],
             "title": topic["title"],
             "pages": f"{topic['page_start']}-{topic['page_end']}",
+            "kind": _topic_kind(topic),
             "status": topic_status(topic_cards),
             "mastery_pct": round(100 * topic_mastery(topic_cards, now), 1),
             "est_minutes": topic["est_minutes"],

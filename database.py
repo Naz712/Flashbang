@@ -65,6 +65,7 @@ def init_db():
             page_end    INTEGER NOT NULL,
             est_minutes INTEGER NOT NULL DEFAULT 0,
             position    INTEGER NOT NULL DEFAULT 0,
+            kind        TEXT NOT NULL DEFAULT 'content',
             created_at  TEXT NOT NULL
         )
     """)
@@ -182,6 +183,11 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='latency_ms'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE answer_log ADD COLUMN latency_ms INTEGER")
+    # 'content' = real course material; 'general' = admin/logistics/intro pages
+    # (kept for page coverage, excluded from completion math and card-making)
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topics') WHERE name='kind'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE topics ADD COLUMN kind TEXT NOT NULL DEFAULT 'content'")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_topic       ON cards(topic_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
@@ -313,12 +319,13 @@ def save_topics(pdf_id, topics):
 
     topic_ids = []
     for position, t in enumerate(topics):
+        kind = t.get("kind") if t.get("kind") in ("content", "general") else "content"
         cursor.execute("""
             INSERT INTO topics (pdf_id, course_id, title, summary, page_start, page_end,
-                                est_minutes, position, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                est_minutes, position, kind, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (pdf_id, course_id, t["title"], t.get("summary"), t["page_start"],
-              t["page_end"], t.get("est_minutes", 0), position, now_iso()))
+              t["page_end"], t.get("est_minutes", 0), position, kind, now_iso()))
         topic_ids.append(cursor.lastrowid)
 
     total_minutes = sum(t.get("est_minutes", 0) for t in topics)
