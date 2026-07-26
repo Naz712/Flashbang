@@ -26,6 +26,24 @@ else:
 
 _anthropic_client = None
 _openai_client = None
+_chat_models = {}
+
+# Custom OpenAI-compatible endpoint (Agnes AI / GMI Cloud sponsor credits):
+# point OPENAI_BASE_URL + OPENAI_MAIN_MODEL/OPENAI_FAST_MODEL at the provider.
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
+# Helicone observability (free tier): set HELICONE_API_KEY and requests proxy
+# through Helicone for real per-request cost/latency dashboards. An explicit
+# OPENAI_BASE_URL takes precedence.
+HELICONE_API_KEY = os.getenv("HELICONE_API_KEY")
+
+
+def _openai_endpoint():
+    """(base_url, default_headers) for the active OpenAI-compatible endpoint."""
+    if OPENAI_BASE_URL:
+        return OPENAI_BASE_URL, {}
+    if HELICONE_API_KEY:
+        return "https://oai.helicone.ai/v1", {"Helicone-Auth": f"Bearer {HELICONE_API_KEY}"}
+    return None, {}
 
 
 def anthropic_client():
@@ -40,8 +58,29 @@ def openai_client():
     global _openai_client
     if _openai_client is None:
         from openai import OpenAI
-        _openai_client = OpenAI()
+        base_url, headers = _openai_endpoint()
+        _openai_client = OpenAI(base_url=base_url, default_headers=headers or None)
     return _openai_client
+
+
+def chat_model(fast=False):
+    """LangChain chat model for the active provider (frameworks fork) — used by
+    the LangGraph agent loop. One code path replaces the two hand-rolled
+    provider dialects; base_url/Helicone plumbing rides along for free."""
+    _require_provider()
+    key = ("fast" if fast else "main")
+    if key not in _chat_models:
+        model_name = FAST_MODEL if fast else MAIN_MODEL
+        if PROVIDER == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            _chat_models[key] = ChatAnthropic(model=model_name, max_tokens=4096)
+        else:
+            from langchain_openai import ChatOpenAI
+            base_url, headers = _openai_endpoint()
+            _chat_models[key] = ChatOpenAI(model=model_name, max_completion_tokens=4096,
+                                           base_url=base_url,
+                                           default_headers=headers or None)
+    return _chat_models[key]
 
 
 def _require_provider():

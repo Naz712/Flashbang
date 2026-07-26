@@ -1,11 +1,17 @@
-"""Shared agent core. run_turn() drives one assistant turn for whichever
-specialist agent the orchestrator picked: it keeps calling Claude with that
-agent's system prompt + tool subset until no more tools are requested.
-Tool dispatch is a registry (TOOL_HANDLERS) instead of an if/elif chain."""
+"""Shared agent core — frameworks fork: turn execution runs on LangGraph's
+prebuilt ReAct agent instead of the hand-rolled two-dialect tool loop (that
+loop lives on in git history / the reference board). What stays OURS:
+TOOL_HANDLERS, the id-validation guardrail, the specialists' prompts/tool
+subsets, and the router/orchestrator pinning above this module."""
 
 import json
-from llm_utils import PROVIDER, MAIN_MODEL, anthropic_client, openai_client
-from tools import tools_for, openai_tools_for
+import types
+from datetime import date
+from pydantic import create_model
+from langchain_core.tools import StructuredTool
+from langgraph.prebuilt import create_react_agent
+from llm_utils import chat_model
+from tools import TOOL_SCHEMAS
 from pdf_ingest import read_pdf, create_text_source, propose_topics
 from generation import extract_topic_concepts, generate_cards_for_topic, generate_pretest
 from grading import grade_answer
@@ -160,100 +166,93 @@ def handle_tool(name, args):
         return f"Error in {name}: {type(e).__name__}: {e}"
 
 
-def run_turn(messages, agent, on_event=None, on_tool=None):
-    """Run one assistant turn for the given AgentSpec on whichever LLM provider
-    is configured. `messages` (the API history) is mutated in place — its entry
-    format is provider-specific, but a conversation only ever uses one provider.
-    Returns the final assistant text.
+# per-turn callbacks reach the LangChain tool wrappers via module state.
+# NOT thread-local: LangGraph's tool node may execute tools on worker threads,
+# which would see an empty thread-local and silently drop the callbacks
+# (observed: session pinning + grade cards went dead). Single-user app, one
+# turn at a time — module state is correct here.
+_turn_ctx = types.SimpleNamespace(log=None, on_tool=None)
 
-    on_event(str): optional logging callback (tool calls, stop reasons).
-    on_tool(name, input, result): optional structured callback with the RAW
-    (un-stringified) result — Streamlit renders grade_answer dicts from this,
-    and the orchestrator watches it for session pinning."""
+_JSON_TYPES = {"string": str, "integer": int, "number": float,
+               "boolean": bool, "array": list, "object": dict}
+
+
+def _args_model(name, input_schema):
+    """Pydantic args schema from our JSON tool schema (LangChain needs one)."""
+    fields = {}
+    required = set(input_schema.get("required", []))
+    for prop, spec in input_schema.get("properties", {}).items():
+        py_type = _JSON_TYPES.get(spec.get("type", "string"), str)
+        fields[prop] = (py_type, ...) if prop in required else (py_type | None, None)
+    return create_model(f"{name}_args", **fields)
+
+
+def _make_lc_tool(name, schema):
+    def call(**kwargs):
+        # drop explicit Nones so handlers' defaults apply (LangChain fills
+        # optional args with None)
+        args = {k: v for k, v in kwargs.items() if v is not None}
+        log = getattr(_turn_ctx, "log", None)
+        on_tool = getattr(_turn_ctx, "on_tool", None)
+        if log:
+            log(f"[tool: {name}({args})]")
+        result = handle_tool(name, args)   # guardrails (id validation) intact
+        if log:
+            log(f"[result: {str(result)[:200]}]")
+        if on_tool:
+            on_tool(name, args, result)
+        return str(result)
+
+    return StructuredTool.from_function(
+        func=call, name=name, description=schema["description"],
+        args_schema=_args_model(name, schema["input_schema"]))
+
+
+_LC_TOOLS = None
+_GRAPH_CACHE = {}
+
+
+def _lc_tools():
+    global _LC_TOOLS
+    if _LC_TOOLS is None:
+        _LC_TOOLS = {name: _make_lc_tool(name, schema)
+                     for name, schema in TOOL_SCHEMAS.items()}
+    return _LC_TOOLS
+
+
+def _graph_for(agent):
+    """One compiled LangGraph ReAct agent per specialist, rebuilt daily
+    (the system prompt embeds today's date)."""
+    key = (agent.name, date.today())
+    if key not in _GRAPH_CACHE:
+        tools = [_lc_tools()[name] for name in agent.tool_names]
+        _GRAPH_CACHE[key] = create_react_agent(
+            chat_model(), tools, prompt=agent.build_system_prompt())
+    return _GRAPH_CACHE[key]
+
+
+def run_turn(messages, agent, on_event=None, on_tool=None):
+    """Run one assistant turn for the given AgentSpec through LangGraph.
+    `messages` (LangChain message history) is mutated in place. Returns the
+    final assistant text.
+
+    on_event(str): logging callback (tool calls, results) — feeds the SSE
+    status line. on_tool(name, input, result): structured callback with the
+    RAW result — grade cards and orchestrator session-pinning hang off it."""
     def log(msg):
         if on_event:
             on_event(msg)
 
-    if PROVIDER == "openai":
-        return _run_turn_openai(messages, agent, log, on_tool)
-    return _run_turn_anthropic(messages, agent, log, on_tool)
-
-
-def _run_turn_anthropic(messages, agent, log, on_tool):
-    system_prompt = agent.build_system_prompt()
-    tools = tools_for(agent.tool_names)
-
-    while True:
-        response = anthropic_client().messages.create(
-            model=MAIN_MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            tools=tools,
-            messages=messages,
-        )
-        log(f"[{agent.name} | stop_reason: {response.stop_reason}]")
-        messages.append({"role": "assistant", "content": response.content})
-
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    log(f"[tool: {block.name}({block.input})]")
-                    result = handle_tool(block.name, block.input)
-                    log(f"[result: {str(result)[:200]}]")
-                    if on_tool:
-                        on_tool(block.name, block.input, result)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": str(result),
-                    })
-            messages.append({"role": "user", "content": tool_results})
-            continue
-
-        return "".join(b.text for b in response.content if b.type == "text")
-
-
-def _run_turn_openai(messages, agent, log, on_tool):
-    # system prompt is prepended per call (not stored) because each turn may be
-    # handled by a different specialist over the same shared history
-    system_prompt = agent.build_system_prompt()
-    tools = openai_tools_for(agent.tool_names)
-
-    while True:
-        response = openai_client().chat.completions.create(
-            model=MAIN_MODEL,
-            max_completion_tokens=4096,
-            messages=[{"role": "system", "content": system_prompt}] + messages,
-            tools=tools,
-        )
-        msg = response.choices[0].message
-        log(f"[{agent.name} | finish_reason: {response.choices[0].finish_reason}]")
-
-        entry = {"role": "assistant", "content": msg.content or ""}
-        if msg.tool_calls:
-            entry["tool_calls"] = [
-                {"id": tc.id, "type": "function",
-                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                for tc in msg.tool_calls]
-        messages.append(entry)
-
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                try:
-                    args = json.loads(tc.function.arguments or "{}")
-                except json.JSONDecodeError:
-                    args = {}
-                log(f"[tool: {tc.function.name}({args})]")
-                result = handle_tool(tc.function.name, args)
-                log(f"[result: {str(result)[:200]}]")
-                if on_tool:
-                    on_tool(tc.function.name, args, result)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": str(result),
-                })
-            continue
-
-        return msg.content or ""
+    _turn_ctx.log = log
+    _turn_ctx.on_tool = on_tool
+    try:
+        graph = _graph_for(agent)
+        log(f"[{agent.name} | langgraph]")
+        result = graph.invoke({"messages": list(messages)},
+                              config={"recursion_limit": 60})
+        messages[:] = result["messages"]
+        final = messages[-1]
+        return final.content if isinstance(final.content, str) else str(final.content)
+    finally:
+        _turn_ctx.log = None
+        _turn_ctx.on_tool = None
