@@ -84,6 +84,17 @@ peek, reveal-all toggle, blackout-mode click deletes. Visual-only by design
   can never touch the real index. Lesson: a mirrored cascade needs mirrored
   test isolation.
 
+### 2026-07-27 — reading mode: full-width viewer + study-block sidebar
+The topic viewer is now a proper reading surface: 96vw×94vh box, pages up
+to 920px, larger text-fallback type, and a right sidebar with a STUDY BLOCK
+countdown. The sidebar drives the SAME clock as the rail's focus card (one
+timer, one log): pick 15/25/45 → mm:ss countdown (timestamp-derived, so
+throttled tabs can't drift it) → auto-logs at 0:00 or on End early via
+/api/focus → "Block logged ✓" + restart. Blackout boxes unaffected.
+Verified live: sidebar renders on open, 15m block started, countdown 14:58
+after 2.6s with bar + rail chip synced, End early → logged with recap →
+done-state. Test row (1 min) removed from the real study log afterwards. ✅
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

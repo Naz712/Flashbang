@@ -14,6 +14,7 @@ const S = {
   sessionLen: 25,
   focusStart: null,     // Date when focus timer started
   recap: null,
+  blockDone: false,     // reading sidebar: last block ended -> show "logged"
   busy: false,
   pdfSort: localStorage.getItem("fbPdfSort") || "weakest",  // progress-card order
   cardFilter: { course_id: null, pdf_id: null, topic_id: null },
@@ -1140,7 +1141,7 @@ window.setExam = async (courseId, date) => {
   fetchState();
 };
 window.toggleRail = () => { S.railOpen = !S.railOpen; renderRail(); };
-window.pickLen = (m) => { S.sessionLen = m; renderRail(); };
+window.pickLen = (m) => { S.sessionLen = m; renderRail(); renderReadSide(); };
 window.dismissRecap = () => { S.recap = null; renderRail(); };
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
 
@@ -1174,20 +1175,57 @@ window.toggleFocus = async () => {
         body: JSON.stringify({ minutes: mins, course_id: cur?.course_id, pdf_id: cur?.pdf_id }) });
       S.recap = await res.json();
     } catch { S.recap = null; }
+    S.blockDone = true;   // reading sidebar: show "logged" state until the next start
+    renderReadSide();
     fetchState();
   } else {
     S.focusStart = Date.now();
+    S.blockDone = false;
     $("focusChip").style.display = "flex";
     S._tick = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - S.focusStart) / 60000);
+      // timestamps, not tick counts — throttled background tabs must not drift
+      const elapsedSec = Math.floor((Date.now() - S.focusStart) / 1000);
+      const elapsed = Math.floor(elapsedSec / 60);
       $("focusElapsedHead").textContent = elapsed;
       const el = $("focusElapsed"), bar = $("focusBar");
       if (el) el.textContent = elapsed;
       if (bar) bar.style.width = `${Math.min(100, elapsed / S.sessionLen * 100)}%`;
+      const remain = Math.max(0, S.sessionLen * 60 - elapsedSec);
+      const rt = $("readRemain"), rb = $("readBar");
+      if (rt) rt.textContent = `${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}`;
+      if (rb) rb.style.width = `${Math.min(100, elapsedSec / (S.sessionLen * 60) * 100)}%`;
       if (elapsed >= S.sessionLen) window.toggleFocus();   // auto-end at target
     }, 1000);
     renderRail();
+    renderReadSide();
   }
+};
+
+/* study-block sidebar inside the reading view — same timer as the rail's
+   FOCUS SESSION card (one clock, one log), presented as a countdown */
+window.renderReadSide = () => {
+  const side = $("viewerSide");
+  if (!side || $("viewer").style.display === "none") return;
+  const running = !!S.focusStart;
+  const remain = running ? Math.max(0, S.sessionLen * 60 - Math.floor((Date.now() - S.focusStart) / 1000)) : S.sessionLen * 60;
+  side.innerHTML = `
+    <div class="mono-label">STUDY BLOCK</div>
+    ${running ? `
+      <div class="read-timer" id="readRemain">${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}</div>
+      <div style="font-size:11px; color:#8A8F9C">of a ${S.sessionLen}-min block</div>
+      <div style="height:6px; border-radius:3px; background:#ECECE8; overflow:hidden">
+        <div id="readBar" style="height:100%; width:${Math.min(100, (1 - remain / (S.sessionLen * 60)) * 100)}%; border-radius:3px; background:#1C1E26; transition:width 1s linear"></div>
+      </div>
+      <button class="btn-block ghost" style="margin-top:2px" onclick="toggleFocus()">End early</button>
+    ` : `
+      ${S.blockDone ? `<div style="font-size:12px; color:#00794F; font-weight:600">Block logged ✓</div>
+        <div style="font-size:11px; color:#8A8F9C; margin-top:-6px">It counts toward your streak and heatmap.</div>` : ""}
+      <div class="dur-row">
+        ${[15, 25, 45].map((m) => `<button class="dur-btn ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}m</button>`).join("")}
+      </div>
+      <button class="btn-block" style="margin-top:2px" onclick="toggleFocus()">Start ${S.sessionLen}-min block</button>
+    `}
+    <div class="evidence" style="margin-top:auto">Read with the timer, then hit the due cards while it's fresh — retrieval right after reading beats re-reading (Roediger &amp; Karpicke, 2006).</div>`;
 };
 
 /* ---------------------------------------------------------------- topic page viewer */
@@ -1275,6 +1313,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   BO.edit = false;
   BO.revealAll = false;
   syncBlackoutButtons();
+  renderReadSide();
   try { BO.boxes = await fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()); }
   catch { BO.boxes = []; }
 
@@ -1304,7 +1343,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
     }
     const doc = pdfDocCache[pdfId];
     body.innerHTML = "";
-    const width = Math.min(860, body.clientWidth - 40);
+    const width = Math.min(920, body.clientWidth - 40);
     const last = Math.min(pageEnd, doc.numPages);
     for (let n = pageStart; n <= last; n++) {
       const page = await doc.getPage(n);
