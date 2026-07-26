@@ -200,7 +200,12 @@ Rules:
 - Page ranges must be contiguous, non-overlapping, and together cover every page in this chunk.
 - A topic must span at least 1 page; topics typically span 2-10 pages.
 - Title pages / outlines / admin pages belong to the nearest real topic (usually the following one).
-- "summary" is 1-2 sentences on what the topic covers.
+- Titles must be SHORT and instantly scannable — 2-4 words, max ~35 characters:
+  - Use widely-known abbreviations (OOP, HOF, I/O, API, CNN, RNN, SVM, MLP, regex).
+  - Drop filler: "Introduction to X" → "X Intro"; never "Understanding...", "Concepts of...",
+    "Examples and Tutorials on...".
+  - Specific beats generic: "Method Overriding & @Override", not "More Class Features".
+- "summary" is 1-2 sentences on what the topic covers — the detail lives here, not in the title.
 - "kind" separates studyable material from everything else:
   - "content": actual course material — concepts, techniques, worked examples, exercises.
   - "general": course admin and framing — schedules, assessment weightings, reading lists,
@@ -219,7 +224,7 @@ Respond with ONLY a JSON object in this exact format. No markdown code fences, n
 {{
     "topics": [
         {{
-            "title": "<string, specific topic title, e.g. 'Self-Attention Mechanism'>",
+            "title": "<string, short specific title, e.g. 'Self-Attention', 'OOP Inheritance'>",
             "summary": "<string, 1-2 sentences>",
             "page_start": <integer>,
             "page_end": <integer>,

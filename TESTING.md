@@ -52,6 +52,18 @@ left the stubs plus two full duplicates (lec05, lec07b — both copies ready).
   different topic splits, no cards yet on either; delete whichever copy
   reads worse with the new ✕ button.
 
+### 2026-07-26 — FORK IS NOW PRIMARY + short topic titles
+Naz's call: focus on the fork (LangGraph + Chroma + FSRS); master stays as
+the frozen hand-rolled reference — no more parity cherry-picks.
+- Segmentation prompt now demands 2-4 word titles (max ~35 chars), known
+  abbreviations welcome (OOP, HOF, I/O...), filler banned ("Introduction
+  to X" → "X Intro").
+- Existing titles bulk-shortened: one gpt-4o-mini call per course over all
+  127 topics → 109 renamed ("Understanding the 'self' Keyword and
+  Constructors" → "'self' & Constructors", "Inheritance in Object-Oriented
+  Programming" → "OOP Inheritance"). Verified live: zero titles over 35
+  chars across the library.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
