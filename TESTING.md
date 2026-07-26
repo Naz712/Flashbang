@@ -33,6 +33,25 @@ answer and show the RETRIEVAL FLUENCY panel, so the A/B comparison stays
 fair. All five offline suites pass; live check on :5002 — /api/state serves
 the fluency block, panel renders. ✅
 
+### 2026-07-26 — REAL-USE BUG: 11-file batch upload stranded 6 pending stubs
+First multi-file real ingest (Python course, 11 files in one drop). The
+front-end sends ONE chat message listing every path; the ingestion turn hit
+LangGraph's default recursion_limit=60 mid-batch and died silently after
+read_pdf had already created rows for files it never segmented → 6 pdfs
+stuck at status=pending / 0 topics, rendering as empty slates on Progress.
+User retried those files (upload renames gave `_1` copies), which worked but
+left the stubs plus two full duplicates (lec05, lec07b — both copies ready).
+- Fixes: manual delete (master 183c884, cherry-picked): DELETE
+  /api/pdfs/<id> + confirm-gated ✕ on every Progress pdf card, cascade +
+  Chroma cleanup + uploaded-file removal; pending pdfs badge as **Ingest
+  incomplete**; ingestion recursion_limit raised to 240 (fork 04963b4).
+- Verified live on :5002: one stub deleted through the real UI button (card
+  vanished, badge count 6→5), remaining 5 via the endpoint (all 200, file
+  copies removed from uploads/). Progress shows 0 incomplete badges.
+- Left for Naz: duplicate pairs lec05 (ids 17/22) and lec07b (ids 18/24) —
+  different topic splits, no cards yet on either; delete whichever copy
+  reads worse with the new ✕ button.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
