@@ -396,15 +396,15 @@ function flagTag(topicId) {
 }
 
 function renderRail() {
-  // "rail" content now lives BELOW the full-height chat; the focus timer
-  // floats in the corner so it's visible without scrolling
-  const st = S.state, below = $("studyBelow");
+  // the old rail is gone: Study is chat-only, its cards live on Home
+  // (homeTopHTML) and the focus timer floats top-right on every screen
   renderFocusFloat();
+}
 
+function homeTopHTML(st) {
   if (!st || !st.current) {
-    below.innerHTML = `<div class="card"><div class="mono-label" style="margin-bottom:10px">NOW STUDYING</div>
+    return `<div class="card"><div class="mono-label" style="margin-bottom:10px">NOW STUDYING</div>
       <div style="font-size:12.5px; color:#5C616E; line-height:1.6">Nothing ingested yet. Drop a PDF path or paste notes into the chat to get started.</div></div>`;
-    return;
   }
 
   const cur = st.current, cc = st.currentCourse;
@@ -487,7 +487,7 @@ function renderRail() {
       sleep helps consolidation. Even 10 minutes counts.</div>`;
   }
 
-  below.innerHTML = html;
+  return html;
 }
 
 /* compact focus timer pinned to the corner of the study screen */
@@ -648,7 +648,11 @@ function renderProgress() {
   }).join("");
 
   inner.innerHTML = `
-    <div class="section-head"><span class="mono-label">OVERVIEW</span><div class="rule"></div></div>
+    <div class="section-head"><span class="mono-label">NOW</span><div class="rule"></div></div>
+    <div class="home-top">${homeTopHTML(st)}</div>
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">READING</span><div class="rule"></div></div>
+    ${readingBandHTML(st)}
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">FLASHCARDS · OVERVIEW</span><div class="rule"></div></div>
     <div class="grid3">
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">TIME THIS WEEK</div>
@@ -941,9 +945,7 @@ function renderMetrics(mx) {
 
 /* ---------------------------------------------------------------- reading hub */
 
-function renderReadingHub() {
-  const st = S.state;
-  if (!st || !st.reading) return;
+function readingBandHTML(st) {
   const rd = st.reading;
   const courseIdx = {};
   st.courses.forEach((c, i) => { courseIdx[c.id] = i; });
@@ -966,7 +968,44 @@ function renderReadingHub() {
       <span style="font-size:11.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(s.pdf || "(no document)")}</span>
       <span class="mono" style="font-size:10.5px; color:#8A8F9C; flex:none">${fmtMin(s.minutes)}</span>
     </div>`;
-  }).join("") : `<div style="font-size:12px; color:#8A8F9C">No reading blocks yet — open a topic below and start one.</div>`;
+  }).join("") : `<div style="font-size:12px; color:#8A8F9C">No reading blocks yet — open a topic from the Reading tab and start one.</div>`;
+
+  return `
+    <div class="grid3">
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">TIME READ · ALL TIME</div>
+        <div class="stat-num">${fmtMin(rd.total_minutes)}</div>
+        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">READING STREAK</div>
+        <div class="stat-num">${rd.streak_days}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> day${rd.streak_days === 1 ? "" : "s"}</span></div>
+        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week · ${rd.block_count} all time</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">NOTES</div>
+        <div class="stat-num">${rd.note_total}</div>
+        <div class="stat-sub">window-box comments across your documents</div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">READING TIME BY COURSE</div>
+        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:10px">${legend}</div>`
+          : `<div style="font-size:12px; color:#8A8F9C; flex:1">Nothing logged yet.</div>`}
+        ${evidence("Reading time lives apart from the flashcard analytics — mastery only ever moves through retrieval.")}
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:14px">RECENT READING BLOCKS</div>
+        <div style="display:flex; flex-direction:column; gap:8px">${recent}</div>
+      </div>
+    </div>`;
+}
+
+function renderReadingHub() {
+  const st = S.state;
+  if (!st || !st.reading) return;
+  const rd = st.reading;
 
   // library stepper: course -> document -> topic, one decision at a time
   const nav = S.readNav;
@@ -1029,36 +1068,7 @@ function renderReadingHub() {
   const lib = `${crumbs}<div style="display:flex; flex-direction:column; gap:8px">${step}</div>`;
 
   $("readingInner").innerHTML = `
-    <div class="grid3">
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">TIME READ · ALL TIME</div>
-        <div class="stat-num">${fmtMin(rd.total_minutes)}</div>
-        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">READING STREAK</div>
-        <div class="stat-num">${rd.streak_days}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> day${rd.streak_days === 1 ? "" : "s"}</span></div>
-        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week · ${rd.block_count} all time</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">NOTES</div>
-        <div class="stat-num">${rd.note_total}</div>
-        <div class="stat-sub">window-box comments across your documents</div>
-      </div>
-    </div>
-    <div class="grid2">
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">READING TIME BY COURSE</div>
-        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:10px">${legend}</div>`
-          : `<div style="font-size:12px; color:#8A8F9C; flex:1">Nothing logged yet.</div>`}
-        ${evidence("Reading time lives here, separate from the flashcard analytics — mastery only ever moves through retrieval.")}
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:14px">RECENT READING BLOCKS</div>
-        <div style="display:flex; flex-direction:column; gap:8px">${recent}</div>
-      </div>
-    </div>
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">LIBRARY · ${!S.readNav.course ? "PICK A COURSE" : !S.readNav.pdf ? "PICK A DOCUMENT" : "PICK A TOPIC TO READ"}</span><div class="rule"></div></div>
+    <div class="section-head"><span class="mono-label">LIBRARY · ${!S.readNav.course ? "PICK A COURSE" : !S.readNav.pdf ? "PICK A DOCUMENT" : "PICK A TOPIC TO READ"}</span><div class="rule"></div></div>
     ${lib}`;
 }
 
@@ -1275,7 +1285,7 @@ window.toggleNav = () => {
   $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
 };
 window.pickLen = (m) => { S.sessionLen = m; renderRail(); renderReadSide(); };
-window.dismissRecap = () => { S.recap = null; renderRail(); };
+window.dismissRecap = () => { S.recap = null; renderProgress(); };
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
 
 window.deletePdf = async (pdfId, encName) => {
