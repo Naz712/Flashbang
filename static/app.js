@@ -8,7 +8,8 @@ const S = {
   view: "study",
   state: null,          // /api/state payload
   pdfId: null,          // current doc
-  railOpen: true,
+  navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
+  readNav: { course: null, pdf: null },   // reading-library stepper position
   pendingConf: null,    // "sure" | "unsure" attached to next message
   qShownAt: null,       // Date.now() when the current question card appeared
   sessionLen: 25,
@@ -395,13 +396,13 @@ function flagTag(topicId) {
 }
 
 function renderRail() {
-  const st = S.state, rail = $("rail");
-  $("railReopen").style.display = S.railOpen ? "none" : "block";
-  rail.style.display = S.railOpen ? "flex" : "none";
-  if (!S.railOpen) return;
+  // "rail" content now lives BELOW the full-height chat; the focus timer
+  // floats in the corner so it's visible without scrolling
+  const st = S.state, below = $("studyBelow");
+  renderFocusFloat();
 
   if (!st || !st.current) {
-    rail.innerHTML = `<div class="card"><div class="mono-label" style="margin-bottom:10px">NOW STUDYING</div>
+    below.innerHTML = `<div class="card"><div class="mono-label" style="margin-bottom:10px">NOW STUDYING</div>
       <div style="font-size:12.5px; color:#5C616E; line-height:1.6">Nothing ingested yet. Drop a PDF path or paste notes into the chat to get started.</div></div>`;
     return;
   }
@@ -418,7 +419,6 @@ function renderRail() {
         <span class="mono-label">NOW STUDYING</span>
         <span class="course-chip" style="border-left:3px solid ${color}">${esc(cc.name)}</span>
       </span>
-      <button class="icon-btn" title="Hide panel" onclick="toggleRail()">⇥</button>
     </div>
     <div class="doc-name">${esc(cur.filename)}</div>
     <div class="doc-meta">${cur.total_pages} pages · ~${hours}h est · ${cur.spent_total} studied</div>
@@ -481,34 +481,31 @@ function renderRail() {
     </div>`;
   }
 
-  // FOCUS SESSION
-  const active = !!S.focusStart;
-  const elapsed = active ? Math.floor((Date.now() - S.focusStart) / 60000) : 0;
-  html += `<div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:11px">
-      <span class="mono-label">FOCUS SESSION</span>
-    </div>
-    ${!active ? `<div class="dur-row">
-      ${[15, 25, 45].map((m) => `<button class="dur-btn ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}m</button>`).join("")}
-    </div>` : `
-    <div style="display:flex; align-items:baseline; gap:6px; margin-bottom:8px">
-      <span class="mono" style="font-size:22px; font-weight:600" id="focusElapsed">${elapsed}</span>
-      <span class="mono" style="font-size:11px; color:#8A8F9C">/ ${S.sessionLen} min</span>
-    </div>
-    <div style="height:6px; border-radius:3px; background:#ECECE8; overflow:hidden; margin-bottom:12px">
-      <div id="focusBar" style="height:100%; width:${Math.min(100, elapsed / S.sessionLen * 100)}%; border-radius:3px; background:#1C1E26; transition:width 1s linear"></div>
-    </div>`}
-    <button class="btn-block ${active ? "ghost" : ""}" style="margin-top:0" onclick="toggleFocus()">
-      ${active ? "End session" : `Start ${S.sessionLen}-min focus`}</button>
-  </div>`;
-
   // evening nudge: reviewing shortly before sleep aids consolidation
-  if (new Date().getHours() >= 18 && st.dueTotal > 0 && !active) {
+  if (new Date().getHours() >= 18 && st.dueTotal > 0 && !S.focusStart) {
     html += `<div class="nudge">🌙 ${st.dueTotal} cards due — a short review before
       sleep helps consolidation. Even 10 minutes counts.</div>`;
   }
 
-  rail.innerHTML = html;
+  below.innerHTML = html;
+}
+
+/* compact focus timer pinned to the corner of the study screen */
+function renderFocusFloat() {
+  const el = $("focusFloat");
+  const active = !!S.focusStart;
+  const elapsed = active ? Math.floor((Date.now() - S.focusStart) / 60000) : 0;
+  el.innerHTML = active ? `
+    <div class="ff-card on" title="Focus session running — click ■ to end &amp; log">
+      <span class="pulse"></span>
+      <span class="mono" style="font-size:13px; font-weight:600"><span id="focusElapsed">${elapsed}</span><span style="color:#8A8F9C; font-size:10.5px"> / ${S.sessionLen}m</span></span>
+      <div class="ff-track"><div id="focusBar" style="height:100%; width:${Math.min(100, elapsed / S.sessionLen * 100)}%; background:#009E73; transition:width 1s linear"></div></div>
+      <button class="ff-btn" onclick="toggleFocus()" title="End session &amp; log it">■</button>
+    </div>` : `
+    <div class="ff-card" title="Focus session: pick a length and start">
+      ${[15, 25, 45].map((m) => `<button class="ff-len ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}</button>`).join("")}
+      <button class="ff-btn" onclick="toggleFocus()" title="Start a ${S.sessionLen}-minute focus session">▶</button>
+    </div>`;
 }
 
 function renderCurve(curve, sortedTopics) {
@@ -971,27 +968,65 @@ function renderReadingHub() {
     </div>`;
   }).join("") : `<div style="font-size:12px; color:#8A8F9C">No reading blocks yet — open a topic below and start one.</div>`;
 
-  const lib = st.libCourses.map((c) => {
-    const pdfRows = c.pdfs.map((p) => {
+  // library stepper: course -> document -> topic, one decision at a time
+  const nav = S.readNav;
+  const selCourse = nav.course != null ? st.libCourses.find((c) => c.id === nav.course) : null;
+  if (nav.course != null && !selCourse) nav.course = nav.pdf = null;   // stale after refresh
+  const selPdf = selCourse && nav.pdf != null
+    ? selCourse.pdfs.find((p) => p.pdf_id === nav.pdf) : null;
+  if (nav.pdf != null && !selPdf) nav.pdf = null;
+
+  const crumbs = `<div class="crumbs">
+    <button class="crumb ${!selCourse ? "on" : ""}" onclick="readHub(null, null)">Courses</button>
+    ${selCourse ? `<span class="crumb-sep">›</span>
+      <button class="crumb ${!selPdf ? "on" : ""}" onclick="readHub(${selCourse.id}, null)">${esc(selCourse.name)}</button>` : ""}
+    ${selPdf ? `<span class="crumb-sep">›</span>
+      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>` : ""}
+  </div>`;
+
+  let step;
+  if (!selCourse) {
+    // step 1: pick a course
+    step = `<div class="grid3">${st.libCourses.map((c) => {
+      const mins = rd.by_course.find((r) => r.course_id === c.id)?.minutes || 0;
+      const notes = c.pdfs.reduce((a, p) => a + (rd.notes_by_pdf[p.pdf_id] || 0), 0);
+      return `<button class="pick-card" onclick="readHub(${c.id}, null)">
+        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}"></span>
+        <span style="flex:1; min-width:0; text-align:left">
+          <span style="display:block; font-size:13.5px; font-weight:600">${esc(c.name)}</span>
+          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:3px">${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${fmtMin(mins)} read${notes ? ` · ${notes} notes` : ""}</span>
+        </span>
+        <span class="crumb-sep">›</span>
+      </button>`;
+    }).join("")}</div>`;
+  } else if (!selPdf) {
+    // step 2: pick a document (upload order, oldest first)
+    const pdfs = [...selCourse.pdfs].sort((a, b) => a.pdf_id - b.pdf_id);
+    step = pdfs.map((p) => {
       const readMin = rd.by_pdf.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0;
       const notes = rd.notes_by_pdf[p.pdf_id] || 0;
-      const chips = p.topics.map((t) => `
-        <button class="dur-btn" style="font-size:10.5px" title="Read pages ${t.pages}"
-          onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">${esc(t.title)}</button>`).join("");
-      return `<div style="padding:12px 0 4px; border-top:1px dashed #E3E3DE; margin-top:10px">
-        <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:8px">
-          <span style="font-size:12.5px; font-weight:600">${esc(p.filename)}</span>
-          <span class="mono" style="font-size:10px; color:#8A8F9C">${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:6px">${chips}</div>
-      </div>`;
+      return `<button class="pick-card" onclick="readHub(${selCourse.id}, ${p.pdf_id})">
+        <span style="flex:1; min-width:0; text-align:left">
+          <span style="display:block; font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(p.filename)}</span>
+          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:3px">${p.total_pages} pages · ${p.topics.length} topics · ${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
+        </span>
+        <span class="crumb-sep">›</span>
+      </button>`;
     }).join("");
-    return `<div class="course-card">
-      <div class="course-head">
-        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}"></span>
-        <span class="course-name">${esc(c.name)}</span>
-      </div>${pdfRows}</div>`;
-  }).join("");
+  } else {
+    // step 3: pick a topic (document order = reading order)
+    step = selPdf.topics.map((t) => `
+      <button class="pick-card" onclick="openTopic(${selPdf.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
+        <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
+        <span style="flex:1; min-width:0; text-align:left">
+          <span style="display:block; font-size:12.5px; font-weight:600">${esc(t.title)}</span>
+          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:2px">p.${t.pages} · ~${fmtMin(t.est_minutes)}</span>
+        </span>
+        ${t.kind === "general" ? `<span class="info-tag">info</span>` : ""}
+        <span class="crumb-sep" title="Open the reader">›</span>
+      </button>`).join("");
+  }
+  const lib = `${crumbs}<div style="display:flex; flex-direction:column; gap:8px">${step}</div>`;
 
   $("readingInner").innerHTML = `
     <div class="grid3">
@@ -1023,9 +1058,14 @@ function renderReadingHub() {
         <div style="display:flex; flex-direction:column; gap:8px">${recent}</div>
       </div>
     </div>
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">LIBRARY · CLICK A TOPIC TO READ</span><div class="rule"></div></div>
+    <div class="section-head" style="margin-top:10px"><span class="mono-label">LIBRARY · ${!S.readNav.course ? "PICK A COURSE" : !S.readNav.pdf ? "PICK A DOCUMENT" : "PICK A TOPIC TO READ"}</span><div class="rule"></div></div>
     ${lib}`;
 }
+
+window.readHub = (course, pdf) => {
+  S.readNav = { course, pdf };
+  renderReadingHub();
+};
 
 /* ---------------------------------------------------------------- cards screen */
 
@@ -1228,7 +1268,12 @@ window.setExam = async (courseId, date) => {
     body: JSON.stringify({ course_id: courseId, date: date || null }) });
   fetchState();
 };
-window.toggleRail = () => { S.railOpen = !S.railOpen; renderRail(); };
+window.toggleNav = () => {
+  S.navOpen = !S.navOpen;
+  localStorage.setItem("fbNavOpen", S.navOpen ? "1" : "0");
+  $("sideNav").classList.toggle("closed", !S.navOpen);
+  $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
+};
 window.pickLen = (m) => { S.sessionLen = m; renderRail(); renderReadSide(); };
 window.dismissRecap = () => { S.recap = null; renderRail(); };
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
@@ -1736,6 +1781,10 @@ document.querySelectorAll(".conf-btn").forEach((b) => b.onclick = () => {
   S.pendingConf = S.pendingConf === b.dataset.conf ? null : b.dataset.conf;
   renderConfRow();
 });
+
+$("navCollapse").onclick = toggleNav;
+$("sideNav").classList.toggle("closed", !S.navOpen);   // default: icons only
+$("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
 
 fetchState();
 fetchHistory();

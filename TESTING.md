@@ -123,6 +123,19 @@ Reading becomes its own space, fully separate from flashcard analytics:
   back on p.1; reading block logged as kind='reading' under the read doc,
   visible in hub recents, absent from Progress. Test artifacts removed. ✅
 
+### 2026-07-27 — UI overhaul: icon sidenav, chat-first study, library stepper
+Per Naz: top bar replaced by a collapsible LEFT icon sidebar (Claude-style
+panel toggle, icons-only by default, labels when expanded, state persisted;
+due-count badge rides the ⚡ Do-next item). Study screen is chat-first: the
+chat fills the viewport, NOW STUDYING / TOPICS / curve / recap moved below
+the fold, and the focus timer floats in the bottom corner as a compact pill
+(15/25/45 + ▶ idle; count-up + ■ while running — same toggleFocus, same
+log). Reading library is now a stepper — pick a course, then a document
+(upload order, OLDEST first), then a topic — instead of the all-at-once
+dump. Verified live: collapse toggle + persistence, chat height, below-fold
+cards, float idle state, stepper order lec01→lec02→lec03, view switching
+via icons, console clean. ✅
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
