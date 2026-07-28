@@ -61,6 +61,13 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .ff-len { border: 1px solid #E3E3DE; background: #fff; border-radius: 999px; padding: 4px 9px;
   font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #5C616E; cursor: pointer; }
 .ff-len.on { background: #1C1E26; border-color: #1C1E26; color: #fff; }
+/* idle: a small pill (len + play); duration chips only appear on hover */
+.ff-card.idle { opacity: .75; }
+.ff-card.idle:hover { opacity: 1; }
+.ff-card.idle .ff-len { display: none; }
+.ff-card.idle:hover .ff-len { display: inline-block; }
+.ff-card.idle:hover .ff-current { display: none; }
+.ff-current { font-size: 11px; color: #5C616E; }
 .ff-btn { border: none; border-radius: 999px; width: 30px; height: 30px; cursor: pointer;
   background: #1C1E26; color: #fff; font-size: 11px; flex: none; }
 .ff-btn:hover { opacity: .85; }

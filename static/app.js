@@ -493,9 +493,11 @@ function homeTopHTML(st) {
   return html;
 }
 
-/* compact focus timer pinned to the corner of the study screen */
+/* compact focus timer pinned top-right; hidden while the reader is open —
+   the reader's sidebar has its own block timer for the same clock */
 function renderFocusFloat() {
   const el = $("focusFloat");
+  if ($("viewer").style.display !== "none") { el.innerHTML = ""; return; }
   const active = !!S.focusStart;
   const elapsed = active ? Math.floor((Date.now() - S.focusStart) / 60000) : 0;
   el.innerHTML = active ? `
@@ -505,8 +507,9 @@ function renderFocusFloat() {
       <div class="ff-track"><div id="focusBar" style="height:100%; width:${Math.min(100, elapsed / S.sessionLen * 100)}%; background:#009E73; transition:width 1s linear"></div></div>
       <button class="ff-btn" onclick="toggleFocus()" title="End session &amp; log it">■</button>
     </div>` : `
-    <div class="ff-card" title="Focus session: pick a length and start">
+    <div class="ff-card idle" title="Focus session: hover for lengths, ▶ to start">
       ${[15, 25, 45].map((m) => `<button class="ff-len ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}</button>`).join("")}
+      <span class="ff-current mono">${S.sessionLen}m</span>
       <button class="ff-btn" onclick="toggleFocus()" title="Start a ${S.sessionLen}-minute focus session">▶</button>
     </div>`;
 }
@@ -1670,6 +1673,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   AN.pending = null;
   AN.pendingText = "";
   syncModes();
+  renderFocusFloat();   // hide the corner timer — the reader sidebar takes over
   const [boxes, anns] = await Promise.all([
     fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()).catch(() => []),
     fetch(`/api/annotations/${pdfId}`).then((r) => r.json()).catch(() => []),
@@ -1768,7 +1772,7 @@ $("blackoutReveal").onclick = () => {
   syncModes();
 };
 
-window.closeViewer = () => { $("viewer").style.display = "none"; };
+window.closeViewer = () => { $("viewer").style.display = "none"; renderFocusFloat(); };
 $("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
 document.addEventListener("keydown", (e) => {
   if ($("viewer").style.display === "none") return;
