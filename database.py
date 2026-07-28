@@ -576,16 +576,41 @@ def get_topic(topic_id):
     return row
 
 
-def update_topic(topic_id, title=None, summary=None, est_minutes=None):
+def update_topic(topic_id, title=None, summary=None, est_minutes=None,
+                 page_start=None, page_end=None, kind=None):
+    """Manual topic edits. Page ranges are validated against each other and
+    the document; contiguity with neighbours is deliberately NOT enforced —
+    the user owns the split. kind outside content/general is ignored."""
+    if kind not in (None, "content", "general"):
+        kind = None
     conn = get_conn()
     cursor = conn.cursor()
+    if page_start is not None or page_end is not None:
+        cursor.execute("""SELECT topics.page_start, topics.page_end, pdfs.total_pages
+                          FROM topics JOIN pdfs ON pdfs.id = topics.pdf_id
+                          WHERE topics.id = ?""", (topic_id,))
+        row = cursor.fetchone()
+        if row is None:
+            conn.close()
+            raise ValueError(f"no topic with id {topic_id}")
+        start = page_start if page_start is not None else row["page_start"]
+        end = page_end if page_end is not None else row["page_end"]
+        if not (1 <= start <= end):
+            conn.close()
+            raise ValueError(f"invalid page range {start}-{end}")
+        if row["total_pages"] and end > row["total_pages"]:
+            conn.close()
+            raise ValueError(f"page {end} is past the document's {row['total_pages']} pages")
     cursor.execute("""
         UPDATE topics
         SET title       = COALESCE(?, title),
             summary     = COALESCE(?, summary),
-            est_minutes = COALESCE(?, est_minutes)
+            est_minutes = COALESCE(?, est_minutes),
+            page_start  = COALESCE(?, page_start),
+            page_end    = COALESCE(?, page_end),
+            kind        = COALESCE(?, kind)
         WHERE id = ?
-    """, (title, summary, est_minutes, topic_id))
+    """, (title, summary, est_minutes, page_start, page_end, kind, topic_id))
     # keep the pdf total in sync when a topic estimate changes
     if est_minutes is not None:
         cursor.execute("""
@@ -595,6 +620,48 @@ def update_topic(topic_id, title=None, summary=None, est_minutes=None):
         """, (topic_id,))
     conn.commit()
     conn.close()
+
+
+def split_topic(topic_id, at_page, new_title=None):
+    """Split a topic at `at_page`: the original keeps [start..at_page-1], a
+    new topic (inheriting kind) takes [at_page..end], inserted right after
+    it in reading order. est_minutes divides proportionally by page count.
+    Cards and notes stay with the original topic. Returns the new topic id."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM topics WHERE id = ?", (topic_id,))
+    topic = cursor.fetchone()
+    if topic is None:
+        conn.close()
+        raise ValueError(f"no topic with id {topic_id}")
+    at_page = int(at_page)
+    if not (topic["page_start"] < at_page <= topic["page_end"]):
+        conn.close()
+        raise ValueError(
+            f"split page must be inside {topic['page_start'] + 1}-{topic['page_end']}")
+
+    total_pages = topic["page_end"] - topic["page_start"] + 1
+    new_pages = topic["page_end"] - at_page + 1
+    new_est = round((topic["est_minutes"] or 0) * new_pages / total_pages)
+    orig_est = (topic["est_minutes"] or 0) - new_est
+
+    cursor.execute("""UPDATE topics SET position = position + 1
+                      WHERE pdf_id = ? AND position > ?""",
+                   (topic["pdf_id"], topic["position"]))
+    cursor.execute("""
+        INSERT INTO topics (pdf_id, course_id, title, summary, page_start, page_end,
+                            est_minutes, position, kind, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (topic["pdf_id"], topic["course_id"],
+          (new_title or "").strip() or f"{topic['title']} (cont.)",
+          None, at_page, topic["page_end"], new_est,
+          topic["position"] + 1, topic["kind"] or "content", now_iso()))
+    new_id = cursor.lastrowid
+    cursor.execute("UPDATE topics SET page_end = ?, est_minutes = ? WHERE id = ?",
+                   (at_page - 1, orig_est, topic_id))
+    conn.commit()
+    conn.close()
+    return new_id
 
 
 # ---------------------------------------------------------------- notes

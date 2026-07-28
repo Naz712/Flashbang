@@ -10,6 +10,7 @@ const S = {
   pdfId: null,          // current doc
   navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
   readNav: { course: null, pdf: null },   // reading-library stepper position
+  editSplit: false,     // reading library: topic-split editor on?
   pendingConf: null,    // "sure" | "unsure" attached to next message
   qShownAt: null,       // Date.now() when the current question card appeared
   sessionLen: 25,
@@ -1038,7 +1039,9 @@ function renderReadingHub() {
     ${selCourse ? `<span class="crumb-sep">›</span>
       <button class="crumb ${!selPdf ? "on" : ""}" onclick="readHub(${selCourse.id}, null)">${esc(selCourse.name)}</button>` : ""}
     ${selPdf ? `<span class="crumb-sep">›</span>
-      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>` : ""}
+      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>
+      <span style="flex:1"></span>
+      <button class="conf-btn ${S.editSplit ? "picked" : ""}" onclick="toggleEditSplit()">✎ Edit split</button>` : ""}
   </div>`;
 
   let step;
@@ -1070,6 +1073,28 @@ function renderReadingHub() {
         <span class="crumb-sep">›</span>
       </button>`;
     }).join("");
+  } else if (S.editSplit) {
+    // step 3, edit mode: rename, retune ranges, reflag, split
+    const inputStyle = `border:1px solid #E3E3DE; border-radius:7px; padding:5px 7px; font-family:'IBM Plex Sans',sans-serif; font-size:12px`;
+    step = `<div style="font-size:11px; color:#8A8F9C; margin-bottom:2px">Your split, your rules — ranges may overlap or leave gaps.
+      Splitting keeps existing cards and notes with the original topic.</div>` +
+      selPdf.topics.map((t) => {
+        const [ps, pe] = t.pages.split("-").map(Number);
+        return `
+      <div class="pick-card ts-row" data-id="${t.id}" style="cursor:default">
+        <input class="ts-title" style="${inputStyle}; flex:1; min-width:140px" value="${esc(t.title)}">
+        <span style="font-size:11px; color:#8A8F9C; flex:none">p.</span>
+        <input class="ts-start" type="number" min="1" value="${ps}" style="${inputStyle}; width:58px">
+        <span style="color:#8A8F9C">–</span>
+        <input class="ts-end" type="number" min="1" value="${pe}" style="${inputStyle}; width:58px">
+        <select class="ts-kind sort-select">
+          <option value="content" ${t.kind !== "general" ? "selected" : ""}>content</option>
+          <option value="general" ${t.kind === "general" ? "selected" : ""}>general</option>
+        </select>
+        <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
+        <button class="conf-btn" title="Split this topic into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
+      </div>`;
+      }).join("");
   } else {
     // step 3: pick a topic (document order = reading order)
     step = selPdf.topics.map((t) => `
@@ -1092,7 +1117,45 @@ function renderReadingHub() {
 
 window.readHub = (course, pdf) => {
   S.readNav = { course, pdf };
+  S.editSplit = false;
   renderReadingHub();
+};
+
+window.toggleEditSplit = () => { S.editSplit = !S.editSplit; renderReadingHub(); };
+
+window.saveTopicEdit = async (topicId, btn) => {
+  const row = btn.closest(".ts-row");
+  btn.textContent = "Saving…";
+  const res = await fetch(`/api/topics/${topicId}`, { method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: row.querySelector(".ts-title").value,
+      page_start: +row.querySelector(".ts-start").value,
+      page_end: +row.querySelector(".ts-end").value,
+      kind: row.querySelector(".ts-kind").value,
+    }) });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || "Save failed");
+    btn.textContent = "Save";
+    return;
+  }
+  fetchState();
+};
+
+window.splitTopicAsk = async (topicId, pageStart, pageEnd) => {
+  const at = +prompt(`Split at which page? The NEW topic starts there (pick ${pageStart + 1}–${pageEnd}).`);
+  if (!at) return;
+  const newTitle = prompt("Title for the new topic (leave blank for auto):") || "";
+  const res = await fetch(`/api/topics/${topicId}/split`, { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ at_page: at, new_title: newTitle }) });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || "Split failed");
+    return;
+  }
+  fetchState();
 };
 
 /* ---------------------------------------------------------------- cards screen */
@@ -1494,7 +1557,32 @@ window.renderReadSide = () => {
     ${!pageNotes.length && !AN.pending ? `<div style="font-size:11.5px; color:#8A8F9C; line-height:1.6">
       No notes on this page yet. Hit <b>✎ Note</b> and drag a box over anything worth a comment.</div>` : ""}`;
 
-  side.innerHTML = timer + notes;
+  const exporter = RD.mode ? `
+    <div class="mono-label" style="margin-top:12px">TAKE p.${RD.start}–${RD.end} ELSEWHERE</div>
+    <div style="display:flex; gap:6px">
+      <button class="btn-block ghost" style="margin:0; padding:7px; font-size:11.5px" id="copyTopicBtn" onclick="copyTopicText()">⧉ Copy text</button>
+      <a class="btn-block ghost" style="margin:0; padding:7px; font-size:11.5px; text-align:center; text-decoration:none; color:inherit; box-sizing:border-box"
+         href="/api/pdf/${RD.pdfId}/slice?start=${RD.start}&end=${RD.end}" download>⬇ PDF pages</a>
+    </div>
+    <div style="font-size:10.5px; color:#8A8F9C; line-height:1.5">For NotebookLM &amp; friends — and bring its flashcards home via Cards → Import.</div>` : "";
+
+  side.innerHTML = timer + notes + exporter;
+};
+
+window.copyTopicText = async () => {
+  const pages = await fetch(`/api/pdf/${RD.pdfId}/text?start=${RD.start}&end=${RD.end}`)
+    .then((r) => r.json()).catch(() => []);
+  if (!pages.length) return;
+  const doc = S.state?.libCourses.flatMap((c) => c.pdfs).find((p) => p.pdf_id === RD.pdfId);
+  const header = `${doc ? doc.filename : "document"} · p.${RD.start}–${RD.end} · ${RD.title}`;
+  const text = `${header}\n\n` + pages.map((p) => `=== page ${p.page} ===\n${p.text}`).join("\n\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = $("copyTopicBtn");
+    if (btn) { btn.textContent = "Copied ✓"; setTimeout(() => { if ($("copyTopicBtn")) $("copyTopicBtn").textContent = "⧉ Copy text"; }, 1600); }
+  } catch {
+    alert("Clipboard blocked — the text was fetched but couldn't be copied. Try the PDF download instead.");
+  }
 };
 
 window.flashAnnBox = (annId) => {

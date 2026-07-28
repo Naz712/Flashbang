@@ -24,6 +24,7 @@ from database import (
     save_occlusion, get_occlusions, delete_occlusion,
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
+    update_topic, split_topic,
 )
 from generation import parse_flashcards
 
@@ -545,6 +546,57 @@ def serve_pdf_text(pdf_id):
     end = request.args.get("end", type=int)
     pages = get_pdf_pages(pdf_id, start, end)
     return jsonify([{"page": p["page_number"], "text": p["text"]} for p in pages])
+
+
+@app.get("/api/pdf/<int:pdf_id>/slice")
+def serve_pdf_slice(pdf_id):
+    """A new PDF containing just pages start..end — for taking one topic's
+    pages into NotebookLM or anywhere else."""
+    from io import BytesIO
+    from pypdf import PdfReader, PdfWriter
+    pdf = get_pdf(pdf_id)
+    if pdf is None or not pdf["file_path"] or not os.path.exists(pdf["file_path"]):
+        return jsonify({"error": "source pdf not available"}), 404
+    start = max(1, request.args.get("start", 1, type=int))
+    end = request.args.get("end", start, type=int)
+    reader = PdfReader(pdf["file_path"])
+    end = min(end, len(reader.pages))
+    if start > end:
+        return jsonify({"error": "invalid range"}), 400
+    writer = PdfWriter()
+    for n in range(start - 1, end):        # pypdf is 0-based; ours is 1-based
+        writer.add_page(reader.pages[n])
+    buf = BytesIO()
+    writer.write(buf)
+    buf.seek(0)
+    base = os.path.splitext(pdf["filename"])[0]
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                     download_name=f"{base}-p{start}-{end}.pdf")
+
+
+@app.patch("/api/topics/<int:topic_id>")
+def topics_update(topic_id):
+    body = request.get_json(force=True)
+    try:
+        update_topic(topic_id,
+                     title=(body.get("title") or "").strip() or None,
+                     page_start=body.get("page_start"),
+                     page_end=body.get("page_end"),
+                     est_minutes=body.get("est_minutes"),
+                     kind=body.get("kind"))
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.post("/api/topics/<int:topic_id>/split")
+def topics_split(topic_id):
+    body = request.get_json(force=True)
+    try:
+        new_id = split_topic(topic_id, body.get("at_page"), body.get("new_title"))
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"new_topic_id": new_id})
 
 
 @app.post("/api/exam")

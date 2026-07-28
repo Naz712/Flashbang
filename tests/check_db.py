@@ -162,6 +162,36 @@ assert all(t["pdf_id"] != pdf3 for t in database.get_topics()), "topics should c
 assert all(c["pdf_id"] != pdf3 for c in database.get_cards()), "cards should cascade"
 assert any(c["id"] == course2 for c in database.get_courses()), "course must survive pdf delete"
 
+# --- manual split editing: range validation + split mechanics
+pdf_s = database.create_pdf(course2, "split.pdf", total_pages=10)
+sid1, sid2 = database.save_topics(pdf_s, [
+    {"title": "Alpha", "summary": "", "page_start": 1, "page_end": 6, "est_minutes": 30},
+    {"title": "Beta", "summary": "", "page_start": 7, "page_end": 10, "est_minutes": 20},
+])
+database.update_topic(sid1, title="Alpha Edited", page_start=2, page_end=5, kind="general")
+t1 = database.get_topic(sid1)
+assert (t1["page_start"], t1["page_end"], t1["kind"], t1["title"]) == (2, 5, "general", "Alpha Edited")
+for bad in [{"page_start": 0}, {"page_end": 11}, {"page_start": 6, "page_end": 3}]:
+    try:
+        database.update_topic(sid1, **bad)
+        raise AssertionError(f"{bad} should have been rejected")
+    except ValueError:
+        pass
+
+new_id = database.split_topic(sid2, at_page=9, new_title="Beta Two")
+t2, tn = database.get_topic(sid2), database.get_topic(new_id)
+assert (t2["page_start"], t2["page_end"]) == (7, 8), "original keeps the front half"
+assert (tn["page_start"], tn["page_end"], tn["title"]) == (9, 10, "Beta Two")
+assert t2["est_minutes"] + tn["est_minutes"] == 20, "minutes divide, not duplicate"
+order = [t["id"] for t in database.get_topics(pdf_id=pdf_s)]
+assert order.index(new_id) == order.index(sid2) + 1, "new topic follows the original"
+try:
+    database.split_topic(sid2, at_page=7)
+    raise AssertionError("split at page_start should be rejected")
+except ValueError:
+    pass
+database.delete_pdf(pdf_s)
+
 # --- response latency round-trip (retrieval fluency input)
 aid = database.log_answer(4, "sure", latency_ms=8250)
 timed = [a for a in database.get_answer_log(days=1) if a["latency_ms"] is not None]
