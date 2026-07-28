@@ -190,6 +190,21 @@ try:
     raise AssertionError("split at page_start should be rejected")
 except ValueError:
     pass
+
+# --- delete_topic: cascades its cards, siblings + pdf survive, est resyncs
+doomed_card = database.insert_card(new_id, "Doomed?", "Yes.")
+database.delete_topic(new_id)
+assert database.get_topic(new_id) is None
+assert all(c["id"] != doomed_card for c in database.get_cards()), "cards must cascade"
+assert database.get_topic(sid2) is not None, "sibling topic survives"
+pdf_row = database.get_pdf(pdf_s)
+remaining_est = sum(t["est_minutes"] for t in database.get_topics(pdf_id=pdf_s))
+assert pdf_row["est_total_minutes"] == remaining_est, "pdf estimate resyncs"
+try:
+    database.delete_topic(new_id)
+    raise AssertionError("double delete should be rejected")
+except ValueError:
+    pass
 database.delete_pdf(pdf_s)
 
 # --- response latency round-trip (retrieval fluency input)

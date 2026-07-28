@@ -1093,6 +1093,8 @@ function renderReadingHub() {
         </select>
         <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
         <button class="conf-btn" title="Split this topic into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
+        <button class="pdf-del" title="Delete this topic, its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}, and its notes"
+          onclick="deleteTopicAsk(${t.id}, '${encodeURIComponent(t.title)}', ${t.cards_total})">✕</button>
       </div>`;
       }).join("");
   } else {
@@ -1140,6 +1142,14 @@ window.saveTopicEdit = async (topicId, btn) => {
     btn.textContent = "Save";
     return;
   }
+  fetchState();
+};
+
+window.deleteTopicAsk = async (topicId, encTitle, cardCount) => {
+  const title = decodeURIComponent(encTitle);
+  if (!confirm(`Delete "${title}"${cardCount ? ` and its ${cardCount} card${cardCount === 1 ? "" : "s"}` : ""}?\nNotes and blackouts on its pages stay with the document. This cannot be undone.`)) return;
+  const res = await fetch(`/api/topics/${topicId}`, { method: "DELETE" });
+  if (!res.ok) { alert("Delete failed"); return; }
   fetchState();
 };
 

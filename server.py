@@ -24,7 +24,7 @@ from database import (
     save_occlusion, get_occlusions, delete_occlusion,
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
-    update_topic, split_topic,
+    update_topic, split_topic, delete_topic,
 )
 from generation import parse_flashcards
 
@@ -586,6 +586,15 @@ def topics_update(topic_id):
                      kind=body.get("kind"))
     except (ValueError, TypeError) as e:
         return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/topics/<int:topic_id>")
+def topics_delete(topic_id):
+    try:
+        delete_topic(topic_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 

@@ -664,6 +664,27 @@ def split_topic(topic_id, at_page, new_title=None):
     return new_id
 
 
+def delete_topic(topic_id):
+    """Delete one topic and everything under it — cards and notes cascade,
+    the notes leave the vector store, review history keeps its rows with the
+    card link nulled. The pdf keeps its other topics; its total re-syncs."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT pdf_id FROM topics WHERE id = ?", (topic_id,))
+    row = cursor.fetchone()
+    if row is None:
+        conn.close()
+        raise ValueError(f"no topic with id {topic_id}")
+    cursor.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+    cursor.execute("""
+        UPDATE pdfs SET est_total_minutes =
+            (SELECT COALESCE(SUM(est_minutes), 0) FROM topics WHERE pdf_id = pdfs.id)
+        WHERE id = ?""", (row["pdf_id"],))
+    conn.commit()
+    conn.close()
+    vector_store.delete_where(topic_id=topic_id)  # mirror the SQL cascade
+
+
 # ---------------------------------------------------------------- notes
 
 def save_concepts(topic_id, concepts):

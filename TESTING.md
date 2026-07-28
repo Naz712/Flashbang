@@ -136,6 +136,33 @@ dump. Verified live: collapse toggle + persistence, chat height, below-fold
 cards, float idle state, stepper order lec01→lec02→lec03, view switching
 via icons, console clean. ✅
 
+### 2026-07-29 — feature test pass: import / budget / export / split / delete
+Timed live pass over the week's features (workshop copy, real endpoints,
+all test artifacts removed afterwards):
+
+```
+import parse TAB           318ms  2 cards, deterministic ($0)
+import parse ::            264ms  2 cards, deterministic ($0)
+import parse Q:/A: blocks   46ms  2 cards, multiline answers joined ($0)
+import parse AI fallback  6585ms  2 cards from free-form prose (gpt-4o-mini,
+                                  ~230 tokens est. from chars, ~$0.00006)
+import insert + schedule   597ms  2 cards inserted, due tomorrow (+08) ✓
+budget set + plan cap      663ms  15m stored, plan.json capped every day ✓
+slice PDF (topic range)    259ms  valid %PDF, 31.7 KB ✓
+copy-text fetch             57ms  full range returned ✓
+split topic                 22ms  new topic follows original ✓
+delete topic (new)         690ms  split half removed, cards cascade ✓
+restore original            67ms  range/est byte-identical after ✓
+UI: budget picker, 7 edit rows each with delete ✕, compact timer ✓
+```
+
+Two instructive false alarms in round 1, both the TEST's fault: split
+"failed" on a single-page topic (validation correctly refused), and the
+insert date assert used UTC while the server schedules in local (+08) time.
+- delete_topic added this session (topic + cards cascade, Chroma mirror,
+  pdf estimate resync, double-delete rejected) — covered in check_db.
+  All nine offline suites pass.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
