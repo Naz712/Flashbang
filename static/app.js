@@ -19,6 +19,9 @@ const S = {
   busy: false,
   pdfSort: localStorage.getItem("fbPdfSort") || "weakest",  // progress-card order
   cardFilter: { course_id: null, pdf_id: null, topic_id: null },
+  showImport: false,    // cards screen: paste-import panel open?
+  importText: "",       // survives re-renders
+  importPreview: null,  // {cards, source} from the dry-run parse
   cards: [],            // cards screen data
   cardTopics: [],       // topics for the move-to select
 };
@@ -663,6 +666,18 @@ function renderProgress() {
         <div class="mono-label" style="margin-bottom:9px">CARDS DUE NOW</div>
         <div class="stat-num" style="color:${LOW}">${st.dueTotal}</div>
         <div class="stat-sub">across ${st.courses.length} courses</div>
+        ${(() => {
+          const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
+          const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : 0;
+          return `
+          <div style="display:flex; align-items:center; gap:6px; margin-top:12px; flex-wrap:wrap">
+            <span style="font-size:11px; color:#5C616E">Daily budget</span>
+            ${[15, 25, 45, 60].map((m) => `<button class="dur-btn ${b.daily_minutes === m ? "on" : ""}" onclick="setBudget(${b.daily_minutes === m ? 0 : m})">${m}m</button>`).join("")}
+          </div>
+          ${b.daily_minutes ? `<div style="font-size:11px; color:#8A8F9C; margin-top:7px">fits ~<b>${fit}</b> cards (${b.sec_per_card}s each${b.sec_per_card === 84 ? ", est." : ", measured"})</div>
+            ${st.dueTotal > fit ? `<button class="btn-block ghost" style="margin-top:9px" onclick="spreadBacklog()"
+              title="Keep the ${fit} most overdue due today; push the other ${st.dueTotal - fit} onto the coming days">Spread ${st.dueTotal - fit} onto later days</button>` : ""}` : ""}`;
+        })()}
       </div>
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">CONSISTENCY</div>
@@ -1161,19 +1176,78 @@ function renderCardsScreen() {
       </div>
     </div>` : "";
 
+  // paste-import panel (NotebookLM output, Anki exports, hand lists)
+  const ip = S.importPreview;
+  const previewRows = ip && ip.cards.length ? ip.cards.slice(0, 8).map((c, i) => `
+    <div style="display:flex; gap:8px; font-size:11.5px; line-height:1.5; padding:6px 0; border-top:1px dashed #ECECE8">
+      <span class="mono" style="color:#8A8F9C; flex:none">${i + 1}.</span>
+      <span style="flex:1"><b>${esc(c.question)}</b><br>${esc(c.answer)}</span>
+    </div>`).join("") + (ip.cards.length > 8 ? `<div style="font-size:10.5px; color:#8A8F9C; padding-top:6px">…and ${ip.cards.length - 8} more</div>` : "") : "";
+  const importBox = S.showImport ? `
+    <div class="cardedit" id="importCard" style="border-color:#009E73">
+      <div class="cardedit-head">
+        <span class="mono" style="font-size:10px; letter-spacing:1.4px; color:#00794F; font-weight:600">IMPORT CARDS</span>
+        <select class="sort-select" id="imTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
+        <span style="flex:1"></span>
+        <button class="conf-btn" id="imPreview">Preview</button>
+        <button class="conf-btn" id="imInsert" ${ip && ip.cards.length ? `style="border-color:#1C1E26; background:#1C1E26; color:#fff"` : "disabled"}>Add ${ip ? ip.cards.length : 0} cards</button>
+        <button class="icon-btn" id="imCancel" title="Close">✕</button>
+      </div>
+      <textarea class="ce-a" id="imText" rows="6" placeholder="Paste flashcards here — NotebookLM output, Q:/A: pairs, or one card per line with a TAB, ' :: ', ';;' or '|' between question and answer.">${esc(S.importText)}</textarea>
+      <div style="font-size:10.5px; color:${ip && ip.source === "ai" ? "#8A6100" : "#8A8F9C"}" id="imMsg">${
+        ip ? (ip.cards.length
+          ? `${ip.cards.length} card${ip.cards.length === 1 ? "" : "s"} ${ip.source === "ai" ? "AI-parsed — read them before adding" : "parsed"} · they file under the chosen topic, first review tomorrow`
+          : "Nothing parsed — check the format or add Q:/A: markers.")
+        : "Preview parses without saving. Clean formats parse instantly; free-form text falls back to one cheap AI call."}</div>
+      ${previewRows}
+    </div>` : "";
+
   inner.innerHTML = `
     <div class="section-head"><span class="mono-label">CARDS</span><div class="rule"></div>
       <span class="mono" style="font-size:10.5px; color:#8A8F9C">${S.cards.length} shown</span>
+      <button id="importBtn" class="conf-btn">⇪ Import</button>
       <button id="newCardBtn" class="conf-btn">+ New card</button></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap">
       <select id="cfCourse" class="sort-select">${courseOpts.join("")}</select>
       <select id="cfPdf" class="sort-select">${pdfOpts.join("")}</select>
       <select id="cfTopic" class="sort-select">${topicOpts.join("")}</select>
     </div>
+    ${importBox}
     ${newCardBox}
     ${rows || `<div class="card" style="color:#8A8F9C; font-size:12.5px">No cards match this filter — generate some from the Study chat ("make cards for &lt;topic&gt;"), or use + New card.</div>`}`;
 
   $("newCardBtn").onclick = () => { S.showNewCard = !S.showNewCard; renderCardsScreen(); };
+  $("importBtn").onclick = () => { S.showImport = !S.showImport; renderCardsScreen(); };
+  if (S.showImport) {
+    $("imText").oninput = (e) => { S.importText = e.target.value; S.importPreview = null; };
+    $("imCancel").onclick = () => { S.showImport = false; S.importPreview = null; renderCardsScreen(); };
+    $("imPreview").onclick = async () => {
+      const topic_id = +$("imTopic").value;
+      S.importText = $("imText").value;
+      if (!topic_id || !S.importText.trim()) return;
+      $("imPreview").textContent = "Parsing…";
+      const res = await fetch("/api/cards/import", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic_id, text: S.importText, dry_run: true }) });
+      S.importPreview = res.ok ? await res.json() : { cards: [], source: "parsed" };
+      renderCardsScreen();
+    };
+    $("imInsert").onclick = async () => {
+      const topic_id = +$("imTopic").value;
+      if (!topic_id || !S.importPreview?.cards.length) return;
+      $("imInsert").textContent = "Adding…";
+      const res = await fetch("/api/cards/import", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic_id, cards: S.importPreview.cards }) });
+      if (res.ok) {
+        S.showImport = false;
+        S.importText = "";
+        S.importPreview = null;
+        loadCards();
+        fetchState();
+      } else { $("imInsert").textContent = "Failed — retry"; }
+    };
+  }
   if (S.showNewCard) {
     $("ncCancel").onclick = () => { S.showNewCard = false; renderCardsScreen(); };
     $("ncCreate").onclick = async () => {
@@ -1286,6 +1360,22 @@ window.toggleNav = () => {
 };
 window.pickLen = (m) => { S.sessionLen = m; renderRail(); renderReadSide(); };
 window.dismissRecap = () => { S.recap = null; renderProgress(); };
+
+window.setBudget = async (minutes) => {
+  await fetch("/api/settings", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ daily_minutes: minutes }) });
+  fetchState();
+};
+
+window.spreadBacklog = async () => {
+  const b = S.state?.budget;
+  if (!b?.daily_minutes) return;
+  const fit = Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card));
+  if (!confirm(`Keep the ${fit} most overdue cards due today and push the rest onto the coming days (${b.daily_minutes} min/day)?\nScheduling state is untouched — only the due dates move.`)) return;
+  const res = await fetch("/api/backlog/spread", { method: "POST" });
+  if (res.ok) fetchState();
+};
 window.openDoc = (pdfId) => { S.pdfId = pdfId; S.view = "study"; fetchState(); };
 
 window.deletePdf = async (pdfId, encName) => {

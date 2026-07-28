@@ -248,6 +248,19 @@ def compute_metrics(now=None, weeks=26):
             "sweet": sweet, "brier": brier, "fluency": fluency}
 
 
+def seconds_per_card():
+    """Estimated seconds to clear one card: the user's MEASURED median answer
+    latency plus ~25s of grading/feedback overhead, once 6 timed answers
+    exist; before that, an 84s assumption (same 1.4 min/card as plan.json).
+    Feeds the daily time budget — never claim numbers we didn't measure,
+    but don't stall the feature waiting for them either."""
+    latencies = sorted(a["latency_ms"] for a in get_answer_log(days=90)
+                       if a["latency_ms"] is not None)
+    if len(latencies) >= 6:
+        return round(latencies[len(latencies) // 2] / 1000 + 25)
+    return 84
+
+
 def compute_reading_stats(now=None):
     """Reading-hub aggregates: blocks with kind='reading' only, kept fully
     separate from the flashcard analytics above."""

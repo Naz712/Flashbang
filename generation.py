@@ -186,6 +186,71 @@ Respond with ONLY a JSON array. No markdown fences, no preamble:
     return call_for_json(prompt, max_tokens=2000)
 
 
+def parse_flashcards(text):
+    """Parse pasted flashcards (NotebookLM output, Anki exports, hand-typed
+    lists) into [{'question','answer'}]. Deterministic formats first:
+    one-card-per-line with a TAB / ' :: ' / ';;' / '|' separator, or
+    Q:/A: (also Question:/Answer:, Front:/Back:) blocks. If nothing
+    parses, one fast-tier LLM call extracts the pairs.
+    Returns (cards, source) where source is 'parsed' or 'ai'."""
+    text = (text or "").strip()
+    if not text:
+        return [], "parsed"
+
+    cards = []
+    # per-line separators
+    for sep in ("\t", " :: ", ";;", "|"):
+        cards = []
+        for line in text.splitlines():
+            if sep not in line:
+                continue
+            parts = [p.strip() for p in line.split(sep)]
+            parts = [p for p in parts if p]
+            if len(parts) == 2:
+                cards.append({"question": parts[0], "answer": parts[1]})
+        if len(cards) >= 2 or (cards and len(text.splitlines()) <= 2):
+            return cards, "parsed"
+
+    # Q:/A: blocks
+    import re
+    q_re = re.compile(r"^\s*(?:Q|Question|Front)\s*[:.)]\s*(.*)", re.I)
+    a_re = re.compile(r"^\s*(?:A|Answer|Back)\s*[:.)]\s*(.*)", re.I)
+    cards, question, answer, in_answer = [], None, None, False
+    def flush():
+        if question and answer:
+            cards.append({"question": question.strip(), "answer": answer.strip()})
+    for line in text.splitlines():
+        qm, am = q_re.match(line), a_re.match(line)
+        if qm:
+            flush()
+            question, answer, in_answer = qm.group(1), None, False
+        elif am and question is not None:
+            answer, in_answer = am.group(1), True
+        elif in_answer and line.strip():
+            answer += " " + line.strip()
+        elif question is not None and not in_answer and line.strip():
+            question += " " + line.strip()
+    flush()
+    if cards:
+        return cards, "parsed"
+
+    # free-form -> one cheap structured call
+    prompt = f"""Extract the flashcards from the pasted text below into JSON.
+Rules: keep question and answer wording as close to the source as possible;
+skip headings, source references, and commentary that is not a card; if the
+text contains no recognizable flashcards, return [].
+
+<pasted>
+{text[:20000]}
+</pasted>
+
+Respond with ONLY a JSON array: [{{"question": "<string>", "answer": "<string>"}}]"""
+    result = call_for_json(prompt, fast=True, max_tokens=4000)
+    good = [c for c in result if isinstance(c, dict)
+            and (c.get("question") or "").strip() and (c.get("answer") or "").strip()]
+    return good, "ai"
+
+
 def _course_name(course_id):
     for course in get_courses():
         if course["id"] == course_id:

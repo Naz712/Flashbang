@@ -147,6 +147,13 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS annotations (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             pdf_id      INTEGER NOT NULL REFERENCES pdfs(id) ON DELETE CASCADE,
@@ -361,6 +368,47 @@ def delete_pdf(pdf_id):
     conn.commit()
     conn.close()
     vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
+
+
+# ---------------------------------------------------------------- settings
+
+def get_setting(key, default=None):
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    conn = get_conn()
+    conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                 (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
+def spread_backlog(per_day):
+    """Time-budget deferral: keep the first `per_day` due cards due now, push
+    the rest onto future days in chunks of `per_day` (most-overdue stay
+    earliest). Only next_review moves — interval/ease/FSRS state untouched,
+    so the scheduler's lateness math stays honest. Returns cards moved."""
+    per_day = max(1, int(per_day))
+    due = get_due_cards()          # ordered most-overdue first
+    overflow = due[per_day:]
+    if not overflow:
+        return {"moved": 0, "days_used": 0}
+    conn = get_conn()
+    cursor = conn.cursor()
+    for i, card in enumerate(overflow):
+        day_offset = 1 + i // per_day
+        new_due = (datetime.now() + timedelta(days=day_offset)).replace(
+            hour=4, minute=0, second=0).isoformat(timespec="seconds")
+        cursor.execute("UPDATE cards SET next_review = ? WHERE id = ?",
+                       (new_due, card["id"]))
+    conn.commit()
+    conn.close()
+    return {"moved": len(overflow), "days_used": (len(overflow) + per_day - 1) // per_day}
 
 
 # ---------------------------------------------------------------- annotations

@@ -23,7 +23,9 @@ from database import (
     set_exam_date, delete_pdf,
     save_occlusion, get_occlusions, delete_occlusion,
     save_annotation, get_annotations, update_annotation, delete_annotation,
+    get_setting, set_setting, spread_backlog, get_due_cards,
 )
+from generation import parse_flashcards
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload cap
@@ -258,6 +260,9 @@ def state():
         # reading hub: kind='reading' blocks + annotation counts, fully
         # separate from the flashcard analytics above
         "reading": stats_module.compute_reading_stats(now),
+        # daily time budget: minutes/day + measured per-card pace
+        "budget": {"daily_minutes": int(get_setting("daily_minutes", 0) or 0),
+                   "sec_per_card": stats_module.seconds_per_card()},
         # drives the confidence widget — only review sessions ask for confidence
         "sessionActive": orchestrator.session_active and orchestrator.pinned == "review",
     })
@@ -267,21 +272,81 @@ def state():
 def plan_json():
     """Read-only feed for external schedulers (the Zo calendar automation):
     cards coming due per day for the next 7 days plus a suggested block
-    length. Minutes come from the same ~85 s/card grading+recall pace the
-    session log shows, rounded to the focus-timer lengths (15/25/45)."""
+    length, capped at the user's daily budget when one is set. Per-card
+    pace is measured from answer latency once enough data exists."""
+    budget = int(get_setting("daily_minutes", 0) or 0)
+    sec_per_card = stats_module.seconds_per_card()
     forecast = get_due_forecast(7)
     plan = []
     for entry in forecast:
         due = entry["count"]
-        raw = due * 1.4
+        raw = due * sec_per_card / 60
         minutes = 0 if due == 0 else min([15, 25, 45, 60], key=lambda b: abs(b - raw))
+        if budget:
+            minutes = min(minutes, budget)
         plan.append({"date": entry["day"], "cards_due": due, "suggested_minutes": minutes})
     return jsonify({
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "daily_budget_minutes": budget or None,
+        "seconds_per_card": sec_per_card,
         "days": plan,
         "note": "cards_due counts overdue cards into today; suggested_minutes "
-                "is a focus-block length, not a promise",
+                "is a focus-block length capped by the daily budget",
     })
+
+
+@app.get("/api/settings")
+def settings_get():
+    return jsonify({"daily_minutes": int(get_setting("daily_minutes", 0) or 0)})
+
+
+@app.post("/api/settings")
+def settings_post():
+    body = request.get_json(force=True)
+    if "daily_minutes" in body:
+        minutes = max(0, min(240, int(body["daily_minutes"] or 0)))
+        set_setting("daily_minutes", minutes)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/backlog/spread")
+def backlog_spread():
+    """Push due cards beyond today's time budget onto the coming days."""
+    budget = int(get_setting("daily_minutes", 0) or 0)
+    if not budget:
+        return jsonify({"error": "set a daily budget first"}), 400
+    per_day = max(1, int(budget * 60 / stats_module.seconds_per_card()))
+    result = spread_backlog(per_day)
+    return jsonify({"per_day": per_day, **result})
+
+
+@app.post("/api/cards/import")
+def cards_import():
+    """Paste-import (NotebookLM, Anki exports, hand lists) into one topic.
+    dry_run=true returns the parsed preview without writing anything."""
+    body = request.get_json(force=True)
+    topic_id = body.get("topic_id")
+    if not isinstance(topic_id, int):
+        return jsonify({"error": "topic_id (integer) required"}), 400
+    if isinstance(body.get("cards"), list):
+        # client sends back the previewed cards — no re-parse, no second LLM call
+        cards = [{"question": str(c.get("question", "")).strip(),
+                  "answer": str(c.get("answer", "")).strip()}
+                 for c in body["cards"] if isinstance(c, dict)]
+        cards = [c for c in cards if c["question"] and c["answer"]]
+        source = "client"
+    else:
+        try:
+            cards, source = parse_flashcards(body.get("text"))
+        except Exception as e:
+            return jsonify({"error": f"parse failed: {e}"}), 500
+    if body.get("dry_run"):
+        return jsonify({"cards": cards, "source": source})
+    inserted = 0
+    for c in cards:
+        insert_card(topic_id, c["question"], c["answer"])
+        inserted += 1
+    return jsonify({"inserted": inserted, "source": source})
 
 
 @app.get("/api/history")
