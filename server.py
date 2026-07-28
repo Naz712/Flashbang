@@ -263,6 +263,27 @@ def state():
     })
 
 
+@app.get("/api/plan.json")
+def plan_json():
+    """Read-only feed for external schedulers (the Zo calendar automation):
+    cards coming due per day for the next 7 days plus a suggested block
+    length. Minutes come from the same ~85 s/card grading+recall pace the
+    session log shows, rounded to the focus-timer lengths (15/25/45)."""
+    forecast = get_due_forecast(7)
+    plan = []
+    for entry in forecast:
+        due = entry["count"]
+        raw = due * 1.4
+        minutes = 0 if due == 0 else min([15, 25, 45, 60], key=lambda b: abs(b - raw))
+        plan.append({"date": entry["day"], "cards_due": due, "suggested_minutes": minutes})
+    return jsonify({
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "days": plan,
+        "note": "cards_due counts overdue cards into today; suggested_minutes "
+                "is a focus-block length, not a promise",
+    })
+
+
 @app.get("/api/history")
 def history():
     return jsonify(chat_history)
