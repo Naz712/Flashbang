@@ -5,14 +5,15 @@ const SUBJ = ["#0072B2", "#E69F00", "#009E73", "#CC79A7"];
 const SHOW_EVIDENCE = true;
 
 const S = {
-  view: "study",
+  view: "home",
   state: null,          // /api/state payload
   pdfId: null,          // current doc
   navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
-  readNav: { course: null, pdf: null },   // reading-library stepper position
+  courseId: null,       // course open on the course page
+  docOpen: new Set(),   // expanded documents on the course page
   reviewView: "decks",  // review screen: "decks" picker | "chat" live session
   deckOpen: new Set(),  // expanded courses in the deck rail
-  editSplit: false,     // reading library: topic-split editor on?
+  editSplit: null,      // pdf_id whose topic-split editor is open
   readSel: new Set(),   // reading library: topics ticked for a merged PDF
   pendingConf: null,    // "sure" | "unsure" attached to next message
   qShownAt: null,       // Date.now() when the current question card appeared
@@ -201,17 +202,26 @@ function renderMsg(m) {
 }
 
 window.copyReport = async (sessionId, btn) => {
-  let text = window.__reports?.[sessionId];
-  if (!text) {
-    const rep = await fetch(`/api/session_report?session_id=${sessionId}`).then((r) => r.ok ? r.json() : null);
-    text = rep?.text;
-  }
-  if (!text) { alert("Report unavailable."); return; }
+  btn.disabled = true;
+  btn.textContent = "Tailoring…";
+  // one small model call writes a prompt shaped to THESE gaps; the
+  // deterministic report is the fallback if it fails
+  const res = await fetch("/api/tutor_prompt", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  const text = res?.text || window.__reports?.[sessionId];
+  btn.disabled = false;
+  if (!text) { btn.textContent = "⧉ Copy tutor prompt"; alert("Couldn't build the prompt."); return; }
   try {
     await navigator.clipboard.writeText(text);
-    btn.textContent = "Copied ✓";
-    setTimeout(() => { btn.textContent = "⧉ Copy tutor prompt"; }, 1800);
-  } catch { alert("Clipboard blocked — try again after clicking the page."); }
+    btn.textContent = res?.source === "ai" ? "Copied ✓ (tailored)" : "Copied ✓";
+    window.__lastPrompt = text;
+    setTimeout(() => { btn.textContent = "⧉ Copy tutor prompt"; }, 2400);
+  } catch {
+    btn.textContent = "⧉ Copy tutor prompt";
+    alert("Clipboard blocked — click the page once, then try again.");
+  }
 };
 
 window.undoGrade = async (btn) => {
@@ -439,92 +449,6 @@ function renderRail() {
   renderFocusFloat();
 }
 
-function homeTopHTML(st) {
-  if (!st || !st.current) {
-    return `<div class="card"><div class="mono-label" style="margin-bottom:10px">NOW STUDYING</div>
-      <div style="font-size:12.5px; color:#5C616E; line-height:1.6">Nothing ingested yet. Drop a PDF path or paste notes into the chat to get started.</div></div>`;
-  }
-
-  const cur = st.current, cc = st.currentCourse;
-  const color = SUBJ[cc.ci % 4];
-  const d = deltaBits(cur.delta);
-  const hours = ((cur.est_total_minutes || 0) / 60).toFixed(1);
-
-  // NOW STUDYING
-  let html = `<div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
-      <span style="display:flex; align-items:center; gap:7px">
-        <span class="mono-label">NOW STUDYING</span>
-        <span class="course-chip" style="border-left:3px solid ${color}">${esc(cc.name)}</span>
-      </span>
-    </div>
-    <div class="doc-name">${esc(cur.filename)}</div>
-    <div class="doc-meta">${cur.total_pages} pages · ~${hours}h est · ${cur.spent_total} studied</div>
-    <div style="display:flex; align-items:baseline; justify-content:space-between; margin-top:14px; margin-bottom:6px">
-      <span style="font-size:11.5px; color:#5C616E; white-space:nowrap">Completion</span>
-      <span style="display:flex; align-items:baseline; gap:7px">
-        <span class="mono" style="font-size:13px; font-weight:600">${cur.completion_pct.toFixed(0)}%</span>
-        <span class="delta" style="color:${d.color}">${d.label}</span>
-      </span>
-    </div>
-    <div class="bar-track"><div class="bar-fill" style="width:${cur.completion_pct}%; background:${retColor(cur.completion_pct)}"></div></div>
-    ${cur.due > 0 ? `<button class="btn-block" onclick="startReview()">Review ${cur.due} due cards</button>` : ""}
-    ${evidence("Retrieval practice: testing yourself strengthens memory more than re-reading (Roediger &amp; Karpicke, 2006).")}
-  </div>`;
-
-  // TOPICS · WEAKEST FIRST (general-info topics sink to the bottom — nothing to study)
-  const sorted = [...cur.topics].sort((a, b) => {
-    const ra = a.kind === "general" ? 3 : a.cards_due > 0 ? 0 : a.mastery_pct > 0 ? 1 : 2;
-    const rb = b.kind === "general" ? 3 : b.cards_due > 0 ? 0 : b.mastery_pct > 0 ? 1 : 2;
-    return ra !== rb ? ra - rb : a.mastery_pct - b.mastery_pct;
-  });
-  html += `<div class="card">
-    <div class="mono-label" style="margin-bottom:11px">TOPICS · WEAKEST FIRST</div>
-    <div style="display:flex; flex-direction:column; gap:4px">
-      ${sorted.map((t) => `
-      <div class="topic-row" style="cursor:pointer" title="Open pages ${t.pages}"
-           onclick="openTopic(${cur.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
-        <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
-        <div style="flex:1; min-width:0">
-          <div class="topic-title">${esc(t.title)}</div>
-          ${t.kind === "general" ? "" : `<div class="mini-track"><div class="mini-fill" style="width:${t.mastery_pct}%; background:${retColor(t.mastery_pct)}"></div></div>`}
-        </div>
-        ${t.kind === "general" ? `<span class="info-tag" title="General info — no cards, not counted in completion">info</span>`
-          : `<span class="topic-pct">${t.mastery_pct.toFixed(0)}%</span>`}
-        ${flagTag(t.id)}
-        ${t.cards_due > 0 ? `<span class="due-tag">${t.cards_due} due</span>` : ""}
-      </div>`).join("")}
-    </div>
-    ${evidence("Ordered by retention — the items closest to being forgotten come first.")}
-  </div>`;
-
-  // SESSION RECAP
-  if (S.recap) {
-    const r = S.recap;
-    html += `<div class="card" style="border-color:#9BD4BE">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
-        <span class="mono-label" style="color:#00794F; font-weight:600">SESSION RECAP</span>
-        <button class="icon-btn" title="Dismiss" onclick="dismissRecap()">✕</button>
-      </div>
-      <div class="recap-grid">
-        <div><div class="recap-num">${r.mins}m</div><div class="recap-lbl">focused</div></div>
-        <div><div class="recap-num">${r.cards}</div><div class="recap-lbl">cards</div></div>
-        <div><div class="recap-num" style="color:#00794F">${r.acc == null ? "—" : r.acc + "%"}</div><div class="recap-lbl">recall</div></div>
-      </div>
-      <div style="font-size:11.5px; color:#5C616E">${r.ext} intervals extended · <span style="color:${LOW}">${r.reset} reset to 1d</span></div>
-      ${evidence("Immediate post-practice feedback sharpens metacognitive calibration and next-session planning.")}
-    </div>`;
-  }
-
-  // evening nudge: reviewing shortly before sleep aids consolidation
-  if (new Date().getHours() >= 18 && st.dueTotal > 0 && !S.focusStart) {
-    html += `<div class="nudge">🌙 ${st.dueTotal} cards due — a short review before
-      sleep helps consolidation. Even 10 minutes counts.</div>`;
-  }
-
-  return html;
-}
-
 /* compact focus timer pinned top-right; hidden while the reader is open —
    the reader's sidebar has its own block timer for the same clock */
 function renderFocusFloat() {
@@ -578,114 +502,61 @@ function renderProgress() {
       <span class="mono" style="font-size:11px; color:#8A8F9C">${r.time} · ${r.share}%</span>
     </div>`).join("");
 
-  const PDF_SORTS = {
-    weakest:  { label: "Weakest first",   fn: (a, b) => a.completion_pct - b.completion_pct },
-    strongest:{ label: "Strongest first", fn: (a, b) => b.completion_pct - a.completion_pct },
-    due:      { label: "Most due first",  fn: (a, b) => b.due - a.due },
-    name:     { label: "By name",         fn: (a, b) => a.filename.localeCompare(b.filename) },
-    newest:   { label: "Newest first",    fn: (a, b) => b.pdf_id - a.pdf_id },
-  };
-  const sortFn = (PDF_SORTS[S.pdfSort] || PDF_SORTS.weakest).fn;
-  const sortSelect = `<select id="pdfSort" class="sort-select">
-      ${Object.entries(PDF_SORTS).map(([key, s]) =>
-        `<option value="${key}" ${key === S.pdfSort ? "selected" : ""}>${s.label}</option>`).join("")}
-    </select>`;
-
-  const courseCards = st.libCourses.map((c) => {
-    const pdfCards = [...c.pdfs].sort(sortFn).map((p) => {
-      const started = p.topics.some((t) => t.status !== "not_started");
-      const [badge, bg, fg] = p.status === "pending" ? ["Ingest incomplete", "rgba(213,94,0,.12)", "#D55E00"]
-        : p.completion_pct >= 70 ? ["On track", "rgba(0,158,115,.10)", "#00794F"]
-        : started ? ["In progress", "rgba(230,159,0,.13)", "#8A6100"] : ["Not started", "#F0F0EC", "#8A8F9C"];
-      const d = deltaBits(p.delta);
-      const topicRows = p.topics.map((t) => `
-        <div class="trow" style="cursor:pointer" title="Open pages ${t.pages}"
-             onclick="event.stopPropagation(); openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
-          <span class="dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
-          <span class="name">${esc(t.title)}</span>
-          ${t.kind === "general" ? `<span class="info-tag" title="General info (admin/logistics) — no cards, not counted in completion">info</span>` : ""}
-          <div class="track"><div class="fill" style="width:${Math.min(100, t.spent / Math.max(t.est_minutes, 1) * 100)}%"></div></div>
-          <span class="time">${fmtMin(t.spent)} / ${fmtMin(t.est_minutes)}</span>
-        </div>`).join("");
-      return `
-      <div class="pdf-card" onclick="openDoc(${p.pdf_id})">
-        <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:11px">
-          <div style="flex:1; min-width:0">
-            <div style="font-size:13px; font-weight:600; line-height:1.4">${esc(p.filename)}</div>
-            <div class="doc-meta">${p.total_pages} pages · ${p.spent_total} studied ·
-              <span style="${p.due > 0 ? `color:${LOW}; font-weight:600` : "color:#8A8F9C"}">${p.due} due</span></div>
-          </div>
-          <span class="badge" style="background:${bg}; color:${fg}">${badge}</span>
-          <button class="pdf-del" title="Delete this document (topics, cards, and schedule included)"
-            onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encT(p.filename)}')">✕</button>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
-          <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${p.completion_pct}%; background:${retColor(p.completion_pct)}"></div></div>
-          <span class="mono" style="font-size:12px; font-weight:600; width:36px; text-align:right">${p.completion_pct.toFixed(0)}%</span>
-          <span class="delta" style="color:${d.color}">${d.label}</span>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:7px">${topicRows}</div>
-      </div>`;
-    }).join("");
-    const exam = st.metrics?.exams?.[c.id];
-    const examChip = exam && exam.today != null
-      ? `<span class="exam-chip" title="Predicted average recall on exam day">🎓 ${exam.days_left}d left ·
-           if you stop: <b style="color:${exam.today >= 70 ? "#00794F" : LOW}">${exam.today}%</b> ·
-           on schedule: <b style="color:#00794F">${exam.onPlan}%</b></span>`
-      : exam ? `<span class="exam-chip">🎓 ${exam.days_left}d left</span>` : "";
-    const courseInfo = st.courses.find((x) => x.id === c.id);
-    return `
-    <div class="course-card">
-      <div class="course-head">
-        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}"></span>
-        <span class="course-name">${esc(c.name)}</span>
-        <span class="course-meta">${c.pdfCount} PDFs · ${c.timeSpent} invested ·
-          <span style="color:${LOW}">${c.dueCount} due</span></span>
-        ${examChip}
-        <span style="flex:1"></span>
-        <input type="date" class="exam-input" value="${courseInfo?.exam_date || ""}"
-          title="Exam date — drives the readiness projection"
-          onchange="setExam(${c.id}, this.value)">
-      </div>
-      <div class="pdf-grid">${pdfCards}</div>
-    </div>`;
-  }).join("");
+  // ---- ordering follows the learning-analytics evidence: a few north-star
+  // numbers with reference frames and an action first, then pacing (spacing
+  // made visible), then outcome trends, then drill-down diagnostics.
+  // Cognitive-load research caps a useful view around 5-9 items per layer.
+  const mx = renderMetrics(st.metrics) || {};
+  const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
+  const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : 0;
+  const exams = Object.entries(st.metrics?.exams || {})
+    .map(([cid, e]) => ({ ...e, course: st.courses.find((c) => c.id === +cid)?.name || "course" }))
+    .filter((e) => e.today != null)
+    .sort((a, b2) => a.days_left - b2.days_left);
+  const nextExam = exams[0];
+  const latest = mx.latestRetention;
 
   inner.innerHTML = `
-    <div class="section-head"><span class="mono-label">NOW</span><div class="rule"></div></div>
-    <div class="home-top">${homeTopHTML(st)}</div>
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">READING</span><div class="rule"></div></div>
-    ${readingBandHTML(st)}
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">FLASHCARDS · OVERVIEW</span><div class="rule"></div></div>
-    <div class="grid3">
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">TIME THIS WEEK</div>
-        <div class="stat-num">${stats.weekTime}</div>
-        <div class="stat-sub">${stats.sessionCount} focus sessions</div>
+    <div class="section-head"><span class="mono-label">WHERE YOU STAND</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">the four numbers worth acting on</span></div>
+    <div class="grid2">
+      <div class="card" style="padding:18px 20px">
+        <div class="mono-label" style="margin-bottom:9px">DUE NOW</div>
+        <div class="stat-num" style="color:${st.dueTotal ? LOW : "#00794F"}">${st.dueTotal}</div>
+        <div class="stat-sub">across ${st.courses.length} course${st.courses.length === 1 ? "" : "s"}${fit ? ` · your budget fits ~${fit}` : ""}</div>
+        <div style="display:flex; align-items:center; gap:6px; margin-top:12px; flex-wrap:wrap">
+          <span style="font-size:11px; color:#5C616E">Daily budget</span>
+          ${[15, 25, 45, 60].map((m) => `<button class="dur-btn ${b.daily_minutes === m ? "on" : ""}" onclick="setBudget(${b.daily_minutes === m ? 0 : m})">${m}m</button>`).join("")}
+          <span style="font-size:10.5px; color:#8A8F9C">${b.sec_per_card}s/card ${b.sec_per_card === 84 ? "(est.)" : "(measured)"}</span>
+        </div>
+        ${fit && st.dueTotal > fit ? `<button class="btn-block ghost" style="margin-top:10px" onclick="spreadBacklog()"
+          title="Keep the ${fit} most overdue due today; push the other ${st.dueTotal - fit} onto the coming days">Spread ${st.dueTotal - fit} onto later days</button>`
+          : st.dueTotal ? `<button class="btn-block" style="margin-top:10px" onclick="startReviewSession({})">▶ Start today's review</button>` : ""}
       </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">CARDS DUE NOW</div>
-        <div class="stat-num" style="color:${LOW}">${st.dueTotal}</div>
-        <div class="stat-sub">across ${st.courses.length} courses</div>
-        ${(() => {
-          const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
-          const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : 0;
-          return `
-          <div style="display:flex; align-items:center; gap:6px; margin-top:12px; flex-wrap:wrap">
-            <span style="font-size:11px; color:#5C616E">Daily budget</span>
-            ${[15, 25, 45, 60].map((m) => `<button class="dur-btn ${b.daily_minutes === m ? "on" : ""}" onclick="setBudget(${b.daily_minutes === m ? 0 : m})">${m}m</button>`).join("")}
-          </div>
-          ${b.daily_minutes ? `<div style="font-size:11px; color:#8A8F9C; margin-top:7px">fits ~<b>${fit}</b> cards (${b.sec_per_card}s each${b.sec_per_card === 84 ? ", est." : ", measured"})</div>
-            ${st.dueTotal > fit ? `<button class="btn-block ghost" style="margin-top:9px" onclick="spreadBacklog()"
-              title="Keep the ${fit} most overdue due today; push the other ${st.dueTotal - fit} onto the coming days">Spread ${st.dueTotal - fit} onto later days</button>` : ""}` : ""}`;
-        })()}
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">CONSISTENCY</div>
-        <div class="week-dots">${weekDots}</div>
-        <div style="font-size:11.5px; color:#5C616E"><span style="font-weight:600; color:#1C1E26">${stats.litCount} of last 7 days</span> · streak ${stats.streak}d</div>
+      <div class="card" style="padding:18px 20px">
+        <div class="mono-label" style="margin-bottom:9px">EXAM READINESS</div>
+        ${nextExam ? `
+          <div class="stat-num" style="color:${nextExam.onPlan >= 70 ? "#00794F" : LOW}">${nextExam.onPlan}%</div>
+          <div class="stat-sub">${esc(nextExam.course)} · projected recall on exam day if you keep to the schedule</div>
+          <div style="font-size:11.5px; color:#5C616E; margin-top:8px">${nextExam.days_left} days left · <b style="color:${nextExam.today >= 70 ? "#00794F" : LOW}">${nextExam.today}%</b> if you stopped studying today</div>
+          ${exams.length > 1 ? `<div style="font-size:11px; color:#8A8F9C; margin-top:6px">${exams.slice(1).map((e) => `${esc(e.course)}: ${e.onPlan}% in ${e.days_left}d`).join(" · ")}</div>` : ""}`
+        : `<div style="font-size:12px; color:#8A8F9C; line-height:1.6">No exam dates set. Add one on a course page and this becomes the number that tells you whether the current pace is enough.</div>`}
+        ${evidence("A goal with a deadline and a projection beats a raw score: it turns 'how am I doing' into 'is this pace enough' (Kluger &amp; DeNisi, 1996).")}
       </div>
     </div>
+    <div class="grid2">
+      ${mx.knowledge || ""}
+      <div class="card" style="padding:18px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:9px">RETENTION RIGHT NOW</div>
+        ${latest ? `<div class="stat-num" style="color:${latest.rate >= 80 ? "#00794F" : latest.rate >= 60 ? "#8A6100" : LOW}">${latest.rate}%</div>
+          <div class="stat-sub">of cards recalled at review time this week · aim ≈85%</div>`
+        : `<div style="font-size:12px; color:#8A8F9C; flex:1">No graded answers yet — review a deck and this fills in.</div>`}
+        ${evidence("True retention is the outcome measure: everything else on this page is a means to it.")}
+      </div>
+    </div>
+
+    <div class="section-head" style="margin-top:14px"><span class="mono-label">PACING</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">is the work spread out?</span></div>
     <div class="grid2">
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
@@ -693,38 +564,48 @@ function renderProgress() {
           <span class="mono" style="font-size:10.5px; color:#8A8F9C">${forecastTotal} scheduled</span>
         </div>
         <div class="forecast-row">${forecastCols}</div>
-        ${evidence("Spacing effect: SM-2 pushes each successful recall further out, so daily load stays small (Cepeda et al., 2006).")}
+        ${evidence("Spacing effect: each successful recall pushes the next one further out, so daily load stays small (Cepeda et al., 2006).")}
       </div>
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">TIME BY COURSE · ALL TIME</div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:12px">THIS WEEK</div>
+        <div class="week-dots">${weekDots}</div>
+        <div style="font-size:11.5px; color:#5C616E; margin-bottom:14px"><span style="font-weight:600; color:#1C1E26">${stats.litCount} of last 7 days</span> · streak ${stats.streak}d · ${stats.weekTime} in ${stats.sessionCount} session${stats.sessionCount === 1 ? "" : "s"}</div>
+        <div class="mono-label" style="margin-bottom:10px">TIME BY COURSE · ALL TIME</div>
         <div class="seg-track">${segs}</div>
-        <div style="display:flex; flex-direction:column; gap:10px">${legend}</div>
-        ${evidence("Interleaving courses within a week beats blocking one at a time (Rohrer &amp; Taylor, 2007).")}
+        <div style="display:flex; flex-direction:column; gap:8px">${legend}</div>
       </div>
     </div>
+    ${mx.heatmap || ""}
+
+    <div class="section-head" style="margin-top:14px"><span class="mono-label">TRENDS</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">is it sticking over time?</span></div>
     <div class="grid2">
+      ${mx.retention || ""}
+      ${mx.maturity || ""}
+    </div>
+
+    <div class="section-head" style="margin-top:14px"><span class="mono-label">DIAGNOSTICS</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">where exactly it's going wrong</span></div>
+    <div class="grid2">
+      ${mx.hardest || ""}
+      ${mx.fluency || ""}
+    </div>
+    <div class="grid2">
+      ${mx.sweet || ""}
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:14px">CALIBRATION · CONFIDENCE VS RECALL</div>
         ${renderCalibration(st.calibration)}
-        ${evidence("Calibration training: comparing predicted vs actual recall improves self-regulated study.")}
-      </div>
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">RECENT SESSIONS</div>
-        ${renderRecentSessions(st.recentSessions)}
-        ${evidence("Self-monitoring: seeing your own accuracy trend supports habit formation.")}
+        ${evidence("Comparing predicted vs actual recall improves self-regulated study — and confident errors are the most correctable.")}
       </div>
     </div>
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">STUDY METRICS</span><div class="rule"></div></div>
-    ${renderMetrics(st.metrics)}
-    <div class="section-head" style="margin-top:10px"><span class="mono-label">COURSES</span><div class="rule"></div>${sortSelect}</div>
-    ${courseCards || '<div class="card" style="color:#8A8F9C; font-size:12.5px">No courses yet — ingest something from the Study tab.</div>'}`;
+    <div class="card" style="padding:16px 20px">
+      <div class="mono-label" style="margin-bottom:14px">RECENT SESSIONS</div>
+      ${renderRecentSessions(st.recentSessions)}
+    </div>
 
-  const sortEl = document.getElementById("pdfSort");
-  if (sortEl) sortEl.onchange = (e) => {
-    S.pdfSort = e.target.value;
-    localStorage.setItem("fbPdfSort", S.pdfSort);
-    renderProgress();
-  };
+    <div class="section-head" style="margin-top:14px"><span class="mono-label">READING</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">tracked separately — reading never moves mastery</span></div>
+    ${readingBandHTML(st)}`;
 }
 
 function renderCalibration(weeks) {
@@ -879,29 +760,33 @@ function renderMetrics(mx) {
          sw.rate < 70 ? "Overloaded — smaller sessions or re-read first." :
          "In the productive-struggle zone."}</div>`;
 
-  return `
-    <div class="grid2">
+  // fragments, so the Analytics page can order them by evidence rather than
+  // by whatever order they happened to be written in
+  return {
+    latestRetention: latest,
+    knowledge: `
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">KNOWLEDGE IN MEMORY</div>
         <div class="stat-num">${kn.held} <span style="font-size:14px; color:#8A8F9C; font-weight:500">/ ${kn.total} facts</span></div>
         <div class="stat-sub">${kn.pct}% of your cards, decay-weighted, held right now</div>
         ${evidence("Retrievability-weighted total (the FSRS 'knowledge' metric): each card counts as its current recall probability.")}
-      </div>
+      </div>`,
+    sweet: `
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:9px">CHALLENGE SWEET SPOT</div>
         ${sweetBody}
         ${evidence("~85% success is the optimal difficulty for learning (Wilson et al., 2019; Bjork's desirable difficulties).")}
-      </div>
-    </div>
-    <div class="card" style="padding:16px 20px">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
-        <span class="mono-label">CONSISTENCY · LAST ${mx.weeks} WEEKS</span>
-        <span class="mono" style="font-size:10.5px; color:#8A8F9C">${activeDays} active days</span>
-      </div>
-      <div class="hm-grid">${cols.join("")}</div>
-      ${evidence("Distributed practice: many short sessions beat few long ones (Cepeda et al., 2006).")}
-    </div>
-    <div class="grid2">
+      </div>`,
+    heatmap: `
+      <div class="card" style="padding:16px 20px">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+          <span class="mono-label">CONSISTENCY · LAST ${mx.weeks} WEEKS</span>
+          <span class="mono" style="font-size:10.5px; color:#8A8F9C">${activeDays} active days</span>
+        </div>
+        <div class="hm-grid">${cols.join("")}</div>
+        ${evidence("Distributed practice: many short sessions beat few long ones (Cepeda et al., 2006).")}
+      </div>`,
+    retention: `
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
           <span class="mono-label">RETENTION TREND · WEEKLY RECALL</span>
@@ -909,24 +794,26 @@ function renderMetrics(mx) {
         </div>
         <div class="forecast-row">${retCols}</div>
         ${evidence("The truest signal the system works: recall rate at review time, week over week.")}
-      </div>
+      </div>`,
+    maturity: `
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:14px">CARD MATURITY</div>
         <div style="display:flex; flex-direction:column; gap:9px">${funnelRows}</div>
         ${evidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams.")}
-      </div>
-    </div>
-    <div class="grid2">
+      </div>`,
+    hardest: `
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:12px">HARDEST CARDS · MOST FAILED</div>
         <div style="display:flex; flex-direction:column; gap:8px">${hardRows}</div>
-      </div>
+        ${evidence("Leeches: a handful of cards eat most of your failures. Blackout them in the reader or rewrite them — don't just keep failing them.")}
+      </div>`,
+    fluency: `
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:9px">RETRIEVAL FLUENCY · 28 DAYS</div>
         ${fluencyBody}
         ${evidence("How fast a correct answer comes predicts retention beyond accuracy alone (Benjamin &amp; Bjork, 1996) — slow rights are the ones to keep spacing.")}
-      </div>
-    </div>`;
+      </div>`,
+  };
 }
 
 /* ---------------------------------------------------------------- reading hub */
@@ -967,131 +854,248 @@ function readingBandHTML(st) {
     </div>`;
 }
 
-function renderReadingHub() {
-  const st = S.state;
-  if (!st || !st.reading) return;
-  const rd = st.reading;
-
-  // library stepper: course -> document -> topic, one decision at a time
-  const nav = S.readNav;
-  const selCourse = nav.course != null ? st.libCourses.find((c) => c.id === nav.course) : null;
-  if (nav.course != null && !selCourse) nav.course = nav.pdf = null;   // stale after refresh
-  const selPdf = selCourse && nav.pdf != null
-    ? selCourse.pdfs.find((p) => p.pdf_id === nav.pdf) : null;
-  if (nav.pdf != null && !selPdf) nav.pdf = null;
-
-  const crumbs = `<div class="crumbs">
-    <button class="crumb ${!selCourse ? "on" : ""}" onclick="readHub(null, null)">Courses</button>
-    ${selCourse ? `<span class="crumb-sep">›</span>
-      <button class="crumb ${!selPdf ? "on" : ""}" onclick="readHub(${selCourse.id}, null)">${esc(selCourse.name)}</button>` : ""}
-    ${selPdf ? `<span class="crumb-sep">›</span>
-      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>` : ""}
-    <span style="flex:1"></span>
-    ${selPdf ? `<button class="conf-btn ${S.editSplit ? "picked" : ""}" onclick="toggleEditSplit()">✎ Edit split</button>` : ""}
-    ${!selPdf ? `<button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs — they segment and save automatically${selCourse ? ` into ${esc(selCourse.name)}` : "; you'll be asked for the course"}">＋ Add PDFs</button>` : ""}
-  </div>
-  ${S.ingesting ? `<div class="card" style="padding:12px 16px; margin-bottom:10px; display:flex; align-items:center; gap:10px">
-    <span class="pulse" style="width:8px; height:8px; border-radius:50%; background:#E69F00; animation:fbPulse 1.6s infinite"></span>
-    <span style="font-size:12.5px">Ingesting ${S.ingesting.done + 1} of ${S.ingesting.total}: <b>${esc(S.ingesting.current)}</b> — reading, splitting into topics, saving (~30–90s per file)</span>
-  </div>` : ""}`;
-
-  let step;
-  if (!selCourse) {
-    // step 1: pick a course
-    step = `<div class="grid3">${st.libCourses.map((c) => {
-      const mins = rd.by_course.find((r) => r.course_id === c.id)?.minutes || 0;
-      const notes = c.pdfs.reduce((a, p) => a + (rd.notes_by_pdf[p.pdf_id] || 0), 0);
-      return `<button class="pick-card" onclick="readHub(${c.id}, null)">
-        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}"></span>
-        <span style="flex:1; min-width:0; text-align:left">
-          <span style="display:block; font-size:13.5px; font-weight:600">${esc(c.name)}</span>
-          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:3px">${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${fmtMin(mins)} read${notes ? ` · ${notes} notes` : ""}</span>
-        </span>
-        <span class="crumb-sep">›</span>
-      </button>`;
-    }).join("")}</div>`;
-  } else if (!selPdf) {
-    // step 2: pick a document (upload order, oldest first)
-    const pdfs = [...selCourse.pdfs].sort((a, b) => a.pdf_id - b.pdf_id);
-    step = pdfs.map((p) => {
-      const readMin = rd.by_pdf.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0;
-      const notes = rd.notes_by_pdf[p.pdf_id] || 0;
-      return `<button class="pick-card" onclick="readHub(${selCourse.id}, ${p.pdf_id})">
-        <span style="flex:1; min-width:0; text-align:left">
-          <span style="display:block; font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(p.filename)}</span>
-          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:3px">${p.total_pages} pages · ${p.topics.length} topics · ${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
-        </span>
-        <span class="crumb-sep">›</span>
-      </button>`;
-    }).join("");
-  } else if (S.editSplit) {
-    // step 3, edit mode: rename, retune ranges, reflag, split
-    const inputStyle = `border:1px solid #E3E3DE; border-radius:7px; padding:5px 7px; font-family:'IBM Plex Sans',sans-serif; font-size:12px`;
-    step = `<div style="font-size:11px; color:#8A8F9C; margin-bottom:2px">Your split, your rules — ranges may overlap or leave gaps.
-      Splitting keeps existing cards and notes with the original topic.</div>` +
-      selPdf.topics.map((t) => {
-        const [ps, pe] = t.pages.split("-").map(Number);
-        return `
-      <div class="pick-card ts-row" data-id="${t.id}" style="cursor:default">
-        <input class="ts-title" style="${inputStyle}; flex:1; min-width:140px" value="${esc(t.title)}">
-        <span style="font-size:11px; color:#8A8F9C; flex:none">p.</span>
-        <input class="ts-start" type="number" min="1" value="${ps}" style="${inputStyle}; width:58px">
-        <span style="color:#8A8F9C">–</span>
-        <input class="ts-end" type="number" min="1" value="${pe}" style="${inputStyle}; width:58px">
-        <select class="ts-kind sort-select">
-          <option value="content" ${t.kind !== "general" ? "selected" : ""}>content</option>
-          <option value="general" ${t.kind === "general" ? "selected" : ""}>general</option>
-        </select>
-        <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
-        <button class="conf-btn" title="Split this topic into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
-        <button class="pdf-del" title="Delete this topic, its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}, and its notes"
-          onclick="deleteTopicAsk(${t.id}, '${encT(t.title)}', ${t.cards_total})">✕</button>
-      </div>`;
-      }).join("");
-  } else {
-    // step 3: pick a topic (document order = reading order); tick several
-    // to take them out as ONE merged PDF instead of file-per-topic
-    const sel = [...S.readSel].map((id) => selPdf.topics.find((t) => t.id === id)).filter(Boolean);
-    const mergedBar = sel.length ? `
-      <a class="btn-block" style="margin:0 0 2px; text-align:center; text-decoration:none; box-sizing:border-box"
-         href="/api/pdf/${selPdf.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
-        ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF (p.${sel.map((t) => t.pages).join(", ")})</a>` : "";
-    step = mergedBar + selPdf.topics.map((t) => `
-      <button class="pick-card" onclick="openTopic(${selPdf.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
-        <input type="checkbox" class="rt-check" title="Tick topics, then download them together as one PDF"
-          onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
-        <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
-        <span style="flex:1; min-width:0; text-align:left">
-          <span style="display:block; font-size:12.5px; font-weight:600">${esc(t.title)}</span>
-          <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:2px">p.${t.pages} · ~${fmtMin(t.est_minutes)}</span>
-        </span>
-        ${t.kind === "general" ? `<span class="info-tag">info</span>`
-          : t.cards_total ? `<span class="mono" style="font-size:10px; color:#8A8F9C; flex:none">${t.cards_total} cards</span>`
-          : `<button class="conf-btn" style="flex:none" title="Generate flashcards for this topic (~$0.05, ~30s)"
-              onclick="event.stopPropagation(); generateCards(${t.id}, this)">⚡ Cards</button>`}
-        <span class="crumb-sep" title="Open the reader">›</span>
-      </button>`).join("");
-  }
-  const lib = `${crumbs}<div style="display:flex; flex-direction:column; gap:8px">${step}</div>`;
-
-  $("readingInner").innerHTML = `
-    <div class="section-head"><span class="mono-label">LIBRARY · ${!S.readNav.course ? "PICK A COURSE" : !S.readNav.pdf ? "PICK A DOCUMENT" : "PICK A TOPIC TO READ"}</span><div class="rule"></div></div>
-    ${lib}`;
+/* course-level numbers, derived from the state payload (no extra endpoint):
+   completion weights CONTENT topics by their study-time estimate, same as
+   the pdf math, so admin pages can't hold a course under 100%. */
+function courseStats(c, st) {
+  const rd = st.reading || { by_course: [], by_pdf: [], notes_by_pdf: {} };
+  const topics = c.pdfs.flatMap((p) => p.topics);
+  const content = topics.filter((t) => t.kind !== "general");
+  const weight = (t) => t.est_minutes || 1;
+  const wTotal = content.reduce((a, t) => a + weight(t), 0) || 1;
+  return {
+    completion: content.reduce((a, t) => a + weight(t) * t.mastery_pct, 0) / wTotal,
+    due: c.dueCount,
+    cards: topics.reduce((a, t) => a + (t.cards_total || 0), 0),
+    topicsTotal: content.length,
+    covered: content.filter((t) => t.status === "covered").length,
+    started: content.filter((t) => t.status === "in_progress").length,
+    readMin: rd.by_course?.find((r) => r.course_id === c.id)?.minutes || 0,
+    notes: c.pdfs.reduce((a, p) => a + (rd.notes_by_pdf?.[p.pdf_id] || 0), 0),
+    exam: st.metrics?.exams?.[c.id],
+  };
 }
 
-window.readHub = (course, pdf) => {
-  S.readNav = { course, pdf };
-  S.editSplit = false;
+/* ---------------------------------------------------------------- home: course canvas */
+
+function renderHome() {
+  const st = S.state;
+  if (!st || S.view !== "home") return;
+
+  const cards = st.libCourses.map((c) => {
+    const s = courseStats(c, st);
+    const color = SUBJ[c.ci % 4];
+    return `<div class="course-tile-card" onclick="openCourse(${c.id})">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span class="course-tile" style="background:${color}; width:26px; height:26px; border-radius:8px"></span>
+        <span style="flex:1; min-width:0; font-size:15px; font-weight:700; letter-spacing:-.2px">${esc(c.name)}</span>
+        ${s.due ? `<span class="deck-due">${s.due} due</span>` : ""}
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${s.completion}%; background:${retColor(s.completion)}"></div></div>
+        <span class="mono" style="font-size:13px; font-weight:600">${s.completion.toFixed(0)}%</span>
+      </div>
+      <div style="font-size:11.5px; color:#5C616E; line-height:1.7">
+        ${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${s.topicsTotal} topics · ${s.cards} cards<br>
+        ${s.covered} covered · ${s.started} in progress · ${fmtMin(s.readMin)} read
+      </div>
+      ${s.exam ? `<div class="exam-chip" style="margin-top:12px">🎓 ${s.exam.days_left}d to exam${s.exam.today != null ? ` · ${s.exam.today}% if you stop now` : ""}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const r = S.recap;
+  const recap = r ? `<div class="card" style="border-color:#9BD4BE; margin-bottom:14px">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+      <span class="mono-label" style="color:#00794F; font-weight:600">LAST FOCUS BLOCK</span>
+      <button class="icon-btn" title="Dismiss" onclick="dismissRecap()">✕</button>
+    </div>
+    <div class="recap-grid">
+      <div><div class="recap-num">${r.mins}m</div><div class="recap-lbl">focused</div></div>
+      <div><div class="recap-num">${r.cards}</div><div class="recap-lbl">cards</div></div>
+      <div><div class="recap-num" style="color:#00794F">${r.acc == null ? "—" : r.acc + "%"}</div><div class="recap-lbl">recall</div></div>
+    </div>
+    <div style="font-size:11.5px; color:#5C616E">${r.ext} intervals extended · <span style="color:${LOW}">${r.reset} reset to 1d</span></div>
+  </div>` : "";
+
+  const nudge = new Date().getHours() >= 18 && st.dueTotal > 0 && !S.focusStart
+    ? `<div class="nudge" style="margin-bottom:14px">🌙 ${st.dueTotal} cards due — a short review before sleep helps consolidation. Even 10 minutes counts.</div>` : "";
+
+  $("homeInner").innerHTML = `
+    <div class="section-head"><span class="mono-label">COURSES</span><div class="rule"></div>
+      ${st.dueTotal ? `<button class="conf-btn" onclick="startReviewSession({})" title="Review everything due, capped at your daily budget">▶ ${st.dueTotal} due</button>` : ""}
+      <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs — they segment into topics and save automatically">＋ Add PDFs</button></div>
+    ${S.ingesting ? ingestBanner() : ""}
+    ${recap}${nudge}
+    <div class="course-canvas">${cards || `<div class="card" style="font-size:12.5px; color:#8A8F9C">No courses yet — hit ＋ Add PDFs and Flashbang will read, split and file them for you.</div>`}</div>`;
+}
+
+function ingestBanner() {
+  return `<div class="card" style="padding:12px 16px; margin-bottom:12px; display:flex; align-items:center; gap:10px">
+    <span style="width:8px; height:8px; border-radius:50%; background:#E69F00; animation:fbPulse 1.6s infinite"></span>
+    <span style="font-size:12.5px">Ingesting ${S.ingesting.done + 1} of ${S.ingesting.total}: <b>${esc(S.ingesting.current)}</b> — reading, splitting into topics, saving (~30–90s per file)</span>
+  </div>`;
+}
+
+window.openCourse = (courseId) => {
+  S.courseId = courseId;
+  S.view = "course";
+  S.docOpen = new Set();
   S.readSel = new Set();
-  renderReadingHub();
+  S.editSplit = null;
+  render();
 };
 
+/* ---------------------------------------------------------------- one course */
+
+function renderCoursePage() {
+  const st = S.state;
+  if (!st || S.view !== "course") return;
+  const c = st.libCourses.find((x) => x.id === S.courseId);
+  if (!c) { S.view = "home"; render(); return; }
+  const s = courseStats(c, st);
+  const rd = st.reading || { by_pdf: [], notes_by_pdf: {} };
+  const courseInfo = st.courses.find((x) => x.id === c.id);
+  const docs = [...c.pdfs].sort((a, b) => a.pdf_id - b.pdf_id);   // upload order
+  if (!S.docOpen.size && docs.length) S.docOpen.add(docs[0].pdf_id);
+
+  // ---- left: documents → topics
+  const docBlocks = docs.map((p) => {
+    const open = S.docOpen.has(p.pdf_id);
+    const readMin = rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0;
+    const notes = rd.notes_by_pdf?.[p.pdf_id] || 0;
+    const editing = S.editSplit === p.pdf_id;
+    const sel = [...S.readSel].map((id) => p.topics.find((t) => t.id === id)).filter(Boolean);
+
+    let body = "";
+    if (open && editing) {
+      const inp = `border:1px solid #E3E3DE; border-radius:7px; padding:5px 7px; font-family:'IBM Plex Sans',sans-serif; font-size:12px`;
+      body = `<div style="font-size:11px; color:#8A8F9C; padding:4px 2px 8px">Your split, your rules — ranges may overlap or leave gaps. Splitting keeps existing cards with the original topic.</div>`
+        + p.topics.map((t) => {
+          const [ps, pe] = t.pages.split("-").map(Number);
+          return `<div class="topic-row-edit ts-row" data-id="${t.id}">
+            <input class="ts-title" style="${inp}; flex:1; min-width:110px" value="${esc(t.title)}">
+            <input class="ts-start" type="number" min="1" value="${ps}" style="${inp}; width:52px">
+            <span style="color:#8A8F9C">–</span>
+            <input class="ts-end" type="number" min="1" value="${pe}" style="${inp}; width:52px">
+            <select class="ts-kind sort-select" style="font-size:11px">
+              <option value="content" ${t.kind !== "general" ? "selected" : ""}>content</option>
+              <option value="general" ${t.kind === "general" ? "selected" : ""}>general</option>
+            </select>
+            <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
+            <button class="conf-btn" title="Split into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
+            <button class="pdf-del" title="Delete this topic and its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}"
+              onclick="deleteTopicAsk(${t.id}, '${encT(t.title)}', ${t.cards_total})">✕</button>
+          </div>`;
+        }).join("");
+    } else if (open) {
+      body = (sel.length ? `<a class="btn-block" style="margin:2px 0 8px; text-align:center; text-decoration:none; box-sizing:border-box"
+          href="/api/pdf/${p.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
+          ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF</a>` : "")
+        + p.topics.map((t) => `
+        <div class="topic-row2" onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')"
+             title="Open p.${t.pages} in the reader">
+          <input type="checkbox" class="rt-check" title="Tick topics, then download them together as one PDF"
+            onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
+          <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
+          <span style="flex:1; min-width:0">
+            <span style="display:block; font-size:12.5px; font-weight:600; line-height:1.35">${esc(t.title)}</span>
+            <span style="display:block; font-size:10.5px; color:#8A8F9C; margin-top:2px">p.${t.pages} · ~${fmtMin(t.est_minutes)}${t.kind === "general" ? "" : ` · ${t.mastery_pct.toFixed(0)}%`}</span>
+          </span>
+          ${t.cards_due ? `<span class="due-tag">${t.cards_due} due</span>` : ""}
+          ${t.kind === "general" ? `<span class="info-tag">info</span>`
+            : t.cards_total ? `<span class="mono" style="font-size:10px; color:#8A8F9C; flex:none">${t.cards_total} cards</span>`
+            : `<button class="conf-btn" style="flex:none" title="Generate flashcards for this topic (~$0.05, ~30s)"
+                onclick="event.stopPropagation(); generateCards(${t.id}, this)">⚡ Cards</button>`}
+        </div>`).join("");
+    }
+
+    return `<div class="doc-block">
+      <div class="doc-head" onclick="toggleDoc(${p.pdf_id})">
+        <span class="deck-caret">${open ? "▾" : "▸"}</span>
+        <span style="flex:1; min-width:0">
+          <span style="display:block; font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(p.filename)}</span>
+          <span style="display:block; font-size:10.5px; color:#8A8F9C; margin-top:2px">${p.total_pages}p · ${p.topics.length} topics · ${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
+        </span>
+        ${p.status === "pending" ? `<span class="badge" style="background:rgba(213,94,0,.12); color:#D55E00">Ingest incomplete</span>` : ""}
+        ${p.due ? `<span class="deck-due">${p.due} due</span>` : ""}
+        ${open ? `<button class="conf-btn ${editing ? "picked" : ""}" title="Rename topics, fix page ranges, split or delete"
+          onclick="event.stopPropagation(); toggleEditSplit(${p.pdf_id})">✎ Split</button>` : ""}
+        <button class="pdf-del" title="Delete this document and everything under it"
+          onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encT(p.filename)}')">✕</button>
+      </div>
+      ${body}
+    </div>`;
+  }).join("");
+
+  // ---- right: this course's numbers
+  const metrics = `
+    <div class="card" style="padding:18px 20px">
+      <div class="mono-label" style="margin-bottom:10px">COMPLETION</div>
+      <div class="stat-num" style="color:${retColor(s.completion)}">${s.completion.toFixed(0)}%</div>
+      <div class="bar-track" style="margin:10px 0 8px"><div class="bar-fill" style="width:${s.completion}%; background:${retColor(s.completion)}"></div></div>
+      <div class="stat-sub">${s.covered} of ${s.topicsTotal} topics covered · ${s.started} in progress</div>
+      ${evidence("Completion is retrieval-weighted: a topic only counts once its cards are actually recalled, not once it's been read.")}
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div class="mono-label" style="margin-bottom:10px">DUE NOW</div>
+      <div class="stat-num" style="color:${s.due ? LOW : "#00794F"}">${s.due}</div>
+      <div class="stat-sub">${s.cards} cards in this course</div>
+      <button class="btn-block" style="margin-top:12px" ${s.due ? "" : "disabled"}
+        onclick="startReviewSession({ course_id: ${c.id} })">▶ Review this course</button>
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div class="mono-label" style="margin-bottom:10px">TIME INVESTED</div>
+      <div style="display:flex; gap:18px">
+        <div><div class="stat-num" style="font-size:20px">${c.timeSpent}</div><div class="stat-sub">flashcards</div></div>
+        <div><div class="stat-num" style="font-size:20px">${fmtMin(s.readMin)}</div><div class="stat-sub">reading</div></div>
+        <div><div class="stat-num" style="font-size:20px">${s.notes}</div><div class="stat-sub">notes</div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
+        <span class="mono-label">EXAM</span>
+        <input type="date" class="exam-input" value="${courseInfo?.exam_date || ""}"
+          title="Exam date — drives the readiness projection" onchange="setExam(${c.id}, this.value)">
+      </div>
+      ${s.exam && s.exam.today != null ? `
+        <div class="stat-num" style="color:${s.exam.onPlan >= 70 ? "#00794F" : LOW}">${s.exam.onPlan}%</div>
+        <div class="stat-sub">projected recall on exam day if you keep to the schedule · ${s.exam.today}% if you stop today · ${s.exam.days_left} days left</div>`
+      : s.exam ? `<div class="stat-sub">${s.exam.days_left} days left — generate some cards to get a readiness projection.</div>`
+      : `<div class="stat-sub">Set a date and you'll get a projected exam-day recall.</div>`}
+    </div>`;
+
+  $("courseInner").innerHTML = `
+    <div class="crumbs">
+      <button class="crumb" onclick="goHome()">Courses</button>
+      <span class="crumb-sep">›</span>
+      <span class="crumb on">${esc(c.name)}</span>
+      <span style="flex:1"></span>
+      <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
+    </div>
+    ${S.ingesting ? ingestBanner() : ""}
+    <div class="course-grid">
+      <div style="display:flex; flex-direction:column; gap:8px">
+        <div class="mono-label" style="padding:2px">DOCUMENTS &amp; TOPICS · CLICK A TOPIC TO READ</div>
+        ${docBlocks || `<div class="card" style="font-size:12.5px; color:#8A8F9C">Nothing in this course yet.</div>`}
+      </div>
+      <div style="display:flex; flex-direction:column; gap:12px">${metrics}</div>
+    </div>`;
+}
+
+window.goHome = () => { S.view = "home"; S.courseId = null; render(); };
+window.toggleDoc = (pdfId) => {
+  S.docOpen.has(pdfId) ? S.docOpen.delete(pdfId) : S.docOpen.add(pdfId);
+  if (S.editSplit === pdfId) S.editSplit = null;
+  renderCoursePage();
+};
 window.toggleReadSel = (topicId) => {
   S.readSel.has(topicId) ? S.readSel.delete(topicId) : S.readSel.add(topicId);
-  renderReadingHub();
+  renderCoursePage();
 };
-
-window.toggleEditSplit = () => { S.editSplit = !S.editSplit; renderReadingHub(); };
+window.toggleEditSplit = (pdfId) => {
+  S.editSplit = S.editSplit === pdfId ? null : pdfId;
+  renderCoursePage();
+};
 
 window.generateCards = async (topicId, btn) => {
   btn.disabled = true;
@@ -1388,22 +1392,24 @@ function render() {
     $("sessionLabel").textContent =
       `· ${st.currentCourse.name} · ${st.current.filename.replace(/\.pdf$/i, "")}`;
   }
+  $("tabHome").classList.toggle("on", S.view === "home" || S.view === "course");
   $("tabStudy").classList.toggle("on", S.view === "study");
-  $("tabReading").classList.toggle("on", S.view === "reading");
   $("tabProgress").classList.toggle("on", S.view === "progress");
   $("tabCards").classList.toggle("on", S.view === "cards");
+  $("homeScreen").style.display = S.view === "home" ? "block" : "none";
+  $("courseScreen").style.display = S.view === "course" ? "block" : "none";
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
-  $("readingScreen").style.display = S.view === "reading" ? "block" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
   $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
   // review screen: decks until a session starts, then the chat
   $("reviewHome").style.display = S.reviewView === "decks" ? "flex" : "none";
   $("chatPane").style.display = S.reviewView === "chat" ? "flex" : "none";
+  renderHome();
+  renderCoursePage();
   renderReviewHome();
   renderConfRow();
   renderRail();
   renderProgress();
-  renderReadingHub();
   if (S.view === "cards") renderCardsScreen();
 }
 
@@ -1867,8 +1873,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ---- static listeners ---- */
+$("tabHome").onclick = () => { S.view = S.courseId ? "course" : "home"; render(); };
 $("tabStudy").onclick = () => { S.view = "study"; render(); };
-$("tabReading").onclick = () => { S.view = "reading"; render(); };
 $("tabProgress").onclick = () => { S.view = "progress"; render(); };
 $("tabCards").onclick = () => { S.view = "cards"; render(); loadCards(); };
 $("doNext").onclick = () => {
@@ -1903,18 +1909,18 @@ async function uploadPdfs(files) {
   if (!pdfs.length || S.ingesting) return;
   // course: taken from the library context when you're inside one, asked otherwise
   let course_id = null, course_name = null;
-  const selCourse = S.readNav.course != null
-    ? S.state?.libCourses.find((c) => c.id === S.readNav.course) : null;
+  const selCourse = S.courseId != null
+    ? S.state?.libCourses.find((c) => c.id === S.courseId) : null;
   if (selCourse) course_id = selCourse.id;
   else {
     course_name = (prompt("Which course do these documents belong to? (existing or new name)") || "").trim();
     if (!course_name) { $("fileInput").value = ""; return; }
   }
   S.ingesting = { done: 0, total: pdfs.length, current: "", failed: [] };
-  renderReadingHub();
+  render();
   for (const file of pdfs) {
     S.ingesting.current = file.name;
-    renderReadingHub();
+    render();
     try {
       const up = await xhrUpload(file, () => {});
       const res = await fetch("/api/ingest_auto", { method: "POST",

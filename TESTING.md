@@ -207,6 +207,35 @@ Naz's call after the gap-report pivot: the wide-net agent had no job left.
   REPORT with the gap + working 📖 source button → idle state restored.
   Answer round-trip 10.5s incl. grading. Suites pass; console clean.
 
+### 2026-07-29 — course canvas, evidence-ordered analytics, tailored tutoring
+Four changes, all live-verified on :5002 (test artifacts removed after):
+- **Home = course canvas.** Course cards (completion, due, topics, cards,
+  time, exam chip) → click into a COURSE PAGE: documents/topics down the
+  left (click a topic to read; ⚡ Cards, ✎ Split, merged-PDF ticks all
+  live here), that course's own numbers down the right (completion, due +
+  review button, time invested, exam readiness with date picker). The
+  Reading tab retired into it — one navigator instead of three.
+- **Analytics is its own tab, ordered by evidence**, not by accident:
+  WHERE YOU STAND (due+budget, exam readiness, knowledge held, retention
+  now) → PACING (forecast, week, time by course, heatmap) → TRENDS
+  (retention, maturity) → DIAGNOSTICS (hardest, fluency, sweet spot,
+  calibration, sessions) → READING. Sources: inverted-pyramid dashboard
+  hierarchy (summary → trend → detail), the 5–9 item cognitive-load
+  ceiling, and learning-analytics findings that dashboards work when they
+  carry a reference frame, an action, and a link to the material.
+- **Tutor prompt is now AI-written, on demand.** Clicking copy fires ONE
+  fast-tier call that reads the session's misses and writes a prompt
+  naming the actual confusion. Verified: after answering "return prints
+  the value" it produced a prompt asking specifically for a
+  return-vs-print comparison with examples (4.2s, ~$0.0004,
+  deterministic report as fallback).
+- **Grading teaches now.** Prompt rewritten to plain words + one concrete
+  example/analogy; "why" explains the mechanism instead of restating the
+  answer. Live: "return = value back + function ends" with a caller
+  walk-through; tuple/list example produced "toolbox vs sculpture".
+- check_planning updated for the retired metrics (hours/personal/brier
+  now assert ABSENT). All nine suites pass; console clean.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

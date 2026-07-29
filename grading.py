@@ -34,10 +34,14 @@ Grade the attempt on a scale of 0 to 5:
 
 Grade meaning, not wording: do NOT penalize paraphrasing. If the attempt conveys the same facts in different words, it is correct.
 
-Then produce structured feedback fields:
-- "right": what the attempt got correct, stated specifically ("" if nothing was right). Never generic praise — name the correct elements.
-- "gap": exactly what was missing or wrong ("" if fully correct). Name the missing terms or the misconception, don't just say "some details".
-- "why": ONE sentence of explanation that deepens understanding of the underlying idea — the mechanism or reason, not a restatement of the answer.
+Then produce structured feedback fields. WRITE LIKE A PATIENT TUTOR SITTING NEXT TO THEM, not like a marker filling a rubric:
+- Plain, everyday words. Use a technical term only when that term is the thing being tested — and when you do, define it in a few words the first time.
+- No hedging, no praise padding, no exam-report tone ("the candidate failed to...").
+- Short sentences. Say the idea, then make it concrete.
+
+- "right": what the attempt got correct, named specifically ("" if nothing was right). Never generic praise.
+- "gap": what was missing or wrong, said kindly and plainly, AND what the right idea is ("" if fully correct). If they confused two things, name both and say which is which.
+- "why": the TEACHING field — 1-2 sentences that make the idea click, and where it helps, ONE tiny concrete example or everyday analogy. Not a restatement of the answer; explain what's actually going on.
 - "hook": a short memory cue for the next recall — a vivid association, contrast, or rule of thumb (max ~12 words).
 - "calibration": ONLY if a stated confidence was given, one short note comparing confidence to performance. For a confident answer graded 0-2, flag it: confidently-held errors are the most correctable, but they come back without extra attention. For unsure-but-correct, note the recall was better than they felt. "" if no confidence stated.
 
@@ -47,19 +51,19 @@ Question: "What is the difference between a list and a tuple in Python?"
 Stored answer: "Lists are mutable, tuples are immutable. Lists use [], tuples use (). Tuples can be dict keys, lists cannot."
 
 Attempt: "banana"
-{{"quality": 0, "right": "", "gap": "No relevant content — the answer concerns mutability, syntax, and dict-key usability.", "why": "Immutability is the core property: it fixes a tuple's contents at creation, which is what makes it hashable.", "hook": "Tuple = sealed box; list = open box.", "calibration": ""}}
+{{"quality": 0, "right": "", "gap": "Nothing to work with here — the question is about how lists and tuples differ: whether you can change them, how you write them, and where you can use them.", "why": "A list is like a shopping list you keep editing; a tuple is like a printed receipt — once it exists, it's fixed. That fixedness is the whole difference, and everything else follows from it.", "hook": "Tuple = printed receipt; list = shopping list.", "calibration": ""}}
 
 Attempt: "Lists can be changed, tuples can't." (confidence: sure)
-{{"quality": 3, "right": "The core difference — lists are mutable, tuples immutable.", "gap": "Missing the syntax ([] vs ()) and that only tuples can be dictionary keys.", "why": "Because tuples can't change, their hash stays stable, so Python allows them as dict keys.", "hook": "Immutable → hashable → dict key.", "calibration": "Sure and mostly right — well calibrated; push for the last details."}}
+{{"quality": 3, "right": "The main idea — lists can be changed, tuples can't.", "gap": "Two things still missing: how you write them (lists use [], tuples use ()), and that only tuples can be used as dictionary keys.", "why": "Because a tuple can never change, Python can compute a fingerprint for it once and trust it forever — and that's exactly what a dictionary needs from a key. A list could change after you filed it, so the dictionary would lose track of it.", "hook": "Can't change → safe fingerprint → usable as a key.", "calibration": "You said sure and were mostly right — well calibrated; just chase the last details."}}
 
 Attempt: "Lists are changeable with square brackets; tuples are fixed, use parentheses, and can be dict keys." (confidence: unsure)
-{{"quality": 5, "right": "Everything — mutability, syntax, and dict-key usability.", "gap": "", "why": "Immutability is what makes tuples hashable, which is why dicts accept them as keys.", "hook": "Immutable → hashable → dict key.", "calibration": "Unsure but fully correct — trust this memory more; it's stronger than it feels."}}
+{{"quality": 5, "right": "All three parts — changeability, the brackets, and dict keys.", "gap": "", "why": "The three facts are really one: a tuple can't change, so its fingerprint stays valid, so a dictionary will accept it as a key. Remember the chain and you never have to memorize the pieces separately.", "hook": "Fixed → fingerprint stays → dict key.", "calibration": "You felt unsure but got it fully right — trust this one more than you did."}}
 
 Respond with ONLY a JSON object in this exact format. No markdown fences, no preamble:
 {{"quality": <int 0-5>, "right": "<string>", "gap": "<string>", "why": "<string>", "hook": "<string>", "calibration": "<string>"}}
 """
 
-    result = call_for_json(prompt, fast=True, max_tokens=400)
+    result = call_for_json(prompt, fast=True, max_tokens=650)   # teaching "why" needs room
     result["correct_answer"] = correct_answer
     # composite text fallback for anything that renders feedback as one block
     parts = [p for p in [result.get("right"), result.get("gap"), result.get("why")] if p]

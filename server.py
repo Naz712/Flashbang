@@ -29,6 +29,7 @@ from database import (
 )
 from generation import parse_flashcards, extract_topic_concepts, generate_cards_for_topic
 from grading import grade_answer
+from llm_utils import complete_text
 from pdf_ingest import read_pdf, propose_topics
 
 app = Flask(__name__)
@@ -416,6 +417,7 @@ def _build_session_report(session_id=None):
                     "gap": r["gap"], "confidence": r["confidence"],
                     "topic_title": r["topic_title"], "pdf_id": r["pdf_id"],
                     "page_start": r["page_start"], "page_end": r["page_end"]} for r in missed],
+        "passed_questions": [r["question"] for r in passed],
         "text": "\n".join(lines),
     }
 
@@ -426,6 +428,54 @@ def session_report():
     if report is None:
         return jsonify({"error": "no ended session with graded answers"}), 404
     return jsonify(report)
+
+
+@app.post("/api/tutor_prompt")
+def tutor_prompt():
+    """One fast-tier call that reads THIS session's misses and writes the
+    coaching request the user should paste into an external tutor chat —
+    tailored to the actual confusion pattern instead of a fixed template.
+    Runs only when the user clicks copy; the deterministic report text is
+    the fallback if the call fails."""
+    body = request.get_json(force=True)
+    report = _build_session_report(body.get("session_id"))
+    if report is None:
+        return jsonify({"error": "no report for that session"}), 404
+    if not report["missed"]:
+        return jsonify({"text": report["text"], "source": "deterministic"})
+
+    misses = "\n".join(
+        f"- Topic: {m['topic_title']} (source: {m['pdf_id'] and ''}p.{m['page_start']}-{m['page_end']})\n"
+        f"  Question: {m['question']}\n"
+        f"  Correct answer: {m['answer']}\n"
+        f"  What I got wrong: {m['gap'] or '(not diagnosed)'}"
+        + (f"\n  I felt {m['confidence']} before answering" if m["confidence"] else "")
+        for m in report["missed"])
+    got_right = "\n".join(f"- {q}" for q in report.get("passed_questions", [])) or "(none)"
+
+    prompt = f"""A student just finished a flashcard review and got some cards wrong. Write the message THEY should paste into a separate AI tutor chat to get the most useful help.
+
+What they missed:
+{misses}
+
+What they answered correctly (so the tutor doesn't re-explain it):
+{got_right}
+
+Write the message in FIRST PERSON as the student. Requirements:
+- Open with what they're studying and one sentence naming the REAL pattern in these mistakes if there is one (e.g. confusing two related ideas, missing the mechanism behind a rule, remembering names but not purposes). If the misses are unrelated, say that instead of inventing a pattern.
+- Include the specific questions, the right answers, and what they got wrong, so the tutor has the facts.
+- Then ask for exactly the help THIS set of gaps needs. Tailor the ask: a conceptual confusion needs a compare-and-contrast; a missing mechanism needs a walk-through; a vocabulary gap needs concrete examples. Don't ask for everything generically.
+- End by asking the tutor to check understanding with 2-3 fresh questions aimed at the same weak spots.
+- Plain language, no headers, no markdown formatting, under 300 words. Output ONLY the message text — no preamble, no quotes around it."""
+
+    try:
+        text, _ = complete_text(prompt, fast=True, max_tokens=800)
+        text = (text or "").strip()
+        if len(text) < 40:
+            raise ValueError("empty tailoring")
+        return jsonify({"text": text, "source": "ai"})
+    except Exception:
+        return jsonify({"text": report["text"], "source": "deterministic"})
 
 
 def _clean_latency(value):

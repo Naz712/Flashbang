@@ -119,16 +119,16 @@ assert sum(m["funnel"].values()) == 9, f"funnel misses cards: {m['funnel']}"
 assert m["funnel"]["new"] == 4 and m["funnel"]["learning"] == 5  # 5 backdated at 3d interval
 this_week = m["retention"][-1]
 assert this_week["n"] == 2 and this_week["rate"] == 50, f"retention wrong: {this_week}"
-assert all(h["rate"] is None for h in m["hours"]), "hour buckets need 5+ answers to judge"
 assert m["hardest"] == [] or m["hardest"][0]["fails"] >= 1  # single-fail cards need n>=2
+# retired 2026-07-29 (weak panels): time-of-day buckets, personal-curve fit, Brier
+for gone in ("hours", "personal", "brier"):
+    assert gone not in m, f"{gone} should no longer be computed"
 
 # --- knowledge in memory: 5 reviewed-overdue cards hold partial retention, 4 new = 0
 assert m["knowledge"]["total"] == 9
 assert 0 < m["knowledge"]["held"] < 5, f"held out of range: {m['knowledge']}"
-# personal curve needs 10 timed recalls before it fits
-assert m["personal"]["k"] is None and m["personal"]["n"] == 0
-# sweet spot / brier respect their minimum-n gates (2 answers so far)
-assert m["sweet"]["rate"] is None and m["brier"]["score"] is None
+# sweet spot respects its minimum-n gate (2 answers so far)
+assert m["sweet"]["rate"] is None
 
 # --- exam readiness: on-schedule projection must beat stop-today
 exam_day = (now + timedelta(days=21)).date().isoformat()

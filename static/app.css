@@ -92,6 +92,22 @@ a:hover { color: #005A8E; text-decoration: underline; }
   background: #1C1E26; color: #fff; font-size: 11px; flex: none; }
 .ff-btn:hover { opacity: .85; }
 
+/* home: course canvas */
+.course-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 14px; }
+.course-tile-card { background: #fff; border: 1px solid #E3E3DE; border-radius: 14px; padding: 18px 20px;
+  cursor: pointer; box-shadow: 0 1px 2px rgba(16,18,24,.04); transition: border-color .12s, transform .12s; }
+.course-tile-card:hover { border-color: #B0B4BE; transform: translateY(-1px); }
+
+/* course page: documents/topics left, that course's numbers right */
+.course-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: start; }
+.doc-block { background: #fff; border: 1px solid #E3E3DE; border-radius: 12px; padding: 4px 6px; }
+.doc-head { display: flex; align-items: center; gap: 9px; padding: 9px 8px; cursor: pointer; border-radius: 9px; }
+.doc-head:hover { background: #F7F7F4; }
+.topic-row2 { display: flex; align-items: center; gap: 9px; padding: 7px 9px 7px 26px; border-radius: 8px;
+  cursor: pointer; }
+.topic-row2:hover { background: #F7F7F4; }
+.topic-row-edit { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 22px; flex-wrap: wrap; }
+
 /* reading-library stepper */
 .crumbs { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .crumb { border: none; background: none; font-family: 'IBM Plex Sans', sans-serif; font-size: 12.5px;

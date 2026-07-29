@@ -18,17 +18,17 @@
       </button>
     </div>
     <div class="nav-items">
-      <button id="tabProgress" class="nav-item" title="Home — all your analytics in one place">
+      <button id="tabHome" class="nav-item on" title="Home — your courses">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
         <span class="nav-label">Home</span>
       </button>
-      <button id="tabStudy" class="nav-item on" title="Review — type answers, get graded, gaps reported">
+      <button id="tabStudy" class="nav-item" title="Review — type answers, get graded, gaps reported">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span class="nav-label">Review</span>
       </button>
-      <button id="tabReading" class="nav-item" title="Reading — pick a course, document, topic and read">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        <span class="nav-label">Reading</span>
+      <button id="tabProgress" class="nav-item" title="Analytics — how the studying is going">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span class="nav-label">Analytics</span>
       </button>
       <button id="tabCards" class="nav-item" title="Cards — browse and edit">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="12" rx="2"/><path d="M7 21h12a2 2 0 0 0 2-2V9"/></svg>
@@ -81,12 +81,17 @@
 
   </div>
 
-  <!-- reading hub -->
-  <div id="readingScreen" class="progress-wrap" style="display:none">
-    <div id="readingInner" class="progress"></div>
+  <!-- home: course canvas -->
+  <div id="homeScreen" class="progress-wrap" style="display:none">
+    <div id="homeInner" class="progress"></div>
   </div>
 
-  <!-- progress screen -->
+  <!-- one course: topics left, that course's metrics right -->
+  <div id="courseScreen" class="progress-wrap" style="display:none">
+    <div id="courseInner" class="progress" style="max-width:1180px"></div>
+  </div>
+
+  <!-- analytics -->
   <div id="progressScreen" class="progress-wrap" style="display:none">
     <div id="progressInner" class="progress"></div>
   </div>
