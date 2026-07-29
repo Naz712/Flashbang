@@ -11,6 +11,7 @@ const S = {
   navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
   readNav: { course: null, pdf: null },   // reading-library stepper position
   editSplit: false,     // reading library: topic-split editor on?
+  readSel: new Set(),   // reading library: topics ticked for a merged PDF
   pendingConf: null,    // "sure" | "unsure" attached to next message
   qShownAt: null,       // Date.now() when the current question card appeared
   sessionLen: 25,
@@ -464,9 +465,6 @@ function homeTopHTML(st) {
     ${evidence("Ordered by retention — the items closest to being forgotten come first.")}
   </div>`;
 
-  // FORGETTING CURVE
-  if (st.curve) html += renderCurve(st.curve, sorted);
-
   // SESSION RECAP
   if (S.recap) {
     const r = S.recap;
@@ -513,40 +511,6 @@ function renderFocusFloat() {
       <span class="ff-current mono">${S.sessionLen}m</span>
       <button class="ff-btn" onclick="toggleFocus()" title="Start a ${S.sessionLen}-minute focus session">▶</button>
     </div>`;
-}
-
-function renderCurve(curve, sortedTopics) {
-  const { S: stab, R0, title } = curve;
-  const tNow = -stab * Math.log(Math.max(0.05, R0));
-  const tMax = Math.max(14, Math.ceil(tNow + 3));
-  const pts = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = tMax * i / 40;
-    pts.push(`${(16 + t / tMax * 232).toFixed(1)},${(14 + (1 - Math.exp(-t / stab)) * 82).toFixed(1)}`);
-  }
-  const nowX = +(16 + tNow / tMax * 232).toFixed(1);
-  const nowY = +(14 + (1 - R0) * 82).toFixed(1);
-  const t75 = stab * 0.2877;
-  const pct = Math.round(R0 * 100);
-  const note = R0 < 0.75
-    ? `“${esc(title)}” has decayed to ${pct}% — past its review point. Reviewing now resets the curve.`
-    : `“${esc(title)}” reaches the 75% threshold in ${Math.max(1, Math.ceil(t75 - tNow))} days.`;
-  return `<div class="card">
-    <div class="mono-label" style="margin-bottom:8px">FORGETTING CURVE</div>
-    <svg width="264" height="112" viewBox="0 0 264 112">
-      <line x1="16" y1="96" x2="248" y2="96" stroke="#ECECE8" stroke-width="1"></line>
-      <line x1="16" y1="34.5" x2="248" y2="34.5" stroke="#D9D9D4" stroke-width="1" stroke-dasharray="4 3"></line>
-      <text x="248" y="30" text-anchor="end" font-family="IBM Plex Mono" font-size="8.5" fill="#8A8F9C">75% · review threshold</text>
-      <text x="16" y="11" font-family="IBM Plex Mono" font-size="8.5" fill="#8A8F9C">100%</text>
-      <text x="16" y="108" font-family="IBM Plex Mono" font-size="8.5" fill="#B0B4BE">day 0</text>
-      <text x="248" y="108" text-anchor="end" font-family="IBM Plex Mono" font-size="8.5" fill="#B0B4BE">day ${tMax}</text>
-      <polyline points="${pts.join(" ")}" fill="none" stroke="#0072B2" stroke-width="2" stroke-linejoin="round"></polyline>
-      <circle cx="${nowX}" cy="${nowY}" r="4" fill="#D55E00" stroke="#fff" stroke-width="1.5"></circle>
-      <text x="${nowX}" y="${nowY - 9}" text-anchor="middle" font-family="IBM Plex Mono" font-size="8.5" font-weight="600" fill="#D55E00">now</text>
-    </svg>
-    <div style="font-size:11.5px; line-height:1.5; color:#5C616E; margin-top:6px">${note}</div>
-    ${evidence("Ebbinghaus decay, R = e^(−t/S). A card at its SM-2 due date sits at 75% retention; reviewing resets the curve.")}
-  </div>`;
 }
 
 /* ---------------------------------------------------------------- progress */
@@ -840,27 +804,8 @@ function renderMetrics(mx) {
     </div>`).join("")
     : `<div style="font-size:11.5px; color:#8A8F9C">No repeat-failed cards — nothing is beating you yet.</div>`;
 
-  // best hours
-  const hourRows = mx.hours.map((h) => `
-    <div class="fn-row" title="${h.n} answers">
-      <span class="fn-label" style="text-transform:capitalize">${h.label}</span>
-      <div class="fn-track"><div class="fn-fill" style="width:${h.rate == null ? 0 : Math.max(2, h.rate)}%;
-        background:${h.rate == null ? "#ECECE8" : h.rate >= 80 ? "#009E73" : h.rate >= 60 ? "#E69F00" : "#D55E00"}"></div></div>
-      <span class="fn-n">${h.rate == null ? "–" : h.rate + "%"}</span>
-    </div>`).join("");
-
   // knowledge in memory (retrievability-weighted, FSRS-style)
   const kn = mx.knowledge;
-  // personal forgetting curve fit
-  const ps = mx.personal;
-  const personalBody = ps.k == null
-    ? `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">Collecting evidence — ${ps.n} of ${ps.needed} timed recalls. Every review of a previously-seen card adds a datapoint.</div>`
-    : `<div class="stat-num" style="color:${ps.measured_at_due >= ps.model_at_due ? "#00794F" : "#D55E00"}">${ps.measured_at_due}%</div>
-       <div class="stat-sub">measured recall at the due date · model assumes ${ps.model_at_due}%</div>
-       <div style="font-size:11.5px; color:#5C616E; margin-top:8px">${
-         ps.measured_at_due >= ps.model_at_due + 5 ? "Your memory beats the model — intervals could stretch further."
-         : ps.measured_at_due <= ps.model_at_due - 5 ? "You forget faster than the model assumes — review a little earlier."
-         : "Well matched — the schedule fits your memory."}</div>`;
   // retrieval fluency: 2×2 of fast/slow (vs personal median) × right/wrong
   const fl = mx.fluency || { n: 0, needed: 6, fluent_pct: null };
   const sec = (ms) => ms == null ? "–" : `${(ms / 1000).toFixed(1)}s`;
@@ -888,8 +833,8 @@ function renderMetrics(mx) {
       </div>`;
   }
 
-  // sweet spot + brier
-  const sw = mx.sweet, br = mx.brier;
+  // sweet spot
+  const sw = mx.sweet;
   const sweetBody = sw.rate == null
     ? `<div style="font-size:12px; color:#8A8F9C; flex:1">Needs 5+ recent answers.</div>`
     : `<div class="stat-num" style="color:${sw.rate > 95 ? "#005A8E" : sw.rate >= 70 ? "#00794F" : "#D55E00"}">${sw.rate}%</div>
@@ -902,7 +847,7 @@ function renderMetrics(mx) {
          "In the productive-struggle zone."}</div>`;
 
   return `
-    <div class="grid3">
+    <div class="grid2">
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">KNOWLEDGE IN MEMORY</div>
         <div class="stat-num">${kn.held} <span style="font-size:14px; color:#8A8F9C; font-weight:500">/ ${kn.total} facts</span></div>
@@ -910,14 +855,8 @@ function renderMetrics(mx) {
         ${evidence("Retrievability-weighted total (the FSRS 'knowledge' metric): each card counts as its current recall probability.")}
       </div>
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:9px">YOUR FORGETTING CURVE</div>
-        ${personalBody}
-        ${evidence("Measured recall vs time-since-review, fitted to R = e^(−kt) — the personal-calibration idea behind FSRS.")}
-      </div>
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:9px">CHALLENGE SWEET SPOT</div>
         ${sweetBody}
-        ${br.score != null ? `<div style="font-size:11px; color:#5C616E; margin-top:8px; padding-top:8px; border-top:1px dashed #E3E3DE">Brier score <b>${br.score}</b> over ${br.n} confidence calls (0 = perfect calibration)</div>` : ""}
         ${evidence("~85% success is the optimal difficulty for learning (Wilson et al., 2019; Bjork's desirable difficulties).")}
       </div>
     </div>
@@ -944,15 +883,10 @@ function renderMetrics(mx) {
         ${evidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams.")}
       </div>
     </div>
-    <div class="grid3">
+    <div class="grid2">
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:12px">HARDEST CARDS · MOST FAILED</div>
         <div style="display:flex; flex-direction:column; gap:8px">${hardRows}</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:12px">RECALL BY TIME OF DAY</div>
-        <div style="display:flex; flex-direction:column; gap:9px">${hourRows}</div>
-        ${evidence("Needs 5+ answers per slot before it judges — keep studying and it fills in.")}
       </div>
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
         <div class="mono-label" style="margin-bottom:9px">RETRIEVAL FLUENCY · 28 DAYS</div>
@@ -980,43 +914,22 @@ function readingBandHTML(st) {
       <span class="mono" style="font-size:10.5px; color:#8A8F9C">${fmtMin(r.minutes)} · ${Math.round(r.minutes / segTotal * 100)}%</span>
     </div>`).join("");
 
-  const recent = rd.recent.length ? rd.recent.map((s) => {
-    const day = new Date(s.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    return `<div class="sess-row">
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:74px; flex:none">${day}</span>
-      <span style="font-size:11.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(s.pdf || "(no document)")}</span>
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C; flex:none">${fmtMin(s.minutes)}</span>
-    </div>`;
-  }).join("") : `<div style="font-size:12px; color:#8A8F9C">No reading blocks yet — open a topic from the Reading tab and start one.</div>`;
-
   return `
     <div class="grid3">
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">TIME READ · ALL TIME</div>
         <div class="stat-num">${fmtMin(rd.total_minutes)}</div>
-        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days</div>
+        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days · ${rd.block_count} blocks</div>
       </div>
       <div class="card" style="padding:16px 20px">
         <div class="mono-label" style="margin-bottom:9px">READING STREAK</div>
         <div class="stat-num">${rd.streak_days}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> day${rd.streak_days === 1 ? "" : "s"}</span></div>
-        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week · ${rd.block_count} all time</div>
+        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week</div>
       </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">NOTES</div>
-        <div class="stat-num">${rd.note_total}</div>
-        <div class="stat-sub">window-box comments across your documents</div>
-      </div>
-    </div>
-    <div class="grid2">
       <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">READING TIME BY COURSE</div>
-        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:10px">${legend}</div>`
+        <div class="mono-label" style="margin-bottom:11px">READING TIME BY COURSE</div>
+        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:8px">${legend}</div>`
           : `<div style="font-size:12px; color:#8A8F9C; flex:1">Nothing logged yet.</div>`}
-        ${evidence("Reading time lives apart from the flashcard analytics — mastery only ever moves through retrieval.")}
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:14px">RECENT READING BLOCKS</div>
-        <div style="display:flex; flex-direction:column; gap:8px">${recent}</div>
       </div>
     </div>`;
 }
@@ -1098,9 +1011,17 @@ function renderReadingHub() {
       </div>`;
       }).join("");
   } else {
-    // step 3: pick a topic (document order = reading order)
-    step = selPdf.topics.map((t) => `
+    // step 3: pick a topic (document order = reading order); tick several
+    // to take them out as ONE merged PDF instead of file-per-topic
+    const sel = [...S.readSel].map((id) => selPdf.topics.find((t) => t.id === id)).filter(Boolean);
+    const mergedBar = sel.length ? `
+      <a class="btn-block" style="margin:0 0 2px; text-align:center; text-decoration:none; box-sizing:border-box"
+         href="/api/pdf/${selPdf.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
+        ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF (p.${sel.map((t) => t.pages).join(", ")})</a>` : "";
+    step = mergedBar + selPdf.topics.map((t) => `
       <button class="pick-card" onclick="openTopic(${selPdf.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
+        <input type="checkbox" class="rt-check" title="Tick topics, then download them together as one PDF"
+          onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
         <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
         <span style="flex:1; min-width:0; text-align:left">
           <span style="display:block; font-size:12.5px; font-weight:600">${esc(t.title)}</span>
@@ -1120,6 +1041,12 @@ function renderReadingHub() {
 window.readHub = (course, pdf) => {
   S.readNav = { course, pdf };
   S.editSplit = false;
+  S.readSel = new Set();
+  renderReadingHub();
+};
+
+window.toggleReadSel = (topicId) => {
+  S.readSel.has(topicId) ? S.readSel.delete(topicId) : S.readSel.add(topicId);
   renderReadingHub();
 };
 

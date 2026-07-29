@@ -86,6 +86,7 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .pick-card:hover { border-color: #B0B4BE; }
 .pick-card:focus-visible { outline: 2px solid #0072B2; outline-offset: -2px; }
 .pick-card .course-tile { width: 26px; height: 26px; border-radius: 8px; }
+.rt-check { flex: none; width: 15px; height: 15px; accent-color: #1C1E26; cursor: pointer; }
 
 /* full-width chat: keep bubbles readable, not viewport-wide */
 .bubble-user, .bubble-bot, .qcard, .gcard { max-width: min(70%, 780px); }

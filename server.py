@@ -557,21 +557,40 @@ def serve_pdf_slice(pdf_id):
     pdf = get_pdf(pdf_id)
     if pdf is None or not pdf["file_path"] or not os.path.exists(pdf["file_path"]):
         return jsonify({"error": "source pdf not available"}), 404
-    start = max(1, request.args.get("start", 1, type=int))
-    end = request.args.get("end", start, type=int)
     reader = PdfReader(pdf["file_path"])
-    end = min(end, len(reader.pages))
-    if start > end:
-        return jsonify({"error": "invalid range"}), 400
+    ranges_arg = request.args.get("ranges")
+    if ranges_arg:
+        # several topics in ONE file, e.g. ranges=1-4,9-12,20-20
+        try:
+            spans = []
+            for part in ranges_arg.split(","):
+                a, _, b = part.partition("-")
+                s, e = int(a), int(b or a)
+                if not (1 <= s <= e <= len(reader.pages)):
+                    raise ValueError
+                spans.append((s, e))
+            if not spans:
+                raise ValueError
+        except ValueError:
+            return jsonify({"error": "bad ranges"}), 400
+        name_bit = "selection"
+    else:
+        start = max(1, request.args.get("start", 1, type=int))
+        end = min(request.args.get("end", start, type=int), len(reader.pages))
+        if start > end:
+            return jsonify({"error": "invalid range"}), 400
+        spans = [(start, end)]
+        name_bit = f"p{start}-{end}"
     writer = PdfWriter()
-    for n in range(start - 1, end):        # pypdf is 0-based; ours is 1-based
-        writer.add_page(reader.pages[n])
+    for s, e in spans:
+        for n in range(s - 1, e):          # pypdf is 0-based; ours is 1-based
+            writer.add_page(reader.pages[n])
     buf = BytesIO()
     writer.write(buf)
     buf.seek(0)
     base = os.path.splitext(pdf["filename"])[0]
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                     download_name=f"{base}-p{start}-{end}.pdf")
+                     download_name=f"{base}-{name_bit}.pdf")
 
 
 @app.patch("/api/topics/<int:topic_id>")

@@ -1,10 +1,9 @@
 """Study statistics computed from the study log. Pure aggregation — no LLM."""
 
-import math
 from datetime import datetime, timedelta
 from database import (get_study_log, get_cards, get_answer_log, get_courses,
                       get_time_by_course, get_annotation_counts)
-from mastery import card_retention, DUE_RETENTION
+from mastery import card_retention
 import fsrs_adapter  # exam projection simulates via the live FSRS scheduler
 
 # the flashcard hub's analytics exclude reading blocks — reading time lives
@@ -147,17 +146,6 @@ def compute_metrics(now=None, weeks=26):
          for cid, e in per_card.items() if e["n"] >= 2 and e["fails"] > 0),
         key=lambda e: (-e["fails"], -e["fail_rate"]))[:5]
 
-    # ---- best study hours: recall rate by time-of-day bucket (n ≥ 5 to show)
-    HOURS = [("morning", 5, 12), ("afternoon", 12, 17), ("evening", 17, 22), ("night", 22, 29)]
-    hour_buckets = []
-    for label, start, end in HOURS:
-        hits = [a for a in answers
-                if start <= (datetime.fromisoformat(a["at"]).hour + (24 if datetime.fromisoformat(a["at"]).hour < 5 else 0)) < end]
-        n = len(hits)
-        passed = sum(1 for a in hits if a["quality"] >= 3)
-        hour_buckets.append({"label": label, "n": n,
-                             "rate": round(passed / n * 100) if n >= 5 else None})
-
     all_cards = get_cards()
 
     # ---- knowledge in memory: retrievability-weighted total (FSRS-style)
@@ -165,20 +153,8 @@ def compute_metrics(now=None, weeks=26):
     knowledge = {"held": round(held, 1), "total": len(all_cards),
                  "pct": round(held / len(all_cards) * 100) if all_cards else 0}
 
-    # ---- personal forgetting curve: fit measured recall vs elapsed ratio
-    points = [(a["elapsed_ratio"], 1 if a["quality"] >= 3 else 0)
-              for a in answers if a["elapsed_ratio"] is not None]
-    personal = {"n": len(points), "needed": 10, "k": None,
-                "measured_at_due": None, "model_at_due": round(DUE_RETENTION * 100)}
-    if len(points) >= 10:
-        best_k, best_err = None, float("inf")
-        for step in range(1, 151):                      # grid search k in (0, 3]
-            k = step * 0.02
-            err = sum((math.exp(-k * r) - p) ** 2 for r, p in points)
-            if err < best_err:
-                best_k, best_err = k, err
-        personal["k"] = round(best_k, 3)
-        personal["measured_at_due"] = round(math.exp(-best_k) * 100)
+    # (the SM-2-era personal-curve fit and time-of-day buckets were retired
+    # 2026-07-29 — weak panels, and FSRS obsoleted the former's decay model)
 
     # ---- exam readiness per course with an exam_date set
     exams = {}
@@ -235,17 +211,10 @@ def compute_metrics(now=None, weeks=26):
             "fail_ms": med([a["latency_ms"] for a in timed if a["quality"] < 3]),
             "fluent_pct": round(quads["fluent"] / len(timed) * 100)})
 
-    # ---- Brier score from confidence-tagged answers (sure=0.9, unsure=0.5)
-    conf_points = [(0.9 if a["confidence"] == "sure" else 0.5, 1 if a["quality"] >= 3 else 0)
-                   for a in answers if a["confidence"]]
-    brier = {"n": len(conf_points),
-             "score": round(sum((p - o) ** 2 for p, o in conf_points) / len(conf_points), 3)
-             if len(conf_points) >= 5 else None}
-
     return {"heatmap": heatmap, "weeks": weeks, "funnel": funnel,
-            "retention": retention, "hardest": hardest, "hours": hour_buckets,
-            "knowledge": knowledge, "personal": personal, "exams": exams,
-            "sweet": sweet, "brier": brier, "fluency": fluency}
+            "retention": retention, "hardest": hardest,
+            "knowledge": knowledge, "exams": exams,
+            "sweet": sweet, "fluency": fluency}
 
 
 def seconds_per_card():
