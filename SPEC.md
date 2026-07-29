@@ -135,6 +135,42 @@ Decisions:
 - **Cascade with the pdf** (`ON DELETE CASCADE`) so deleting a document
   can't orphan boxes or block the manual-delete button.
 
+### De-agented architecture + IA v3 (2026-07-29, frameworks branch)
+
+**The app is no longer chat-first.** The four-agent router/orchestrator was
+removed from the runtime after the gap-report change made it redundant: the
+only per-interaction model call left is the fast-tier grader.
+
+- **Review** — the SERVER deals cards (`/api/review/start|answer|skip|undo|
+  end`): due cards most-overdue-first, capped by the daily minute budget;
+  the user types an answer; one grading call returns structured feedback;
+  FSRS reschedules; failures are re-asked unscored at the end; ending
+  emits a session summary plus the gap report. ~100× cheaper per session
+  than the agent loop, which re-sent the whole history to gpt-4o per turn.
+- **Ingestion** is a button (`/api/ingest_auto`): upload → read → segment →
+  save, with the topic-split editor as the correction tool afterwards.
+  **Card generation** is a per-topic button.
+- **Assistant** — a corner bubble opens ONE scoped agent (library edits,
+  notes search, stats, planning). It refuses review/ingest/card-gen and
+  points at those buttons. Runs only when opened; history capped.
+- **Screens: Home | Review | Analytics | Cards.** Home is a course canvas;
+  a course opens to documents/topics on the left and that course's metrics
+  (completion, due, time invested, reading, exam readiness) on the right —
+  the single navigator. The Reading tab was folded into it. Analytics is
+  ordered by the learning-analytics evidence: where-you-stand → pacing →
+  trends → diagnostics → reading.
+- **Removed:** slash commands, command palette, the floating focus timer,
+  the right rail, the personal-forgetting-curve/time-of-day/Brier panels.
+  Study blocks are logged by the reader's sidebar timer and by review
+  sessions themselves.
+
+Decisions:
+- **Agency was removed where it added no value, not on principle.** The A/B
+  eval showed the agent loop bought nothing at the interaction layer while
+  costing latency and tokens; the same modules still power the assistant
+  bubble, where being able to say what you want *does* beat a button.
+- **Grading stays an LLM job** — it's judgement, not routing.
+
 ### Reading hub (2026-07-27, frameworks branch)
 
 A separate top-level space for reading: page-at-a-time reader (the topic
