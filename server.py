@@ -41,6 +41,7 @@ init_db()   # was the orchestrator's job; the orchestrator is gone
 
 chat_history = []       # review-surface display log: {role, text, grade, meta}
 grade_log = []          # {at: datetime, quality: int} — feeds focus-session recap
+assistant_history = []  # LangChain messages for the corner-bubble assistant
 
 # live review sessions: the app deals, the user types, the grader grades.
 # session_id -> {"kind", "queue": [card rows], "i", "relearn": [], "phase",
@@ -428,6 +429,28 @@ def session_report():
     if report is None:
         return jsonify({"error": "no ended session with graded answers"}), 404
     return jsonify(report)
+
+
+@app.post("/api/assistant")
+def assistant():
+    """The corner bubble: one scoped agent turn, only when the user asks for
+    one. Reviews/ingest/card-gen stay app-driven — this is for library edits,
+    questions against saved notes, stats, and planning. History is capped so
+    a long chat can't quietly become expensive."""
+    from langchain_core.messages import HumanMessage
+    from agents import AGENTS
+    from agent_core import run_turn
+    body = request.get_json(force=True)
+    message = (body.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "empty message"}), 400
+    assistant_history.append(HumanMessage(content=message))
+    del assistant_history[:-12]          # keep the last few turns only
+    try:
+        reply = run_turn(assistant_history, AGENTS["assistant"])
+    except Exception as e:
+        return jsonify({"reply": f"Something went wrong: {type(e).__name__}: {e}"})
+    return jsonify({"reply": reply})
 
 
 @app.post("/api/tutor_prompt")

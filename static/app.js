@@ -1051,6 +1051,34 @@ function renderCoursePage() {
         <div><div class="stat-num" style="font-size:20px">${s.notes}</div><div class="stat-sub">notes</div></div>
       </div>
     </div>
+    ${(() => {
+      // reading analytics for THIS course: where the reading time went, and
+      // which documents are still untouched
+      const perDoc = docs.map((p) => ({
+        name: p.filename.replace(/\.pdf$/i, ""),
+        min: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0,
+        notes: rd.notes_by_pdf?.[p.pdf_id] || 0,
+        last: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.last_read,
+      })).sort((a, b) => b.min - a.min);
+      const read = perDoc.filter((d) => d.min > 0);
+      const maxMin = Math.max(1, ...perDoc.map((d) => d.min));
+      const lastRead = read.map((d) => d.last).filter(Boolean).sort().pop();
+      return `<div class="card" style="padding:18px 20px">
+        <div class="mono-label" style="margin-bottom:12px">READING · THIS COURSE</div>
+        ${read.length ? `
+          <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px">
+            ${read.slice(0, 6).map((d) => `
+              <div class="fn-row" title="${esc(d.name)}${d.notes ? ` · ${d.notes} notes` : ""}">
+                <span class="fn-label" style="width:96px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(d.name)}</span>
+                <div class="fn-track"><div class="fn-fill" style="width:${Math.max(3, d.min / maxMin * 100)}%; background:#0072B2"></div></div>
+                <span class="fn-n">${fmtMin(d.min)}</span>
+              </div>`).join("")}
+          </div>
+          <div style="font-size:11.5px; color:#5C616E">${read.length} of ${docs.length} documents opened${lastRead ? ` · last read ${new Date(lastRead).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}</div>`
+        : `<div style="font-size:12px; color:#8A8F9C; line-height:1.6">No reading blocks logged for this course yet. Open a topic and start a block in the reader's sidebar.</div>`}
+        ${evidence("Reading time is tracked apart from recall on purpose: hours in the PDF never move mastery — only retrieval does.")}
+      </div>`;
+    })()}
     <div class="card" style="padding:18px 20px">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
         <span class="mono-label">EXAM</span>
@@ -1080,6 +1108,43 @@ function renderCoursePage() {
       </div>
       <div style="display:flex; flex-direction:column; gap:12px">${metrics}</div>
     </div>`;
+}
+
+/* ---- assistant bubble: a scoped agent, only when you open it ---- */
+window.toggleAsst = () => {
+  const open = $("asstPanel").style.display === "none";
+  $("asstPanel").style.display = open ? "flex" : "none";
+  $("asstBubble").classList.toggle("on", open);
+  if (open) {
+    if (!$("asstScroll").children.length) {
+      $("asstScroll").insertAdjacentHTML("beforeend",
+        `<div class="asst-msg-bot">Ask about anything in your notes, or tell me to tidy the library —
+         rename a topic, move a card, set an exam date, show your stats.<br><br>
+         <span style="color:#8A8F9C">Reviews, ingesting PDFs and generating cards are buttons now — I'll point you at them.</span></div>`);
+    }
+    $("asstInput").focus();
+  }
+};
+
+async function sendAsst(text) {
+  text = (text || "").trim();
+  if (!text || S.asstBusy) return;
+  const scroll = $("asstScroll");
+  S.asstBusy = true;
+  $("asstInput").value = "";
+  scroll.insertAdjacentHTML("beforeend", `<div class="asst-msg-user">${esc(text)}</div>`);
+  scroll.insertAdjacentHTML("beforeend", `<div class="asst-msg-bot" id="asstThinking"><span class="status-line working">Working…</span></div>`);
+  scroll.scrollTop = scroll.scrollHeight;
+  const res = await fetch("/api/assistant", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: text }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  document.getElementById("asstThinking")?.remove();
+  scroll.insertAdjacentHTML("beforeend",
+    `<div class="asst-msg-bot">${md(res?.reply || "Couldn't reach the assistant.")}</div>`);
+  scroll.scrollTop = scroll.scrollHeight;
+  S.asstBusy = false;
+  fetchState();   // it may have changed the library
 }
 
 window.goHome = () => { S.view = "home"; S.courseId = null; render(); };
@@ -1952,6 +2017,9 @@ document.querySelectorAll(".conf-btn[data-conf]").forEach((b) => b.onclick = () 
 });
 
 $("backToDecks").onclick = () => backToDecks();
+$("asstBubble").onclick = () => toggleAsst();
+$("asstSend").onclick = () => sendAsst($("asstInput").value);
+$("asstInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendAsst(e.target.value); });
 $("navCollapse").onclick = toggleNav;
 $("sideNav").classList.toggle("closed", !S.navOpen);   // default: icons only
 $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
