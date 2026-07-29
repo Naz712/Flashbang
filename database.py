@@ -147,6 +147,18 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS llm_calls (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            at                TEXT NOT NULL,
+            purpose           TEXT NOT NULL,
+            model             TEXT NOT NULL,
+            prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            cost_usd          REAL NOT NULL DEFAULT 0
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -267,6 +279,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started  ON study_sessions(started_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_occlusions_pdf    ON occlusions(pdf_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_pdf   ON annotations(pdf_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_at      ON llm_calls(at)")
 
     conn.commit()
     conn.close()
@@ -373,6 +386,41 @@ def delete_pdf(pdf_id):
     conn.commit()
     conn.close()
     vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
+
+
+# ---------------------------------------------------------------- llm spend
+
+def log_llm_call(purpose, model, prompt_tokens, completion_tokens, cost_usd):
+    """One model call, with what it was for and what it cost. Written from
+    llm_utils so every path is covered; failures here must never break the
+    call that was actually being made."""
+    conn = None
+    try:
+        conn = get_conn()
+        conn.execute("""
+            INSERT INTO llm_calls (at, purpose, model, prompt_tokens, completion_tokens, cost_usd)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (now_iso(), purpose, model or "unknown", int(prompt_tokens or 0),
+              int(completion_tokens or 0), float(cost_usd or 0)))
+        conn.commit()
+    except Exception:
+        pass                     # accounting must never break the real call
+    finally:
+        if conn is not None:
+            conn.close()         # ...and must never leak a handle either
+
+
+def get_llm_calls(days=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    if days:
+        since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+        cursor.execute("SELECT * FROM llm_calls WHERE at >= ? ORDER BY at", (since,))
+    else:
+        cursor.execute("SELECT * FROM llm_calls ORDER BY at")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 
 # ---------------------------------------------------------------- settings

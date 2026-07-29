@@ -63,7 +63,7 @@ Respond with ONLY a JSON object in this exact format. No markdown fences, no pre
 {{"quality": <int 0-5>, "right": "<string>", "gap": "<string>", "why": "<string>", "hook": "<string>", "calibration": "<string>"}}
 """
 
-    result = call_for_json(prompt, fast=True, max_tokens=650)   # teaching "why" needs room
+    result = call_for_json(prompt, fast=True, max_tokens=650, purpose="grading")   # teaching "why" needs room
     result["correct_answer"] = correct_answer
     # composite text fallback for anything that renders feedback as one block
     parts = [p for p in [result.get("right"), result.get("gap"), result.get("why")] if p]

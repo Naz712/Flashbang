@@ -252,9 +252,19 @@ def run_turn(messages, agent, on_event=None, on_tool=None):
         # read_pdf -> propose_topics -> save_topics per file (an 11-PDF batch
         # exhausted the default 60 and stranded pending stubs, 2026-07-26)
         limit = 240 if agent.name == "ingestion" else 60
+        before = len(messages)
         result = graph.invoke({"messages": list(messages)},
                               config={"recursion_limit": limit})
         messages[:] = result["messages"]
+        # spend tracking: LangChain carries usage on each AI message, and one
+        # turn can be several model calls (tool loop) — log each of them
+        from llm_utils import record_usage, MAIN_MODEL
+        for msg in messages[before:]:
+            usage = getattr(msg, "usage_metadata", None)
+            if usage:
+                record_usage("assistant" if agent.name == "assistant" else f"agent ({agent.name})",
+                             (getattr(msg, "response_metadata", {}) or {}).get("model_name") or MAIN_MODEL,
+                             usage.get("input_tokens", 0), usage.get("output_tokens", 0))
         final = messages[-1]
         return final.content if isinstance(final.content, str) else str(final.content)
     finally:

@@ -38,7 +38,7 @@ Respond with ONLY a JSON object in this exact format. No markdown code fences, n
     "uncategorized": "<string, verbatim leftover text that fit no concept, or empty string>"
 }}
 """
-    return call_for_json(prompt, max_tokens=4000)
+    return call_for_json(prompt, max_tokens=4000, purpose="concept extraction")
 
 
 def generate_cards(subject, topic_title, concepts, count):
@@ -93,7 +93,7 @@ EXAMPLE OUTPUT:
 OUTPUT FORMAT:
 Respond with ONLY a JSON array of objects with "question" and "answer" string fields. No markdown code fences, no preamble.
 """
-    return call_for_json(prompt, max_tokens=4000)
+    return call_for_json(prompt, max_tokens=4000, purpose="card generation")
 
 
 def get_topic_text(topic_id):
@@ -183,7 +183,7 @@ OUTPUT FORMAT:
 Respond with ONLY a JSON array. No markdown fences, no preamble:
 [{{"question": "<string>", "answer": "<string>"}}]
 """
-    return call_for_json(prompt, max_tokens=2000)
+    return call_for_json(prompt, max_tokens=2000, purpose="pretest")
 
 
 def parse_flashcards(text):
@@ -245,7 +245,7 @@ text contains no recognizable flashcards, return [].
 </pasted>
 
 Respond with ONLY a JSON array: [{{"question": "<string>", "answer": "<string>"}}]"""
-    result = call_for_json(prompt, fast=True, max_tokens=4000)
+    result = call_for_json(prompt, fast=True, max_tokens=4000, purpose="import parsing")
     good = [c for c in result if isinstance(c, dict)
             and (c.get("question") or "").strip() and (c.get("answer") or "").strip()]
     return good, "ai"

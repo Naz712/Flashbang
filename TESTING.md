@@ -236,6 +236,28 @@ Four changes, all live-verified on :5002 (test artifacts removed after):
 - check_planning updated for the retired metrics (hours/personal/brier
   now assert ABSENT). All nine suites pass; console clean.
 
+### 2026-07-29 — spend tracker (what the app costs to run)
+Every model call now logs purpose, model, token counts and an estimated
+cost into `llm_calls`; Analytics gained a SPEND band (all-time, 7-day,
+today, unit cost per graded answer and per card made, where-it-went
+breakdown, 14-day bars). Instrumented at the shared paths — complete_text
+(both providers), the vision batch, and the LangChain assistant loop
+(which logs each call in a tool turn separately).
+- Costs are ESTIMATES: token counts × published list prices, stated as
+  such on the panel. Embeddings/search stay $0 (local).
+- **BUG CAUGHT BY THE NEW TEST:** prefix matching priced
+  `gpt-4o-mini-2024-07-18` at gpt-4o rates — 16× too high — because
+  "gpt-4o" matched first. Now matches the LONGEST prefix. Verified on a
+  real call: `gpt-4o-2024-08-06`, 1778 in / 31 out → $0.00476.
+- **Leak fixed:** log_llm_call swallowed insert errors without closing its
+  connection (surfaced as a Windows file-lock in teardown). Now closes in
+  a finally block.
+- New suite check_spend: pricing math, suffix resolution, unknown models
+  never free, aggregation, unit costs, 14-day window, tolerated failure.
+  All ten suites pass.
+- Live: one assistant question logged 2 calls / $0.012 and appeared in the
+  panel immediately.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

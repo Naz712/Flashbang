@@ -582,7 +582,71 @@ function renderProgress() {
 
     <div class="section-head" style="margin-top:14px"><span class="mono-label">READING</span><div class="rule"></div>
       <span style="font-size:11px; color:#8A8F9C">tracked separately — reading never moves mastery</span></div>
-    ${readingBandHTML(st)}`;
+    ${readingBandHTML(st)}
+
+    <div class="section-head" style="margin-top:14px"><span class="mono-label">SPEND</span><div class="rule"></div>
+      <span style="font-size:11px; color:#8A8F9C">what running this has cost</span></div>
+    ${spendBandHTML(st)}`;
+}
+
+/* spend: estimated from logged token usage × list prices. Every number here
+   is the app's own accounting, not a bill — labelled as such. */
+function spendBandHTML(st) {
+  const sp = st.spend;
+  if (!sp) return "";
+  const usd = (n) => n == null ? "–" : n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(n < 0.01 ? 4 : 3)}`;
+  if (!sp.calls) {
+    return `<div class="card" style="padding:16px 20px">
+      <div style="font-size:12.5px; color:#8A8F9C; line-height:1.6">
+        No model calls logged yet. Grading, card generation, ingestion and the assistant
+        all record their tokens here from now on.</div></div>`;
+  }
+  const maxDay = Math.max(0.0001, ...sp.days.map((d) => d.usd));
+  const dayCols = sp.days.map((d) => `
+    <div class="forecast-col" title="${d.date} · ${usd(d.usd)}">
+      <div class="forecast-bar" style="height:${Math.max(3, d.usd / maxDay * 54)}px;
+        background:${d.usd ? "#0072B2" : "#ECECE8"}"></div>
+    </div>`).join("");
+  const rows = sp.by_purpose.map((p) => {
+    const share = sp.total ? p.usd / sp.total * 100 : 0;
+    return `<div class="fn-row" title="${p.calls} call${p.calls === 1 ? "" : "s"} · ${p.tokens.toLocaleString()} tokens">
+      <span class="fn-label" style="width:118px">${esc(p.purpose)}</span>
+      <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, share)}%; background:#0072B2"></div></div>
+      <span class="fn-n" style="width:62px">${usd(p.usd)}</span>
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="grid3">
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">ALL TIME</div>
+        <div class="stat-num">${usd(sp.total)}</div>
+        <div class="stat-sub">${sp.calls} model call${sp.calls === 1 ? "" : "s"}${sp.biggest ? ` · mostly ${esc(sp.biggest)}` : ""}</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">LAST 7 DAYS</div>
+        <div class="stat-num">${usd(sp.week)}</div>
+        <div class="stat-sub">${usd(sp.today)} today</div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:9px">UNIT COST</div>
+        <div style="display:flex; gap:20px">
+          <div><div class="stat-num" style="font-size:20px">${usd(sp.per_answer)}</div><div class="stat-sub">per graded answer</div></div>
+          <div><div class="stat-num" style="font-size:20px">${usd(sp.per_card)}</div><div class="stat-sub">per card made</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">WHERE IT WENT</div>
+        <div style="display:flex; flex-direction:column; gap:9px">${rows}</div>
+      </div>
+      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
+        <div class="mono-label" style="margin-bottom:14px">LAST 14 DAYS</div>
+        <div class="forecast-row">${dayCols}</div>
+        ${evidence("Estimated from each call's token counts at published list prices — your provider dashboard is the actual bill. Embeddings and search cost $0 here: they run locally.")}
+      </div>
+    </div>`;
 }
 
 function renderCalibration(weeks) {

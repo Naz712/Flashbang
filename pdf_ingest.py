@@ -16,7 +16,8 @@ import base64
 import io
 import os
 from pypdf import PdfReader, PdfWriter
-from llm_utils import PROVIDER, MAIN_MODEL, anthropic_client, openai_client, call_for_json
+from llm_utils import (PROVIDER, MAIN_MODEL, anthropic_client, openai_client,
+                       call_for_json, record_usage)
 from database import create_pdf, save_pdf_pages, get_pdf_pages, get_pdf
 
 SPARSE_THRESHOLD = 200   # chars; below this a page is probably scanned/diagram-only
@@ -91,6 +92,9 @@ def _vision_extract_batch(pdf_path, batch):
                 ],
             }],
         )
+        usage = getattr(response, "usage", None)
+        record_usage("vision extraction", MAIN_MODEL,
+                     getattr(usage, "prompt_tokens", 0), getattr(usage, "completion_tokens", 0))
         truncated = response.choices[0].finish_reason == "length"
         text = response.choices[0].message.content or ""
     else:
@@ -106,6 +110,9 @@ def _vision_extract_batch(pdf_path, batch):
                 ],
             }],
         )
+        usage = getattr(response, "usage", None)
+        record_usage("vision extraction", MAIN_MODEL,
+                     getattr(usage, "input_tokens", 0), getattr(usage, "output_tokens", 0))
         truncated = response.stop_reason == "max_tokens"
         text = response.content[0].text
 
@@ -280,7 +287,7 @@ def segment_topics(pdf_id, course_name):
         chunk_text = "\n\n".join(f"=== PAGE {p['page_number']} ===\n{p['text']}" for p in chunk)
         page_range = (chunk[0]["page_number"], chunk[-1]["page_number"])
         prompt = _segmentation_prompt(chunk_text, course_name, page_range, carry_over)
-        result = call_for_json(prompt, max_tokens=4000)
+        result = call_for_json(prompt, max_tokens=4000, purpose="segmentation")
         topics = result["topics"]
 
         # merge a topic continued across the chunk boundary

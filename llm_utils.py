@@ -90,19 +90,72 @@ def _require_provider():
             "OPENAI_API_KEY=... (or ANTHROPIC_API_KEY=...) and restart the app.")
 
 
-def complete_text(prompt, fast=False, max_tokens=1000):
-    """One-shot text completion on either provider."""
+# Published list prices, USD per 1M tokens (input, output). These drive the
+# spend tracker, which is therefore an ESTIMATE from token counts — the
+# provider's dashboard is the source of truth for what you were actually
+# billed. Update here if rates change, or override per-model via env
+# (e.g. FB_PRICE_GPT_4O="2.5,10").
+PRICES = {
+    "gpt-4o":              (2.50, 10.00),
+    "gpt-4o-mini":         (0.15,  0.60),
+    "gpt-4.1":             (2.00,  8.00),
+    "gpt-4.1-mini":        (0.40,  1.60),
+    "claude-sonnet-4-5":   (3.00, 15.00),
+    "claude-haiku-4-5":    (1.00,  5.00),
+    "text-embedding-3-small": (0.02, 0.0),
+}
+FALLBACK_PRICE = (1.00, 4.00)   # unknown model: flagged rather than silently free
+
+
+def price_for(model, prompt_tokens, completion_tokens):
+    """USD estimate for one call. Unknown models use a middling fallback so
+    spend is never silently understated."""
+    key = (model or "").lower()
+    rates = PRICES.get(key)
+    if rates is None:
+        # suffixed ids (gpt-4o-mini-2024-07-18) must match the LONGEST prefix —
+        # matching "gpt-4o" first would price a mini call at 16x its real rate
+        matches = sorted((k for k in PRICES if key.startswith(k)), key=len, reverse=True)
+        rates = PRICES[matches[0]] if matches else FALLBACK_PRICE
+    return (prompt_tokens or 0) / 1e6 * rates[0] + (completion_tokens or 0) / 1e6 * rates[1]
+
+
+def _record(purpose, model, prompt_tokens, completion_tokens):
+    """Log one call's usage + estimated cost. Never raises."""
+    try:
+        from database import log_llm_call
+        log_llm_call(purpose or "other", model, prompt_tokens, completion_tokens,
+                     price_for(model, prompt_tokens, completion_tokens))
+    except Exception:
+        pass
+
+
+def record_usage(purpose, model, prompt_tokens, completion_tokens):
+    """Public hook for call sites that don't go through complete_text
+    (the vision batch, the LangChain assistant loop)."""
+    _record(purpose, model, prompt_tokens, completion_tokens)
+
+
+def complete_text(prompt, fast=False, max_tokens=1000, purpose=None):
+    """One-shot text completion on either provider. `purpose` labels the call
+    in the spend tracker (grading / segmentation / card generation / …)."""
     _require_provider()
     model = FAST_MODEL if fast else MAIN_MODEL
     if PROVIDER == "anthropic":
         response = anthropic_client().messages.create(
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}])
+        usage = getattr(response, "usage", None)
+        _record(purpose, model, getattr(usage, "input_tokens", 0),
+                getattr(usage, "output_tokens", 0))
         return response.content[0].text, response.stop_reason == "max_tokens"
     else:
         response = openai_client().chat.completions.create(
             model=model, max_completion_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}])
+        usage = getattr(response, "usage", None)
+        _record(purpose, model, getattr(usage, "prompt_tokens", 0),
+                getattr(usage, "completion_tokens", 0))
         choice = response.choices[0]
         return choice.message.content or "", choice.finish_reason == "length"
 
@@ -128,13 +181,14 @@ def parse_json_response(raw_text):
         raise
 
 
-def call_for_json(prompt, fast=False, max_tokens=4000):
+def call_for_json(prompt, fast=False, max_tokens=4000, purpose=None):
     """One-shot call that must return JSON. Retries ONCE on a parse failure by
     showing the model its own bad output. Raises RuntimeError on truncation
     (truncated JSON must never be silently parsed) or a second parse failure."""
     current_prompt = prompt
     for attempt in range(2):
-        raw_text, truncated = complete_text(current_prompt, fast=fast, max_tokens=max_tokens)
+        raw_text, truncated = complete_text(current_prompt, fast=fast,
+                                            max_tokens=max_tokens, purpose=purpose)
         if truncated:
             raise RuntimeError(
                 f"LLM response truncated at {max_tokens} tokens; raise max_tokens "

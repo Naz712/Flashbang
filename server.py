@@ -273,6 +273,8 @@ def state():
         # daily time budget: minutes/day + measured per-card pace
         "budget": {"daily_minutes": int(get_setting("daily_minutes", 0) or 0),
                    "sec_per_card": stats_module.seconds_per_card()},
+        # what running the app has cost (estimated from logged token usage)
+        "spend": stats_module.compute_spend(now),
         # drives the confidence widget — only review sessions ask for confidence
         "sessionActive": any(s["kind"] == "review" for s in REVIEW.values()),
     })
@@ -492,7 +494,7 @@ Write the message in FIRST PERSON as the student. Requirements:
 - Plain language, no headers, no markdown formatting, under 300 words. Output ONLY the message text — no preamble, no quotes around it."""
 
     try:
-        text, _ = complete_text(prompt, fast=True, max_tokens=800)
+        text, _ = complete_text(prompt, fast=True, max_tokens=800, purpose="tutor prompt")
         text = (text or "").strip()
         if len(text) < 40:
             raise ValueError("empty tailoring")

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from database import (get_study_log, get_cards, get_answer_log, get_courses,
-                      get_time_by_course, get_annotation_counts)
+                      get_time_by_course, get_annotation_counts, get_llm_calls)
 from mastery import card_retention
 import fsrs_adapter  # exam projection simulates via the live FSRS scheduler
 
@@ -215,6 +215,64 @@ def compute_metrics(now=None, weeks=26):
             "retention": retention, "hardest": hardest,
             "knowledge": knowledge, "exams": exams,
             "sweet": sweet, "fluency": fluency}
+
+
+def compute_spend(now=None):
+    """What the app has cost to run, from logged token usage × list prices.
+    ESTIMATED — the provider dashboard is the billing source of truth."""
+    if now is None:
+        now = datetime.now()
+    today = now.date()
+    calls = get_llm_calls()
+    if not calls:
+        return {"total": 0.0, "week": 0.0, "today": 0.0, "calls": 0,
+                "by_purpose": [], "per_card": None, "per_answer": None,
+                "days": [], "biggest": None}
+
+    week_start = today - timedelta(days=6)
+    total = week = today_spend = 0.0
+    by_purpose = {}
+    by_day = {}
+    for c in calls:
+        at = datetime.fromisoformat(c["at"]).date()
+        cost = c["cost_usd"] or 0
+        total += cost
+        if at >= week_start:
+            week += cost
+        if at == today:
+            today_spend += cost
+        p = by_purpose.setdefault(c["purpose"], {"purpose": c["purpose"], "usd": 0.0, "calls": 0,
+                                                 "tokens": 0})
+        p["usd"] += cost
+        p["calls"] += 1
+        p["tokens"] += (c["prompt_tokens"] or 0) + (c["completion_tokens"] or 0)
+        by_day[at] = by_day.get(at, 0.0) + cost
+
+    purposes = sorted(by_purpose.values(), key=lambda p: -p["usd"])
+    for p in purposes:
+        p["usd"] = round(p["usd"], 4)
+
+    # unit economics: what a card and a graded answer actually cost
+    gen = sum(p["usd"] for p in purposes if p["purpose"] in ("card generation", "concept extraction"))
+    cards = len(get_cards())
+    grading = next((p for p in purposes if p["purpose"] == "grading"), None)
+
+    days = []
+    for offset in range(13, -1, -1):
+        d = today - timedelta(days=offset)
+        days.append({"date": d.isoformat(), "usd": round(by_day.get(d, 0.0), 4)})
+
+    return {
+        "total": round(total, 4),
+        "week": round(week, 4),
+        "today": round(today_spend, 4),
+        "calls": len(calls),
+        "by_purpose": purposes,
+        "per_card": round(gen / cards, 4) if cards and gen else None,
+        "per_answer": round(grading["usd"] / grading["calls"], 5) if grading and grading["calls"] else None,
+        "days": days,
+        "biggest": purposes[0]["purpose"] if purposes else None,
+    }
 
 
 def seconds_per_card():
