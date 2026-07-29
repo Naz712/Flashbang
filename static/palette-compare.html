@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Flashbang — Figma palette, serious treatment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; }
+:root {
+  --canvas:#FFFFFF; --surface:#FFFFFF; --ink:#111111; --slate:#4A4A4A; --muted:#767676;
+  --hair:#E4E4E4;
+  --red:#F24E1E; --blue:#1ABCFE; --yellow:#FFC700; --green:#0ACF83;
+  --m-low:#F24E1E; --m-mid:#FFC700; --m-high:#0ACF83;
+}
+body { margin:0; background:var(--canvas); color:var(--ink);
+  font-family:'IBM Plex Sans',sans-serif; padding:40px 46px 60px; }
+.mono { font-family:'IBM Plex Mono',monospace; }
+.label { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1.8px;
+  text-transform:uppercase; font-weight:600; color:var(--muted); }
+.sec { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1.8px;
+  text-transform:uppercase; color:var(--muted); font-weight:600;
+  display:flex; align-items:center; gap:14px; margin:38px 0 16px; }
+.sec::after { content:""; flex:1; height:2px; background:var(--ink); }
+h1 { font-size:30px; font-weight:700; letter-spacing:-1px; margin:0 0 6px; }
+.sub { font-size:13px; color:var(--muted); margin-bottom:6px; max-width:720px; line-height:1.6; }
+
+/* SERIOUS treatment: flat, hairlines, 2px radius, no offset shadows, nothing
+   rotated. Colour does two jobs only — encode mastery, or mark the single
+   primary action on a screen. Never a full card wash. */
+.card { background:var(--surface); border:1.5px solid var(--hair); border-radius:2px;
+  padding:22px 24px; }
+.card.key { border-color:var(--ink); }
+.row { display:flex; align-items:center; gap:12px; }
+.grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; max-width:820px; }
+
+.btn { font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600;
+  border:1.5px solid var(--ink); border-radius:4px; background:var(--ink); color:#fff;
+  padding:10px 16px; cursor:pointer; }
+.btn.ghost { background:transparent; color:var(--ink); border-color:var(--hair); }
+.btn.accent { background:var(--blue); border-color:var(--blue); color:var(--ink); }
+
+.pill { display:inline-flex; align-items:center; font-family:'IBM Plex Mono',monospace;
+  font-size:10px; font-weight:700; letter-spacing:.6px; padding:3px 9px; border-radius:3px;
+  border:1.5px solid var(--ink); }
+.pill.due { background:var(--red); border-color:var(--red); color:#fff; }
+.pill.good { background:var(--green); border-color:var(--green); color:var(--ink); }
+.pill.warn { background:var(--yellow); border-color:var(--yellow); color:var(--ink); }
+.pill.quiet { border-color:var(--hair); color:var(--muted); }
+
+.num { font-size:46px; font-weight:700; letter-spacing:-2px; line-height:1; }
+.bar { height:10px; background:#F0F0F0; border-radius:2px; overflow:hidden; }
+.bar > i { display:block; height:100%; }
+.swatch { width:22px; height:22px; border-radius:3px; }
+.tile { width:10px; height:10px; border-radius:2px; }
+.meta { font-size:12px; color:var(--muted); line-height:1.75; }
+</style></head>
+<body>
+
+<h1>Figma palette · serious treatment</h1>
+<div class="sub">Flat and quiet: hairline borders, 2px radius, no offset shadows, nothing rotated.
+Colour does two jobs only — encode mastery, or mark the one primary action. Same IBM Plex as today.</div>
+
+<div class="sec">Home · course canvas</div>
+<div class="grid2">
+  <div class="card">
+    <div class="row" style="margin-bottom:18px">
+      <span class="swatch" style="background:var(--blue)"></span>
+      <span style="flex:1;font-size:16px;font-weight:600;letter-spacing:-.2px">Python</span>
+      <span class="pill due">12 DUE</span>
+    </div>
+    <div class="row" style="margin-bottom:14px">
+      <div class="bar" style="flex:1"><i style="width:38%;background:var(--m-low)"></i></div>
+      <span class="mono" style="font-size:14px;font-weight:600;width:38px;text-align:right">38%</span>
+    </div>
+    <div class="meta">13 documents · 92 topics · 4 cards<br>2 covered · 1 in progress · 41m read</div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:18px">
+      <span class="swatch" style="background:var(--yellow)"></span>
+      <span style="flex:1;font-size:16px;font-weight:600;letter-spacing:-.2px">cs2030de</span>
+      <span class="pill quiet">0 DUE</span>
+    </div>
+    <div class="row" style="margin-bottom:14px">
+      <div class="bar" style="flex:1"><i style="width:81%;background:var(--m-high)"></i></div>
+      <span class="mono" style="font-size:14px;font-weight:600;width:38px;text-align:right">81%</span>
+    </div>
+    <div class="meta">5 documents · 31 topics · 35 cards<br>22 covered · 6 in progress · 2h 10m read</div>
+  </div>
+</div>
+
+<div class="sec">Review · today</div>
+<div style="display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start">
+  <div class="card key" style="width:320px">
+    <div class="label" style="margin-bottom:12px">Today's review</div>
+    <div class="num" style="color:var(--red)">12</div>
+    <div class="meta" style="margin:10px 0 20px">dealing 12 of 23 due · your 25-min budget</div>
+    <button class="btn">▶ Start today's review</button>
+  </div>
+  <div class="card" style="width:320px">
+    <div class="label" style="margin-bottom:14px">Mastery scale</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="row"><span class="tile" style="background:var(--m-low)"></span>
+        <span style="flex:1;font-size:12.5px">Forgotten</span><span class="mono" style="font-size:11px;color:var(--muted)">&lt;40%</span></div>
+      <div class="row"><span class="tile" style="background:var(--m-mid)"></span>
+        <span style="flex:1;font-size:12.5px">Shaky</span><span class="mono" style="font-size:11px;color:var(--muted)">40–74%</span></div>
+      <div class="row"><span class="tile" style="background:var(--m-high)"></span>
+        <span style="flex:1;font-size:12.5px">Solid</span><span class="mono" style="font-size:11px;color:var(--muted)">≥75%</span></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:14px;padding-top:12px;border-top:1px solid var(--hair)">
+      Red → yellow → green, and every bar ships with its percentage — the number carries the meaning even without colour.</div>
+  </div>
+</div>
+
+<div class="sec">Review · a card and its verdict</div>
+<div style="display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start">
+  <div class="card" style="width:320px; border-left:4px solid var(--blue)">
+    <div class="label" style="margin-bottom:12px">Q · card 2 of 12 · Functions Intro</div>
+    <div style="font-size:15px;font-weight:600;line-height:1.55">What does the return statement do in Python?</div>
+  </div>
+  <div class="card" style="width:320px; border-left:4px solid var(--green)">
+    <div class="row" style="margin-bottom:14px">
+      <span class="pill good">5/5</span><span style="font-size:12px;color:var(--muted)">correct</span>
+    </div>
+    <div style="font-size:13px;line-height:1.65"><b>You had</b> both halves — the value goes back to the caller and the function stops.</div>
+  </div>
+  <div class="card" style="width:320px; border-left:4px solid var(--yellow)">
+    <div class="row" style="margin-bottom:14px">
+      <span class="pill warn">3/5</span><span style="font-size:12px;color:var(--muted)">partially correct</span>
+    </div>
+    <div style="font-size:13px;line-height:1.65"><b>The gap</b> — you said it prints the value. It sends it back to whoever called the function; printing is a separate job.</div>
+  </div>
+</div>
+
+<div class="sec">Delight · reserved for 5/5 only</div>
+<div class="card" style="max-width:680px; border-left:4px solid var(--green)">
+  <div class="row" style="margin-bottom:14px">
+    <span class="pill good">5/5</span>
+    <span class="mono" style="font-size:11px;letter-spacing:1.2px;color:#08A96B;font-weight:700">NAILED IT</span>
+    <span style="flex:1"></span>
+    <span class="mono" style="font-size:11px;color:var(--muted)">interval 6d → 15d</span>
+  </div>
+  <div style="font-size:13px;line-height:1.65;margin-bottom:8px"><b>You had</b> both halves of it, in the right order.</div>
+  <div style="font-size:11.5px;color:var(--muted)">Only a perfect recall gets the mark — 4/5 and below stay quiet, so the signal keeps its meaning.</div>
+</div>
+
+<div class="sec">Controls</div>
+<div class="row" style="gap:12px; flex-wrap:wrap">
+  <button class="btn">▶ Start today's review</button>
+  <button class="btn accent">＋ Add PDFs</button>
+  <button class="btn ghost">⚡ Generate cards</button>
+  <span class="pill quiet">7 DAY STREAK</span>
+  <span class="pill quiet">4 CARDS</span>
+</div>
+
+<div class="sec">Analytics · where you stand</div>
+<div style="display:flex; gap:20px; flex-wrap:wrap">
+  <div class="card" style="width:255px">
+    <div class="label" style="margin-bottom:10px">Retention now</div>
+    <div class="num" style="font-size:38px;color:#08A96B">86%</div>
+    <div class="meta" style="margin-top:8px">recalled at review time this week · aim ≈85%</div>
+  </div>
+  <div class="card" style="width:255px">
+    <div class="label" style="margin-bottom:10px">Knowledge held</div>
+    <div class="num" style="font-size:38px">27<span style="font-size:15px;color:var(--muted);font-weight:500"> / 39 facts</span></div>
+    <div class="meta" style="margin-top:8px">decay-weighted, right now</div>
+  </div>
+  <div class="card" style="width:255px">
+    <div class="label" style="margin-bottom:10px">Exam readiness</div>
+    <div class="num" style="font-size:38px;color:var(--red)">61%</div>
+    <div class="meta" style="margin-top:8px">RB2302 · 14 days out · 41% if you stop now</div>
+  </div>
+</div>
+
+</body></html>
