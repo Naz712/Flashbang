@@ -22,9 +22,9 @@
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
         <span class="nav-label">Home</span>
       </button>
-      <button id="tabStudy" class="nav-item on" title="Study — the agent: reviews, ingest, questions">
+      <button id="tabStudy" class="nav-item on" title="Review — type answers, get graded, gaps reported">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span class="nav-label">Study</span>
+        <span class="nav-label">Review</span>
       </button>
       <button id="tabReading" class="nav-item" title="Reading — pick a course, document, topic and read">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
@@ -50,7 +50,7 @@
       <div class="chat-head">
         <div class="chat-head-left">
           <span id="agentDot" class="agent-dot"></span>
-          <span class="chat-title" id="agentName">Flashbang agent</span>
+          <span class="chat-title" id="agentName">Review</span>
           <span class="chat-sub" id="sessionLabel"></span>
         </div>
         <span id="focusChip" class="focus-chip" style="display:none">
@@ -66,11 +66,12 @@
             <button class="conf-btn" data-conf="unsure">Unsure</button>
           </div>
         </div>
-        <div id="cmdPalette" class="cmd-palette" style="display:none"></div>
+        <div id="sessionBar" style="display:none; gap:8px; margin-bottom:10px">
+          <button class="conf-btn" onclick="skipCard()" title="Move on without grading — the card stays due">Skip card</button>
+          <button class="conf-btn" onclick="endSession()" title="End now and get the gap report">End session</button>
+        </div>
         <div class="input-row">
-          <input type="file" id="fileInput" accept=".pdf" multiple style="display:none">
-          <button id="uploadBtn" class="attach-btn" title="Upload a PDF to ingest">📎</button>
-          <input id="chatInput" placeholder="Ask a question, start a review, or paste notes…" autocomplete="off">
+          <input id="chatInput" placeholder="Start a review to begin — cards get dealt here." autocomplete="off">
           <button id="sendBtn" class="send-key">⏎</button>
         </div>
       </div>
@@ -97,6 +98,7 @@
 
 <!-- focus timer — fixed top right, visible on every screen -->
 <div id="focusFloat" class="focus-float"></div>
+<input type="file" id="fileInput" accept=".pdf" multiple style="display:none">
 
 <!-- topic page viewer -->
 <div id="viewer" class="viewer-overlay" style="display:none">

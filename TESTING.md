@@ -185,6 +185,28 @@ EXPLAINING moves to an external tutor chat via a copyable report.
   report card renders, 📖 opens p.8-12 correctly, copy path stores text,
   endpoint 404s honestly when a session has no linked graded answers.
 
+### 2026-07-29 — DE-AGENTED: the app deals, the grader grades, buttons do the rest
+Naz's call after the gap-report pivot: the wide-net agent had no job left.
+- Review is now an app-driven deal loop (/api/review/start|answer|skip|
+  undo|end): due cards dealt most-overdue-first (budget-capped), typed
+  answer → ONE fast-tier grading call (~$0.0002) → FSRS reschedule →
+  next card; failures re-asked unscored at the end (successive
+  relearning); /end auto-fires with summary + gap report. Per-session
+  cost drops ~100x vs the agent loop (which re-sent history to gpt-4o
+  every turn at $0.02-0.05).
+- Ingestion is a button (Reading library "+ Add PDFs"): upload → read →
+  segment → auto-save; course from library context or one prompt; fix
+  splits with the editor. Card generation is a per-topic "⚡ Cards"
+  button. Skip/End/Undo are buttons; slash commands, palette, router,
+  orchestrator, and both /api/chat endpoints are GONE from the runtime
+  (modules remain on disk for the reference board; deletion is
+  post-submission cleanup).
+- Live end-to-end with real grading (2 temp cards, ~$0.0004, artifacts
+  removed): dealt 1/2 → "def"+sure → 5/5 → wrong answer → 1/5 → relearn
+  re-ask (unscored, labeled) → auto-end "2 cards, 50% recall" → SESSION
+  REPORT with the gap + working 📖 source button → idle state restored.
+  Answer round-trip 10.5s incl. grading. Suites pass; console clean.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

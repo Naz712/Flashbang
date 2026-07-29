@@ -84,7 +84,7 @@ async function fetchState() {
   const res = await fetch(`/api/state${q}`);
   S.state = await res.json();
   if (S.state.current) S.pdfId = S.state.current.pdf_id;
-  if (!S.state.sessionActive) S.qShownAt = null;   // latency only means something mid-review
+  if (!RV.sid) S.qShownAt = null;   // latency only means something mid-review
   render();
 }
 
@@ -129,7 +129,7 @@ function renderMsg(m) {
         <span class="gcard-pill ${cls}">✓ GRADE ${m.grade}/5</span>
         <span class="gcard-verdict">${verdict}</span>
         <span style="flex:1"></span>
-        <button class="undo-btn" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
+        <button class="undo-btn" data-card="${m.card_id || ""}" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
       </div>
       ${body}
       ${m.meta ? `<div class="gcard-meta">${esc(m.meta)}</div>` : ""}
@@ -212,222 +212,136 @@ window.copyReport = async (sessionId, btn) => {
   } catch { alert("Clipboard blocked — try again after clicking the page."); }
 };
 
-window.undoGrade = (btn) => {
-  document.querySelectorAll(".undo-btn").forEach((b) => (b.disabled = true));
-  sendChat("Undo that last grade — restore the card's previous schedule.");
+window.undoGrade = async (btn) => {
+  const cardId = +btn.dataset.card;
+  if (!cardId) return;
+  btn.disabled = true;
+  const res = await fetch("/api/review/undo", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ card_id: cardId }) });
+  if (res.ok) { btn.textContent = "undone ✓"; fetchState(); }
+  else btn.disabled = false;
 };
 
-/* ---------------------------------------------------------------- slash commands */
-/* Each command maps to a specific agent (skips the router) and expands to an
-   unambiguous instruction — the raw /command is what shows in the chat. */
-const COMMANDS = [
-  { cmd: "/review",   args: "[topic/pdf]",           desc: "Review due cards",                    agent: "review",    expand: (a) => a ? `Start a review session on my due cards in ${a}` : "Start a review session on my due cards" },
-  { cmd: "/cram",     args: "<topic/pdf>",           desc: "Quiz everything once, no scheduling", agent: "review",    expand: (a) => `Start a cram session on ${a || "all my cards"}` },
-  { cmd: "/end",      args: "",                      desc: "End the current session",             agent: "review",    expand: () => "End the current session and summarize how I did" },
-  { cmd: "/undo",     args: "",                      desc: "Undo the last grade",                 agent: "review",    expand: () => "Undo that last grade — restore the card's previous schedule." },
-  { cmd: "/ingest",   args: "<file path>",           desc: "Ingest a PDF by path",                agent: "ingestion", expand: (a) => `Ingest ${a}` },
-  { cmd: "/cards",    args: "<topic>",               desc: "Generate flashcards for a topic",     agent: "ingestion", expand: (a) => `Make flashcards for the topic ${a}` },
-  { cmd: "/pretest",  args: "[document]",            desc: "Unscored pretest before reading",     agent: "ingestion", expand: (a) => `Give me a pretest${a ? ` on ${a}` : " on my newest document"}` },
-  { cmd: "/plan",     args: "[minutes per day]",     desc: "Plan the study week",                 agent: "planner",   expand: (a) => `Plan my study week${a ? `, I have ${a} minutes a day` : ""}` },
-  { cmd: "/next",     args: "",                      desc: "What should I study next?",           agent: "planner",   expand: () => "What should I study next?" },
-  { cmd: "/progress", args: "[course/pdf]",          desc: "Progress report",                     agent: "planner",   expand: (a) => `How is my progress${a ? ` on ${a}` : ""}?` },
-  { cmd: "/stats",    args: "",                      desc: "Streak & weekly stats",               agent: "planner",   expand: () => "Show my study stats and streak" },
-  { cmd: "/rename",   args: "<topic> to <new name>", desc: "Rename a topic",                      agent: "organizer", expand: (a) => `Rename the topic ${a}` },
-  { cmd: "/search",   args: "<query>",               desc: "Ask your notes",                      agent: "organizer", expand: (a) => `What do my notes say about ${a}?` },
-  { cmd: "/help",     args: "",                      desc: "List all commands",                   agent: null },
-];
+/* ---------------------------------------------------------------- review driver */
+/* De-agented 2026-07-29: the app deals cards, you type answers, and the only
+   model call per answer is the fast-tier grader. Skip / Undo / End are
+   buttons. The router and agent loop are gone from the runtime. */
 
-function parseCommand(text) {
-  if (!text.startsWith("/")) return null;
-  const space = text.indexOf(" ");
-  const name = (space === -1 ? text : text.slice(0, space)).toLowerCase();
-  const arg = space === -1 ? "" : text.slice(space + 1).trim();
-  const command = COMMANDS.find((c) => c.cmd === name);
-  return command ? { command, arg } : null;
-}
+const RV = { sid: null, kind: null, card: null };
 
-function renderPalette() {
-  const input = $("chatInput");
-  const palette = $("cmdPalette");
-  const value = input.value;
-  if (!value.startsWith("/") || value.includes(" ")) {
-    palette.style.display = "none";
-    return;
-  }
-  const matches = COMMANDS.filter((c) => c.cmd.startsWith(value.toLowerCase()));
-  if (!matches.length) { palette.style.display = "none"; return; }
-  palette.innerHTML = matches.map((c) => `
-    <div class="cmd-item" data-cmd="${c.cmd}">
-      <span class="mono" style="font-weight:600; font-size:12px">${c.cmd}</span>
-      <span class="mono" style="font-size:10.5px; color:#B0B4BE">${c.args}</span>
-      <span style="flex:1"></span>
-      <span style="font-size:11px; color:#8A8F9C">${c.desc}</span>
-    </div>`).join("");
-  palette.style.display = "block";
-  palette.querySelectorAll(".cmd-item").forEach((el) => {
-    el.onmousedown = (e) => {   // mousedown beats input blur
-      e.preventDefault();
-      input.value = el.dataset.cmd + " ";
-      palette.style.display = "none";
-      input.focus();
-    };
-  });
-}
-
-function showHelp() {
+function chatLine(html) {
   const scroll = $("chatScroll");
-  const rows = COMMANDS.map((c) =>
-    `<div style="display:flex; gap:10px"><code style="flex:none">${c.cmd} ${c.args}</code><span>${c.desc}</span></div>`).join("");
-  scroll.insertAdjacentHTML("beforeend",
-    `<div class="msg-row-bot"><div class="bubble-bot"><div class="md-head">Commands</div>${rows}
-      <div class="md-gap"></div><div>Type <code>/</code> to see this menu inline. Commands go straight to the right specialist — no interpretation needed.</div></div></div>`);
+  scroll.insertAdjacentHTML("beforeend", html);
   scroll.scrollTop = scroll.scrollHeight;
 }
 
-/* human-readable status lines for tool activity while the agent works */
-const STATUS_LABELS = {
-  read_pdf: "Reading the PDF page by page…",
-  create_text_source: "Saving your notes…",
-  propose_topics: "Splitting into topics & estimating study time… (big documents take a minute)",
-  save_topics: "Saving the approved topics…",
-  generate_pretest: "Writing pretest questions…",
-  extract_topic_concepts: "Extracting the key concepts…",
-  save_topic_concepts: "Saving concepts to your notes…",
-  generate_cards_for_topic: "Writing flashcards…",
-  bulk_insert_cards: "Saving your cards…",
-  get_due_cards: "Fetching due cards…",
-  grade_answer: "Grading your answer…",
-  review_card: "Updating the schedule…",
-  undo_review: "Undoing that grade…",
-  search_notes: "Searching your notes…",
-  get_progress_report: "Crunching your progress…",
-  propose_study_plan: "Drafting a study plan…",
-  get_study_stats: "Adding up your stats…",
-};
-
-function typewrite(el, text, onDone) {
-  const scroll = $("chatScroll");
-  const finish = () => { el.innerHTML = md(text); scroll.scrollTop = scroll.scrollHeight; onDone && onDone(); };
-  if (document.hidden) return finish();   // rAF/timers throttle in hidden tabs — don't animate
-  let i = 0;
-  const started = Date.now();
-  const perTick = Math.max(3, Math.round(text.length / 120)); // ~2s at 16ms ticks
-  const timer = setInterval(() => {
-    if (Date.now() - started > 4000) i = text.length;  // hard cap — never leave chat busy
-    i += perTick;
-    el.textContent = text.slice(0, i);
-    scroll.scrollTop = scroll.scrollHeight;
-    if (i >= text.length) { clearInterval(timer); finish(); }
-  }, 16);
+function showQuestion(card) {
+  RV.card = card;
+  chatLine(renderMsg({ role: "assistant",
+    text: `[CARD ${card.n}/${card.total} · ${card.topic_title}]\n${card.question}` }));
+  S.qShownAt = Date.now();
+  $("chatInput").placeholder = card.phase === "relearn"
+    ? "Re-ask (not scored) — type what you remember…"
+    : "Type your answer…";
+  renderConfRow();
+  $("chatInput").focus();
 }
 
-async function sendChat(text) {
-  if (S.busy || !text.trim()) return;
-  $("cmdPalette").style.display = "none";
+function reviewIdle(extraHtml) {
+  RV.sid = RV.kind = RV.card = null;
+  S.qShownAt = null;
+  $("chatInput").placeholder = "Start a review to begin — cards get dealt here.";
+  $("agentName").textContent = "Review";
+  $("sessionLabel").textContent = "";
+  renderConfRow();
+  if (extraHtml) chatLine(extraHtml);
+  fetchState();
+}
 
-  // slash command? translate to an explicit instruction + forced agent
-  let display = text, message = text, agent = null;
-  const parsed = parseCommand(text.trim());
-  if (parsed) {
-    if (parsed.command.cmd === "/help") { $("chatInput").value = ""; showHelp(); return; }
-    message = parsed.command.expand(parsed.arg);
-    agent = parsed.command.agent;
-  }
-
+window.startReviewSession = async (scope = {}, kind = "review") => {
+  if (RV.sid || S.busy) return;
+  S.view = "study"; render();
   S.busy = true;
-  const scroll = $("chatScroll");
-  scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "user", text: display,
-    meta: S.pendingConf ? `confidence: ${S.pendingConf}` : "" }));
-  scroll.insertAdjacentHTML("beforeend",
-    `<div id="thinking" class="msg-row-bot"><div class="bubble-bot">
-       <div style="display:flex; align-items:baseline; gap:8px">
-         <span id="statusLine" class="status-line working">Thinking…</span>
-         <span id="statusElapsed" class="status-elapsed"></span>
-       </div></div></div>`);
-  scroll.scrollTop = scroll.scrollHeight;
-  $("chatInput").value = "";
+  const res = await fetch("/api/review/start", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...scope, kind }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  S.busy = false;
+  if (!res) return chatLine(renderMsg({ role: "assistant", text: "Couldn't start the session — is the server up?" }));
+  if (res.empty) return chatLine(renderMsg({ role: "assistant",
+    text: kind === "cram" ? "Nothing to cram in that scope." : "Nothing due right now — come back when the schedule says so." }));
+  RV.sid = res.session_id;
+  RV.kind = kind;
+  $("agentName").textContent = kind === "cram" ? "Cram session" : "Review session";
+  $("sessionLabel").textContent = `· ${res.card.total} card${res.card.total === 1 ? "" : "s"}`;
+  if (res.budget_capped) chatLine(renderMsg({ role: "assistant",
+    text: `Dealing ${res.card.total} of ${res.total_due} due — the rest wait, per your daily budget.` }));
+  showQuestion(res.card);
+};
+
+async function submitAnswer(text) {
+  if (!RV.sid || S.busy || !text.trim()) return;
+  S.busy = true;
   const confidence = S.pendingConf;
   S.pendingConf = null;
+  const latency_ms = S.qShownAt ? Date.now() - S.qShownAt : null;
+  chatLine(renderMsg({ role: "user", text, meta: confidence ? `confidence: ${confidence}` : "" }));
+  chatLine(`<div id="thinking" class="msg-row-bot"><div class="bubble-bot"><span class="status-line working">Grading…</span></div></div>`);
+  $("chatInput").value = "";
   renderConfRow();
-  // question shown -> answer sent, in ms; the server only keeps it for turns
-  // that actually produce a grade, so ordinary chat is a no-op
-  const latency_ms = S.qShownAt && S.state?.sessionActive ? Date.now() - S.qShownAt : null;
-
-  const startedAt = Date.now();
-  const elapsedTimer = setInterval(() => {
-    const el = document.getElementById("statusElapsed");
-    if (el) el.textContent = `${Math.round((Date.now() - startedAt) / 1000)}s`;
-  }, 1000);
-
-  const finish = (data) => {
-    clearInterval(elapsedTimer);
-    document.getElementById("thinking")?.remove();
-    (data.grades || []).forEach((g) => scroll.insertAdjacentHTML("beforeend", renderMsg(g)));
-    (data.pdfCards || []).forEach((p) => scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "pdfcard", pdf: p })));
-    if (data.agent) $("agentName").textContent = `${data.agent[0].toUpperCase()}${data.agent.slice(1)} specialist`;
-    scroll.insertAdjacentHTML("beforeend",
-      `<div class="msg-row-bot" id="typingRow"><div class="bubble-bot" id="typing"></div></div>`);
-    const el = document.getElementById("typing");
-    el.removeAttribute("id");
-    typewrite(el, data.reply || "", () => {
-      // final render through renderMsg so question-card markers become styled cards
-      const row = document.getElementById("typingRow");
-      if (row) row.outerHTML = renderMsg({ role: "assistant", text: data.reply || "" });
-      // a fresh question card starts the response-latency clock
-      S.qShownAt = CARD_RE.test(data.reply || "") ? Date.now() : S.qShownAt;
-      if (data.report) scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "report", report: data.report }));
-      scroll.scrollTop = scroll.scrollHeight;
-      S.busy = false;
-      fetchState();
-    });
-  };
-
-  try {
-    const res = await fetch("/api/chat/stream", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, display, agent, confidence, latency_ms }) });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    let finished = false;
-    while (!finished) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let sep;
-      while ((sep = buf.indexOf("\n\n")) >= 0) {
-        const chunk = buf.slice(0, sep).trim();
-        buf = buf.slice(sep + 2);
-        if (!chunk.startsWith("data: ")) continue;
-        const evt = JSON.parse(chunk.slice(6));
-        if (evt.type === "status") {
-          const line = document.getElementById("statusLine");
-          if (line) line.textContent = STATUS_LABELS[evt.tool] || `${evt.tool}…`;
-          scroll.scrollTop = scroll.scrollHeight;
-        } else if (evt.type === "agent") {
-          $("agentName").textContent = `${evt.agent[0].toUpperCase()}${evt.agent.slice(1)} specialist`;
-        } else if (evt.type === "done") {
-          finished = true;
-          finish(evt);
-        }
-      }
-    }
-    if (!finished) throw new Error("stream ended unexpectedly");
-  } catch (e) {
-    clearInterval(elapsedTimer);
-    document.getElementById("thinking")?.remove();
-    scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "assistant", text: `Connection error: ${e.message}` }));
-    scroll.scrollTop = scroll.scrollHeight;
-    S.busy = false;
-    fetchState();
-  }
+  const res = await fetch("/api/review/answer", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: RV.sid, answer: text, confidence, latency_ms }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  document.getElementById("thinking")?.remove();
+  S.busy = false;
+  if (!res) return chatLine(renderMsg({ role: "assistant", text: "Grading failed — send that answer again." }));
+  chatLine(renderMsg(res.grade));
+  if (res.entering_relearn) chatLine(renderMsg({ role: "assistant",
+    text: `Re-asking the ${res.relearn_count} you missed — retrieval practice only, not scored.` }));
+  if (res.done) return finishSession();
+  showQuestion(res.next);
 }
 
+window.skipCard = async () => {
+  if (!RV.sid || S.busy) return;
+  const res = await fetch("/api/review/skip", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: RV.sid }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  if (!res) return;
+  chatLine(renderMsg({ role: "assistant", text: "Skipped — it stays due." }));
+  if (res.entering_relearn) chatLine(renderMsg({ role: "assistant", text: "Re-asking this session's misses — not scored." }));
+  if (res.done) return finishSession();
+  showQuestion(res.next);
+};
+
+window.endSession = () => { if (RV.sid && !S.busy) finishSession(); };
+
+async function finishSession() {
+  const sid = RV.sid;
+  RV.sid = null;   // guard against double-end
+  const res = await fetch("/api/review/end", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sid }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  let html = "";
+  if (res) {
+    const s = res.summary;
+    html = renderMsg({ role: "assistant",
+      text: `Session done — ${s.cards} card${s.cards === 1 ? "" : "s"}${s.accuracy != null ? `, ${s.accuracy}% recall` : ""}.` });
+    if (res.report) html += renderMsg({ role: "report", report: res.report });
+  }
+  reviewIdle(html);
+}
+
+
 function renderConfRow() {
-  const st = S.state;
-  const show = !!(st && st.sessionActive);
-  $("confRow").style.display = show ? "flex" : "none";
-  document.querySelectorAll(".conf-btn").forEach((b) =>
+  const active = !!RV.sid;
+  $("sessionBar").style.display = active ? "flex" : "none";
+  $("confRow").style.display = active && RV.card?.phase !== "relearn" ? "flex" : "none";
+  document.querySelectorAll(".conf-btn[data-conf]").forEach((b) =>
     b.classList.toggle("picked", b.dataset.conf === S.pendingConf));
 }
 
@@ -998,10 +912,15 @@ function renderReadingHub() {
     ${selCourse ? `<span class="crumb-sep">›</span>
       <button class="crumb ${!selPdf ? "on" : ""}" onclick="readHub(${selCourse.id}, null)">${esc(selCourse.name)}</button>` : ""}
     ${selPdf ? `<span class="crumb-sep">›</span>
-      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>
-      <span style="flex:1"></span>
-      <button class="conf-btn ${S.editSplit ? "picked" : ""}" onclick="toggleEditSplit()">✎ Edit split</button>` : ""}
-  </div>`;
+      <span class="crumb on">${esc(selPdf.filename.replace(/\.pdf$/i, ""))}</span>` : ""}
+    <span style="flex:1"></span>
+    ${selPdf ? `<button class="conf-btn ${S.editSplit ? "picked" : ""}" onclick="toggleEditSplit()">✎ Edit split</button>` : ""}
+    ${!selPdf ? `<button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs — they segment and save automatically${selCourse ? ` into ${esc(selCourse.name)}` : "; you'll be asked for the course"}">＋ Add PDFs</button>` : ""}
+  </div>
+  ${S.ingesting ? `<div class="card" style="padding:12px 16px; margin-bottom:10px; display:flex; align-items:center; gap:10px">
+    <span class="pulse" style="width:8px; height:8px; border-radius:50%; background:#E69F00; animation:fbPulse 1.6s infinite"></span>
+    <span style="font-size:12.5px">Ingesting ${S.ingesting.done + 1} of ${S.ingesting.total}: <b>${esc(S.ingesting.current)}</b> — reading, splitting into topics, saving (~30–90s per file)</span>
+  </div>` : ""}`;
 
   let step;
   if (!selCourse) {
@@ -1073,7 +992,10 @@ function renderReadingHub() {
           <span style="display:block; font-size:12.5px; font-weight:600">${esc(t.title)}</span>
           <span style="display:block; font-size:11px; color:#8A8F9C; margin-top:2px">p.${t.pages} · ~${fmtMin(t.est_minutes)}</span>
         </span>
-        ${t.kind === "general" ? `<span class="info-tag">info</span>` : ""}
+        ${t.kind === "general" ? `<span class="info-tag">info</span>`
+          : t.cards_total ? `<span class="mono" style="font-size:10px; color:#8A8F9C; flex:none">${t.cards_total} cards</span>`
+          : `<button class="conf-btn" style="flex:none" title="Generate flashcards for this topic (~$0.05, ~30s)"
+              onclick="event.stopPropagation(); generateCards(${t.id}, this)">⚡ Cards</button>`}
         <span class="crumb-sep" title="Open the reader">›</span>
       </button>`).join("");
   }
@@ -1097,6 +1019,20 @@ window.toggleReadSel = (topicId) => {
 };
 
 window.toggleEditSplit = () => { S.editSplit = !S.editSplit; renderReadingHub(); };
+
+window.generateCards = async (topicId, btn) => {
+  btn.disabled = true;
+  btn.textContent = "Writing…";
+  const res = await fetch(`/api/topics/${topicId}/generate_cards`, { method: "POST" })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  if (!res) {
+    btn.textContent = "Failed — retry";
+    btn.disabled = false;
+    return;
+  }
+  btn.textContent = `+${res.inserted} ✓`;
+  fetchState();   // topic row now shows its card count; prune on the Cards screen
+};
 
 window.saveTopicEdit = async (topicId, btn) => {
   const row = btn.closest(".ts-row");
@@ -1440,8 +1376,7 @@ window.deletePdf = async (pdfId, encName) => {
 };
 window.startReview = () => {
   const cur = S.state?.current;
-  sendChat(cur ? `Review my due cards in "${cur.filename}" (pdf_id ${cur.pdf_id})`
-               : "Review my due cards");
+  startReviewSession(cur ? { pdf_id: cur.pdf_id } : {});
 };
 
 window.toggleFocus = async (kind) => {
@@ -1863,10 +1798,9 @@ $("doNext").onclick = () => {
   const best = S.state?.best;
   if (!best) return;
   S.pdfId = best.pdf_id;
-  S.view = "study";
-  fetchState().then(() => sendChat(`Review my due cards in the topic "${best.title}" (topic_id ${best.topic_id})`));
+  startReviewSession({ topic_id: best.topic_id });
 };
-/* ---- pdf upload (button + drag-and-drop onto the chat) ---- */
+/* ---- button ingest: upload → auto segment+save → fix with Edit split ---- */
 function xhrUpload(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -1889,70 +1823,47 @@ function xhrUpload(file, onProgress) {
 
 async function uploadPdfs(files) {
   const pdfs = [...files].filter((f) => f.name.toLowerCase().endsWith(".pdf"));
-  if (!pdfs.length || S.busy) return;
-  const btn = $("uploadBtn");
-  btn.disabled = true;
-  const scroll = $("chatScroll");
-  const paths = [];
-  try {
-    for (const file of pdfs) {
-      const id = `up-${Date.now()}`;
-      scroll.insertAdjacentHTML("beforeend", `
-        <div class="msg-row-user"><div class="bubble-user" style="min-width:240px">
-          <div style="font-size:12px; margin-bottom:7px">📎 ${esc(file.name)}
-            <span class="mono" style="font-size:10px; opacity:.7">(${(file.size / 1048576).toFixed(1)} MB)</span></div>
-          <div class="up-track"><div class="up-fill" id="${id}"></div></div>
-        </div></div>`);
-      scroll.scrollTop = scroll.scrollHeight;
-      const data = await xhrUpload(file, (pct) => {
-        const fill = document.getElementById(id);
-        if (fill) fill.style.width = `${pct}%`;
-      });
-      const fill = document.getElementById(id);
-      if (fill) fill.style.width = "100%";
-      paths.push(data.path);
-    }
-    const list = paths.map((p) => `"${p}"`).join(", ");
-    sendChat(paths.length === 1
-      ? `I've uploaded a PDF — ingest ${list}. Ask me which course it belongs to if you can't tell.`
-      : `I've uploaded ${paths.length} PDFs — ingest them one at a time, starting with the first: ${list}. Ask me which course they belong to.`);
-  } catch (e) {
-    const scroll = $("chatScroll");
-    scroll.insertAdjacentHTML("beforeend",
-      renderMsg({ role: "assistant", text: `Upload failed: ${e.message}` }));
-    scroll.scrollTop = scroll.scrollHeight;
+  if (!pdfs.length || S.ingesting) return;
+  // course: taken from the library context when you're inside one, asked otherwise
+  let course_id = null, course_name = null;
+  const selCourse = S.readNav.course != null
+    ? S.state?.libCourses.find((c) => c.id === S.readNav.course) : null;
+  if (selCourse) course_id = selCourse.id;
+  else {
+    course_name = (prompt("Which course do these documents belong to? (existing or new name)") || "").trim();
+    if (!course_name) { $("fileInput").value = ""; return; }
   }
-  btn.disabled = false;
+  S.ingesting = { done: 0, total: pdfs.length, current: "", failed: [] };
+  renderReadingHub();
+  for (const file of pdfs) {
+    S.ingesting.current = file.name;
+    renderReadingHub();
+    try {
+      const up = await xhrUpload(file, () => {});
+      const res = await fetch("/api/ingest_auto", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: up.path, course_id, course_name }) })
+        .then((r) => r.ok ? r.json() : null);
+      if (!res) S.ingesting.failed.push(file.name);
+      else if (res.course_id) { course_id = res.course_id; course_name = null; }
+    } catch { S.ingesting.failed.push(file.name); }
+    S.ingesting.done += 1;
+  }
+  const failed = S.ingesting.failed;
+  S.ingesting = null;
   $("fileInput").value = "";
+  await fetchState();
+  if (failed.length) alert(`These didn't ingest — try them again:\n${failed.join("\n")}`);
 }
 
-$("uploadBtn").onclick = () => $("fileInput").click();
 $("fileInput").addEventListener("change", (e) => uploadPdfs(e.target.files));
+window.pickPdfs = () => $("fileInput").click();
 
-const chatPane = document.querySelector(".chat");
-["dragenter", "dragover"].forEach((ev) => chatPane.addEventListener(ev, (e) => {
-  e.preventDefault();
-  chatPane.classList.add("dragging");
-}));
-["dragleave", "drop"].forEach((ev) => chatPane.addEventListener(ev, (e) => {
-  e.preventDefault();
-  chatPane.classList.remove("dragging");
-}));
-chatPane.addEventListener("drop", (e) => uploadPdfs(e.dataTransfer.files));
-
-$("sendBtn").onclick = () => sendChat($("chatInput").value);
+$("sendBtn").onclick = () => submitAnswer($("chatInput").value);
 $("chatInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendChat(e.target.value);
-  if (e.key === "Escape") $("cmdPalette").style.display = "none";
-  if (e.key === "Tab" && $("cmdPalette").style.display === "block") {
-    e.preventDefault();
-    const first = $("cmdPalette").querySelector(".cmd-item");
-    if (first) { e.target.value = first.dataset.cmd + " "; renderPalette(); }
-  }
+  if (e.key === "Enter") submitAnswer(e.target.value);
 });
-$("chatInput").addEventListener("input", renderPalette);
-$("chatInput").addEventListener("blur", () => setTimeout(() => { $("cmdPalette").style.display = "none"; }, 150));
-document.querySelectorAll(".conf-btn").forEach((b) => b.onclick = () => {
+document.querySelectorAll(".conf-btn[data-conf]").forEach((b) => b.onclick = () => {
   S.pendingConf = S.pendingConf === b.dataset.conf ? null : b.dataset.conf;
   renderConfRow();
 });

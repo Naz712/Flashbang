@@ -1,19 +1,18 @@
 """Flashbang web app — serves the v3 dashboard design (templates/index.html)
-and a small JSON API over the existing backend: orchestrator (chat), mastery
-(decay math), and the study log. Run: python server.py  →  http://localhost:5001
+and a JSON API over the backend. De-agented 2026-07-29: the app deals review
+cards itself and ingestion is a button; the only per-interaction model call
+left is the fast-tier grader. Run: python server.py  →  http://localhost:5002
 """
 
 import json
 import os
-import queue
-import threading
+import random
 from datetime import datetime, timedelta
-from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
+from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
 import mastery
 import stats as stats_module
-from orchestrator import Orchestrator
 from database import (
     get_courses, get_pdfs, get_pdf, get_mastery_inputs,
     get_due_forecast, get_time_by_course, get_topic_time_spent,
@@ -25,19 +24,27 @@ from database import (
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
+    start_session, end_session, review_card, undo_review,
+    save_topics, save_concepts, create_course, init_db,
 )
-from generation import parse_flashcards
+from generation import parse_flashcards, extract_topic_concepts, generate_cards_for_topic
+from grading import grade_answer
+from pdf_ingest import read_pdf, propose_topics
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload cap
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+init_db()   # was the orchestrator's job; the orchestrator is gone
 
-orchestrator = Orchestrator()
-chat_history = []       # display log: {role, text, grade, meta}
+chat_history = []       # review-surface display log: {role, text, grade, meta}
 grade_log = []          # {at: datetime, quality: int} — feeds focus-session recap
-session_grades = []     # qualities since the agent's start_study_session — feeds accuracy
+
+# live review sessions: the app deals, the user types, the grader grades.
+# session_id -> {"kind", "queue": [card rows], "i", "relearn": [], "phase",
+#                "grades": [], "scope": {...}}
+REVIEW = {}
 
 
 def fmt_min(minutes):
@@ -265,7 +272,7 @@ def state():
         "budget": {"daily_minutes": int(get_setting("daily_minutes", 0) or 0),
                    "sec_per_card": stats_module.seconds_per_card()},
         # drives the confidence widget — only review sessions ask for confidence
-        "sessionActive": orchestrator.session_active and orchestrator.pinned == "review",
+        "sessionActive": any(s["kind"] == "review" for s in REVIEW.values()),
     })
 
 
@@ -429,168 +436,200 @@ def _clean_latency(value):
     return int(value) if 0 < value < 30 * 60 * 1000 else None
 
 
-@app.post("/api/chat")
-def chat():
+# ---------------------------------------------------------------- review driver
+# The app deals the cards; the user types; the ONLY model call per answer is
+# the fast-tier grader (~$0.0002). No router, no agent loop, no history resend.
+
+def _deal_payload(sess, session_id):
+    i, queue = sess["i"], sess["queue"]
+    if i >= len(queue):
+        return None
+    card = queue[i]
+    return {"session_id": session_id, "card_id": card["id"],
+            "question": card["question"], "topic_title": card["topic_title"],
+            "n": i + 1, "total": len(queue),
+            "phase": sess["phase"]}
+
+
+def _q_entry(payload):
+    """History entry for a dealt question, in the marker format the UI styles."""
+    return {"role": "assistant", "grade": 0, "meta": "",
+            "text": f"[CARD {payload['n']}/{payload['total']} · {payload['topic_title']}]\n{payload['question']}"}
+
+
+@app.post("/api/review/start")
+def review_start():
     body = request.get_json(force=True)
-    message = (body.get("message") or "").strip()
-    confidence = body.get("confidence")
-    latency_ms = _clean_latency(body.get("latency_ms"))
-    if not message:
-        return jsonify({"error": "empty message"}), 400
+    kind = "cram" if body.get("kind") == "cram" else "review"
+    scope = {k: body.get(k) for k in ("course_id", "pdf_id", "topic_id") if body.get(k)}
+    if kind == "review":
+        due = [dict(r) for r in get_due_cards(**scope)]   # most overdue first
+        total_due = len(due)
+        budget = int(get_setting("daily_minutes", 0) or 0)
+        fit = max(1, int(budget * 60 / stats_module.seconds_per_card())) if budget else None
+        queue = due[:fit] if fit else due
+    else:
+        queue = [dict(r) for r in get_cards(**scope)]
+        random.shuffle(queue)
+        total_due, fit = len(queue), None
+    if not queue:
+        return jsonify({"empty": True, "kind": kind})
+    session_id = start_session(kind, course_id=scope.get("course_id"),
+                               pdf_id=scope.get("pdf_id"),
+                               topic_ids=[scope["topic_id"]] if kind == "cram" and scope.get("topic_id") else None)
+    REVIEW[session_id] = {"kind": kind, "queue": queue, "i": 0, "phase": "main",
+                          "relearn": [], "grades": []}
+    payload = _deal_payload(REVIEW[session_id], session_id)
+    chat_history.append(_q_entry(payload))
+    return jsonify({"session_id": session_id, "card": payload,
+                    "total_due": total_due,
+                    "budget_capped": bool(fit and total_due > len(queue))})
 
-    sent = message + (f" (my confidence before answering: {confidence})" if confidence else "")
-    chat_history.append({"role": "user", "text": message, "grade": 0,
+
+def _advance(sess, session_id):
+    """Next card, switching into the relearn phase when the main queue ends."""
+    sess["i"] += 1
+    if sess["i"] >= len(sess["queue"]):
+        if sess["phase"] == "main" and sess["relearn"]:
+            # successive relearning: re-ask this session's failures, unscored
+            sess["queue"] = sess["relearn"]
+            sess["relearn"] = []
+            sess["i"] = 0
+            sess["phase"] = "relearn"
+            return _deal_payload(sess, session_id), True
+        return None, False
+    return _deal_payload(sess, session_id), False
+
+
+@app.post("/api/review/answer")
+def review_answer():
+    body = request.get_json(force=True)
+    sess = REVIEW.get(body.get("session_id"))
+    if sess is None:
+        return jsonify({"error": "no such session"}), 404
+    session_id = body["session_id"]
+    card = sess["queue"][sess["i"]]
+    answer = (body.get("answer") or "").strip()
+    confidence = body.get("confidence") if body.get("confidence") in ("sure", "unsure") else None
+    if not answer:
+        return jsonify({"error": "empty answer"}), 400
+
+    grade = grade_answer(card["question"], card["answer"], answer, confidence)
+    meta = ""
+    if sess["phase"] == "main":
+        aid = log_answer(grade["quality"], confidence,
+                         latency_ms=_clean_latency(body.get("latency_ms")),
+                         gap=grade.get("gap"))
+        attach_card_to_answer(aid, card["id"])
+        grade_log.append({"at": datetime.now(), "quality": grade["quality"]})
+        sess["grades"].append(grade["quality"])
+        if sess["kind"] == "review":
+            meta = str(review_card(card["id"], grade["quality"]))
+        if grade["quality"] < 3:
+            sess["relearn"].append(card)
+    else:
+        meta = "relearning re-ask — not scored"
+
+    grade_entry = {"role": "grade", "grade": grade.get("quality", 0),
+                   "text": grade.get("feedback", ""), "meta": meta,
+                   "card_id": card["id"],
+                   "right": grade.get("right", ""), "gap": grade.get("gap", ""),
+                   "why": grade.get("why", ""), "hook": grade.get("hook", ""),
+                   "calibration": grade.get("calibration", ""),
+                   "answer": grade.get("correct_answer", card["answer"])}
+    chat_history.append({"role": "user", "text": answer, "grade": 0,
                          "meta": f"confidence: {confidence}" if confidence else ""})
+    chat_history.append(grade_entry)
 
-    grades_this_turn = []
-    saved_pdfs_this_turn = []
-    ended_sessions = []
+    nxt, entering_relearn = _advance(sess, session_id)
+    if nxt:
+        chat_history.append(_q_entry(nxt))
+    return jsonify({"grade": grade_entry, "next": nxt,
+                    "entering_relearn": entering_relearn,
+                    "relearn_count": len(sess["relearn"]) if entering_relearn else None,
+                    "done": nxt is None})
 
-    def on_tool(name, args, result):
-        if name == "grade_answer" and isinstance(result, dict):
-            grade_log.append({"at": datetime.now(), "quality": result["quality"]})
-            session_grades.append(result["quality"])
-            # confidence + latency apply to the attempt that produced the first grade of the turn
-            conf = confidence if not grades_this_turn else None
-            lat = latency_ms if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat,
-                                             gap=result.get("gap"))
-            grades_this_turn.append(result)
-        elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
-            saved_pdfs_this_turn.append(args.get("pdf_id"))
-        elif name == "review_card" and grades_this_turn:
-            grades_this_turn[-1]["meta"] = str(result)
-            if "answer_id" in grades_this_turn[-1] and "card_id" in args:
-                attach_card_to_answer(grades_this_turn[-1]["answer_id"], args["card_id"])
-        elif name == "start_study_session":
-            session_grades.clear()
-        elif name == "end_study_session" and isinstance(result, dict):
-            if session_grades:
-                passed = sum(1 for q in session_grades if q >= 3)
-                set_session_accuracy(result["session_id"],
-                                     round(passed / len(session_grades) * 100))
-            session_grades.clear()
-            ended_sessions.append(result["session_id"])
 
-    try:
-        reply = orchestrator.handle(sent, on_tool=on_tool)
-    except Exception as e:
-        reply = f"Something went wrong: {type(e).__name__}: {e}"
+@app.post("/api/review/skip")
+def review_skip():
+    body = request.get_json(force=True)
+    sess = REVIEW.get(body.get("session_id"))
+    if sess is None:
+        return jsonify({"error": "no such session"}), 404
+    nxt, entering_relearn = _advance(sess, body["session_id"])
+    if nxt:
+        chat_history.append(_q_entry(nxt))
+    return jsonify({"next": nxt, "entering_relearn": entering_relearn, "done": nxt is None})
 
-    pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
-    report = _build_session_report(ended_sessions[-1]) if ended_sessions else None
-    for g in grades_this_turn:
-        chat_history.append({"role": "grade", "text": g.get("feedback", ""),
-                             "grade": g.get("quality", 0), "meta": g.get("meta", "")})
-    for p in pdf_cards:
-        chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
-    chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
+
+@app.post("/api/review/undo")
+def review_undo():
+    body = request.get_json(force=True)
+    undo_review(body.get("card_id"))
+    return jsonify({"ok": True})
+
+
+@app.post("/api/review/end")
+def review_end():
+    body = request.get_json(force=True)
+    session_id = body.get("session_id")
+    sess = REVIEW.pop(session_id, None)
+    if sess is None:
+        return jsonify({"error": "no such session"}), 404
+    graded = len(sess["grades"])
+    end_session(session_id, cards_reviewed=graded if sess["kind"] == "cram" else None)
+    accuracy = None
+    if sess["grades"]:
+        accuracy = round(sum(1 for q in sess["grades"] if q >= 3) / graded * 100)
+        set_session_accuracy(session_id, accuracy)
+    report = _build_session_report(session_id)
+    summary = {"cards": graded, "accuracy": accuracy, "kind": sess["kind"]}
+    chat_history.append({"role": "assistant", "grade": 0, "meta": "",
+                         "text": f"Session done — {graded} cards"
+                                 + (f", {accuracy}% recall." if accuracy is not None else ".")})
     if report:
         chat_history.append({"role": "report", "report": report, "text": "", "grade": 0, "meta": ""})
-
-    return jsonify({"reply": reply, "grades": grades_this_turn, "pdfCards": pdf_cards,
-                    "report": report,
-                    "sessionActive": orchestrator.session_active,
-                    "agent": orchestrator.last_agent})
+    return jsonify({"summary": summary, "report": report})
 
 
-@app.post("/api/chat/stream")
-def chat_stream():
-    """SSE version of /api/chat: pushes live status events while the agent
-    works (tool starts, results), then the final reply. The front-end renders
-    the status line under the thinking indicator and types the reply out."""
+# ---------------------------------------------------------------- button ingest
+
+@app.post("/api/ingest_auto")
+def ingest_auto():
+    """The whole ingest pipeline behind one button: read pages → segment →
+    save. No conversation, no approval step — the Edit-split editor is the
+    correction tool afterwards."""
     body = request.get_json(force=True)
-    message = (body.get("message") or "").strip()
-    display = (body.get("display") or message).strip()   # raw "/command" for history
-    force_agent = body.get("agent")
-    confidence = body.get("confidence")
-    latency_ms = _clean_latency(body.get("latency_ms"))
-    if not message:
-        return jsonify({"error": "empty message"}), 400
+    path = body.get("path")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "file not found"}), 400
+    course_id = body.get("course_id")
+    if not course_id:
+        name = (body.get("course_name") or "").strip()
+        if not name:
+            return jsonify({"error": "course_id or course_name required"}), 400
+        existing = next((c for c in get_courses() if c["name"].lower() == name.lower()), None)
+        course_id = existing["id"] if existing else create_course(name)
+    result = read_pdf(path, course_id)
+    pdf_id = result["pdf_id"]
+    proposal = propose_topics(pdf_id)
+    save_topics(pdf_id, proposal["topics"])
+    return jsonify({"preview": _ingest_preview(pdf_id), "course_id": course_id})
 
-    sent = message + (f" (my confidence before answering: {confidence})" if confidence else "")
-    chat_history.append({"role": "user", "text": display, "grade": 0,
-                         "meta": f"confidence: {confidence}" if confidence else ""})
 
-    q = queue.Queue()
-    grades_this_turn = []
-    saved_pdfs_this_turn = []
-    ended_sessions = []
-
-    def on_event(msg):
-        # "[tool: name({...})]" fires BEFORE the tool runs — that's the status signal
-        if msg.startswith("[tool: "):
-            q.put({"type": "status", "tool": msg[7:].split("(", 1)[0]})
-        elif msg.startswith("[router -> "):
-            q.put({"type": "agent", "agent": msg[11:-1]})
-
-    def on_tool(name, args, result):
-        if name == "grade_answer" and isinstance(result, dict):
-            grade_log.append({"at": datetime.now(), "quality": result["quality"]})
-            session_grades.append(result["quality"])
-            conf = confidence if not grades_this_turn else None
-            lat = latency_ms if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat,
-                                             gap=result.get("gap"))
-            grades_this_turn.append(result)
-        elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
-            saved_pdfs_this_turn.append(args.get("pdf_id"))
-        elif name == "review_card" and grades_this_turn:
-            grades_this_turn[-1]["meta"] = str(result)
-            if "answer_id" in grades_this_turn[-1] and "card_id" in args:
-                attach_card_to_answer(grades_this_turn[-1]["answer_id"], args["card_id"])
-        elif name == "start_study_session":
-            session_grades.clear()
-        elif name == "end_study_session" and isinstance(result, dict):
-            if session_grades:
-                passed = sum(1 for g in session_grades if g >= 3)
-                set_session_accuracy(result["session_id"],
-                                     round(passed / len(session_grades) * 100))
-            session_grades.clear()
-            ended_sessions.append(result["session_id"])
-
-    def grade_entry(g):
-        # structured feedback fields (Hattie & Timperley-style sections) + fallback text
-        return {"role": "grade", "grade": g.get("quality", 0),
-                "text": g.get("feedback", ""), "meta": g.get("meta", ""),
-                "right": g.get("right", ""), "gap": g.get("gap", ""),
-                "why": g.get("why", ""), "hook": g.get("hook", ""),
-                "calibration": g.get("calibration", ""),
-                "answer": g.get("correct_answer", "")}
-
-    def worker():
-        try:
-            reply = orchestrator.handle(sent, on_event=on_event, on_tool=on_tool,
-                                        force_agent=force_agent)
-        except Exception as e:
-            reply = f"Something went wrong: {type(e).__name__}: {e}"
-        pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
-        report = _build_session_report(ended_sessions[-1]) if ended_sessions else None
-        for g in grades_this_turn:
-            chat_history.append(grade_entry(g))
-        for p in pdf_cards:
-            chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
-        chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
-        if report:
-            chat_history.append({"role": "report", "report": report, "text": "", "grade": 0, "meta": ""})
-        q.put({"type": "done", "reply": reply,
-               "grades": [grade_entry(g) for g in grades_this_turn],
-               "pdfCards": pdf_cards,
-               "report": report,
-               "sessionActive": orchestrator.session_active,
-               "agent": orchestrator.last_agent})
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def generate():
-        while True:
-            item = q.get()
-            yield f"data: {json.dumps(item)}\n\n"
-            if item["type"] == "done":
-                break
-
-    return Response(stream_with_context(generate()), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+@app.post("/api/topics/<int:topic_id>/generate_cards")
+def topics_generate_cards(topic_id):
+    """Concept extraction → notes (embedded for search) → cards, straight in.
+    Unwanted cards get pruned on the Cards screen afterwards."""
+    concepts = extract_topic_concepts(topic_id)
+    if not concepts:
+        return jsonify({"error": "no concepts found in this topic"}), 422
+    note_ids = save_concepts(topic_id, concepts)
+    cards = generate_cards_for_topic(topic_id, concepts, note_ids)
+    ids = [insert_card(topic_id=c["topic_id"], question=c["question"],
+                       answer=c["answer"], note_id=c.get("note_id")) for c in cards]
+    return jsonify({"inserted": len(ids), "concepts": len(concepts),
+                    "cards": [{"question": c["question"], "answer": c["answer"]} for c in cards]})
 
 
 @app.get("/api/pdf/<int:pdf_id>")
