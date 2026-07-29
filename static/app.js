@@ -10,6 +10,8 @@ const S = {
   pdfId: null,          // current doc
   navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
   readNav: { course: null, pdf: null },   // reading-library stepper position
+  reviewView: "decks",  // review screen: "decks" picker | "chat" live session
+  deckOpen: new Set(),  // expanded courses in the deck rail
   editSplit: false,     // reading library: topic-split editor on?
   readSel: new Set(),   // reading library: topics ticked for a merged PDF
   pendingConf: null,    // "sure" | "unsure" attached to next message
@@ -223,6 +225,75 @@ window.undoGrade = async (btn) => {
   else btn.disabled = false;
 };
 
+/* deck picker: courses drop down to documents; start a review on either,
+   or take today's recommended (all due, budget-capped) */
+function renderReviewHome() {
+  const st = S.state;
+  const home = $("reviewHome");
+  if (!st || S.view !== "study" || S.reviewView !== "decks") return;
+
+  const decks = st.libCourses.map((c) => {
+    const open = S.deckOpen.has(c.id);
+    const docs = open ? c.pdfs.map((p) => `
+      <div class="deck-doc">
+        <span class="deck-name" title="${esc(p.filename)}">${esc(p.filename.replace(/\.pdf$/i, ""))}</span>
+        <span class="deck-due ${p.due ? "" : "zero"}">${p.due} due</span>
+        <button class="deck-go" ${p.due ? "" : "disabled"} title="Review this document's due cards"
+          onclick="event.stopPropagation(); startReviewSession({ pdf_id: ${p.pdf_id} })">▶</button>
+      </div>`).join("") : "";
+    return `<div class="deck-course">
+      <div class="deck-head" onclick="toggleDeck(${c.id})">
+        <span class="deck-caret">${open ? "▾" : "▸"}</span>
+        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}; width:16px; height:16px; border-radius:5px"></span>
+        <span class="deck-name">${esc(c.name)}</span>
+        <span class="deck-due ${c.dueCount ? "" : "zero"}">${c.dueCount} due</span>
+        <button class="deck-go" ${c.dueCount ? "" : "disabled"} title="Review this course's due cards"
+          onclick="event.stopPropagation(); startReviewSession({ course_id: ${c.id} })">▶</button>
+      </div>${docs}
+    </div>`;
+  }).join("");
+
+  const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
+  const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : null;
+  const dealing = fit ? Math.min(fit, st.dueTotal) : st.dueTotal;
+  home.innerHTML = `
+    <div class="deck-rail">
+      <div class="mono-label" style="padding:2px 4px 4px">DECKS</div>
+      ${decks || `<div class="card" style="font-size:12px; color:#8A8F9C">No decks yet — add PDFs in the Reading tab.</div>`}
+    </div>
+    <div class="today-panel">
+      <div class="card" style="padding:20px 22px">
+        <div class="mono-label" style="margin-bottom:10px">TODAY'S REVIEW</div>
+        <div class="stat-num" style="color:${st.dueTotal ? LOW : "#00794F"}">${st.dueTotal}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> cards due</span></div>
+        <div class="stat-sub">${st.dueTotal === 0 ? "all caught up — nothing owed today"
+          : fit ? `dealing ${dealing} (your ${b.daily_minutes}-min budget · ~${b.sec_per_card}s/card)` : "no daily budget set — deals everything due"}</div>
+        <button class="btn-block" style="margin-top:14px" ${st.dueTotal ? "" : "disabled"}
+          onclick="startReviewSession({})">▶ Start today's review</button>
+        ${evidence("Due order = most at risk first; courses interleave naturally, which beats blocking (Rohrer &amp; Taylor, 2007).")}
+      </div>
+      ${st.best ? `<div class="card" style="padding:16px 20px">
+        <div class="mono-label" style="margin-bottom:8px">WEAKEST DUE TOPIC</div>
+        <div style="font-size:13px; font-weight:600">${esc(st.best.title)}</div>
+        <div class="stat-sub">${st.best.pct.toFixed(0)}% retention — most in need of a rep</div>
+        <button class="btn-block ghost" style="margin-top:10px" onclick="startReviewSession({ topic_id: ${st.best.topic_id} })">Review just this topic</button>
+      </div>` : ""}
+    </div>`;
+}
+
+window.toggleDeck = (courseId) => {
+  S.deckOpen.has(courseId) ? S.deckOpen.delete(courseId) : S.deckOpen.add(courseId);
+  renderReviewHome();
+};
+
+window.backToDecks = () => {
+  if (RV.sid) {
+    if (!confirm("End the session and go back to your decks?")) return;
+    endSession();
+  }
+  S.reviewView = "decks";
+  render();
+};
+
 /* ---------------------------------------------------------------- review driver */
 /* De-agented 2026-07-29: the app deals cards, you type answers, and the only
    model call per answer is the fast-tier grader. Skip / Undo / End are
@@ -261,7 +332,9 @@ function reviewIdle(extraHtml) {
 
 window.startReviewSession = async (scope = {}, kind = "review") => {
   if (RV.sid || S.busy) return;
-  S.view = "study"; render();
+  S.view = "study";
+  S.reviewView = "chat";   // the chat only appears once a review starts
+  render();
   S.busy = true;
   const res = await fetch("/api/review/start", { method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1323,6 +1396,10 @@ function render() {
   $("readingScreen").style.display = S.view === "reading" ? "block" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
   $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
+  // review screen: decks until a session starts, then the chat
+  $("reviewHome").style.display = S.reviewView === "decks" ? "flex" : "none";
+  $("chatPane").style.display = S.reviewView === "chat" ? "flex" : "none";
+  renderReviewHome();
   renderConfRow();
   renderRail();
   renderProgress();
@@ -1868,6 +1945,7 @@ document.querySelectorAll(".conf-btn[data-conf]").forEach((b) => b.onclick = () 
   renderConfRow();
 });
 
+$("backToDecks").onclick = () => backToDecks();
 $("navCollapse").onclick = toggleNav;
 $("sideNav").classList.toggle("closed", !S.navOpen);   // default: icons only
 $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";

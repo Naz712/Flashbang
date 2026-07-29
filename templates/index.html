@@ -44,11 +44,13 @@
   </nav>
 
   <main class="main">
-  <!-- study screen -->
+  <!-- review screen: deck picker when idle, chat when a session is live -->
   <div id="studyScreen" class="study">
-    <div class="chat">
+    <div id="reviewHome" class="review-home"></div>
+    <div class="chat" id="chatPane" style="display:none">
       <div class="chat-head">
         <div class="chat-head-left">
+          <button class="icon-btn" id="backToDecks" title="Back to your decks">‹ Decks</button>
           <span id="agentDot" class="agent-dot"></span>
           <span class="chat-title" id="agentName">Review</span>
           <span class="chat-sub" id="sessionLabel"></span>
