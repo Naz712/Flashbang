@@ -443,32 +443,9 @@ function flagTag(topicId) {
   return "";
 }
 
-function renderRail() {
-  // the old rail is gone: Study is chat-only, its cards live on Home
-  // (homeTopHTML) and the focus timer floats top-right on every screen
-  renderFocusFloat();
-}
-
-/* compact focus timer pinned top-right; hidden while the reader is open —
-   the reader's sidebar has its own block timer for the same clock */
-function renderFocusFloat() {
-  const el = $("focusFloat");
-  if ($("viewer").style.display !== "none") { el.innerHTML = ""; return; }
-  const active = !!S.focusStart;
-  const elapsed = active ? Math.floor((Date.now() - S.focusStart) / 60000) : 0;
-  el.innerHTML = active ? `
-    <div class="ff-card on" title="Focus session running — click ■ to end &amp; log">
-      <span class="pulse"></span>
-      <span class="mono" style="font-size:13px; font-weight:600"><span id="focusElapsed">${elapsed}</span><span style="color:#8A8F9C; font-size:10.5px"> / ${S.sessionLen}m</span></span>
-      <div class="ff-track"><div id="focusBar" style="height:100%; width:${Math.min(100, elapsed / S.sessionLen * 100)}%; background:#009E73; transition:width 1s linear"></div></div>
-      <button class="ff-btn" onclick="toggleFocus()" title="End session &amp; log it">■</button>
-    </div>` : `
-    <div class="ff-card idle" title="Focus session: hover for lengths, ▶ to start">
-      ${[15, 25, 45].map((m) => `<button class="ff-len ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}</button>`).join("")}
-      <span class="ff-current mono">${S.sessionLen}m</span>
-      <button class="ff-btn" onclick="toggleFocus()" title="Start a ${S.sessionLen}-minute focus session">▶</button>
-    </div>`;
-}
+/* The old right rail and the floating timer pill are both gone. Study blocks
+   are started from the reader's sidebar (reading) and review sessions log
+   their own time — nothing needs to hover over the app. */
 
 /* ---------------------------------------------------------------- progress */
 
@@ -1473,7 +1450,7 @@ function render() {
   renderCoursePage();
   renderReviewHome();
   renderConfRow();
-  renderRail();
+
   renderProgress();
   if (S.view === "cards") renderCardsScreen();
 }
@@ -1491,7 +1468,7 @@ window.toggleNav = () => {
   $("sideNav").classList.toggle("closed", !S.navOpen);
   $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
 };
-window.pickLen = (m) => { S.sessionLen = m; renderRail(); renderReadSide(); };
+window.pickLen = (m) => { S.sessionLen = m; renderReadSide(); };
 window.dismissRecap = () => { S.recap = null; renderProgress(); };
 
 window.setBudget = async (minutes) => {
@@ -1569,7 +1546,7 @@ window.toggleFocus = async (kind) => {
       if (rb) rb.style.width = `${Math.min(100, elapsedSec / (S.sessionLen * 60) * 100)}%`;
       if (elapsed >= S.sessionLen) window.toggleFocus();   // auto-end at target
     }, 1000);
-    renderRail();
+
     renderReadSide();
   }
 };
@@ -1827,7 +1804,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   AN.pending = null;
   AN.pendingText = "";
   syncModes();
-  renderFocusFloat();   // hide the corner timer — the reader sidebar takes over
+
   const [boxes, anns] = await Promise.all([
     fetch(`/api/occlusions/${pdfId}`).then((r) => r.json()).catch(() => []),
     fetch(`/api/annotations/${pdfId}`).then((r) => r.json()).catch(() => []),
@@ -1926,7 +1903,7 @@ $("blackoutReveal").onclick = () => {
   syncModes();
 };
 
-window.closeViewer = () => { $("viewer").style.display = "none"; renderFocusFloat(); };
+window.closeViewer = () => { $("viewer").style.display = "none"; };
 $("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
 document.addEventListener("keydown", (e) => {
   if ($("viewer").style.display === "none") return;

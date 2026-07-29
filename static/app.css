@@ -67,30 +67,7 @@ a:hover { color: #005A8E; text-decoration: underline; }
 .deck-doc .deck-name { font-size: 12px; font-weight: 500; color: #5C616E; }
 .today-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 
-/* home: the former rail cards sit in a grid above the analytics */
-.home-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
 
-/* floating focus timer — fixed top right, every screen */
-.focus-float { position: fixed; right: 24px; top: 14px; z-index: 60; }
-.ff-card { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #E3E3DE;
-  border-radius: 999px; box-shadow: 0 6px 22px rgba(16,18,24,.14); padding: 8px 10px 8px 14px; }
-.ff-card.on { border-color: #9BD4BE; }
-.ff-card .pulse { width: 7px; height: 7px; border-radius: 50%; background: #009E73;
-  animation: fbPulse 1.6s infinite; flex: none; }
-.ff-track { width: 64px; height: 5px; border-radius: 3px; background: #ECECE8; overflow: hidden; }
-.ff-len { border: 1px solid #E3E3DE; background: #fff; border-radius: 999px; padding: 4px 9px;
-  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #5C616E; cursor: pointer; }
-.ff-len.on { background: #1C1E26; border-color: #1C1E26; color: #fff; }
-/* idle: a small pill (len + play); duration chips only appear on hover */
-.ff-card.idle { opacity: .75; }
-.ff-card.idle:hover { opacity: 1; }
-.ff-card.idle .ff-len { display: none; }
-.ff-card.idle:hover .ff-len { display: inline-block; }
-.ff-card.idle:hover .ff-current { display: none; }
-.ff-current { font-size: 11px; color: #5C616E; }
-.ff-btn { border: none; border-radius: 999px; width: 30px; height: 30px; cursor: pointer;
-  background: #1C1E26; color: #fff; font-size: 11px; flex: none; }
-.ff-btn:hover { opacity: .85; }
 
 /* assistant bubble + panel (bottom right) */
 .asst-bubble { position: fixed; right: 24px; bottom: 22px; z-index: 60; width: 44px; height: 44px;
