@@ -163,6 +163,28 @@ insert date assert used UTC while the server schedules in local (+08) time.
   pdf estimate resync, double-delete rejected) — covered in check_db.
   All nine offline suites pass.
 
+### 2026-07-29 — session gap report (the hand-in-hand pivot) + tier-4 cull
+Naz's token strategy: the in-app agent only grades and diagnoses; the
+EXPLAINING moves to an external tutor chat via a copyable report.
+- Review agent prompt tightened: after a grade card, at most a 2-4 word
+  transition; session summary max 3 lines. Output tokens per review turn
+  drop accordingly.
+- answer_log gains `gap` (the grader's one-line diagnosis). After /end the
+  chat renders a SESSION REPORT card: missed cards with gap text, 📖
+  buttons that open the reader AT the source pages (note range preferred,
+  topic range fallback), and "⧉ Copy tutor prompt" — a deterministic,
+  zero-LLM prompt (what was covered, what was missed and why, coach-me
+  instructions) to paste into Claude/ChatGPT. GET /api/session_report
+  rebuilds it any time.
+- BUG FOUND by the render test: encodeURIComponent leaves apostrophes
+  unescaped, so inline onclick handlers broke for titles like
+  "'self' & Constructors" — the library click on that REAL topic was
+  silently dead. Fixed with an encT helper across all title onclicks;
+  verified the apostrophe topic now opens from both library and report.
+- Offline: gap round-trip + window-matched report data in check_db; live:
+  report card renders, 📖 opens p.8-12 correctly, copy path stores text,
+  endpoint 404s honestly when a session has no linked graded answers.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:

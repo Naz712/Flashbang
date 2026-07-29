@@ -217,6 +217,11 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='latency_ms'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE answer_log ADD COLUMN latency_ms INTEGER")
+    # the grader's one-line gap diagnosis, kept so session reports can say
+    # WHAT was missing, not just that the card was missed
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('answer_log') WHERE name='gap'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE answer_log ADD COLUMN gap TEXT")
     # 'content' = real course material; 'general' = admin/logistics/intro pages
     # (kept for page coverage, excluded from completion math and card-making)
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topics') WHERE name='kind'")
@@ -1088,12 +1093,12 @@ def get_upcoming_reviews(days=7):
     return rows
 
 
-def log_answer(quality, confidence=None, card_id=None, latency_ms=None):
+def log_answer(quality, confidence=None, card_id=None, latency_ms=None, gap=None):
     """Record one graded recall attempt (feeds calibration + 85%-rule flags)."""
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO answer_log (at, card_id, quality, confidence, latency_ms) VALUES (?, ?, ?, ?, ?)",
-                   (now_iso(), card_id, quality, confidence, latency_ms))
+    cursor.execute("INSERT INTO answer_log (at, card_id, quality, confidence, latency_ms, gap) VALUES (?, ?, ?, ?, ?, ?)",
+                   (now_iso(), card_id, quality, confidence, latency_ms, gap or None))
     answer_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -1130,6 +1135,44 @@ def attach_card_to_answer(answer_id, card_id):
                    (card_id, ratio, answer_id))
     conn.commit()
     conn.close()
+
+
+def get_session_report_data(session_id=None):
+    """One ENDED review/cram session (latest by default) plus its graded
+    answers joined to cards/topics/pdfs — the raw material for the session
+    gap report. Answers are matched by the session's time window, same as
+    the accuracy derivation. Page refs prefer the card's source note."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    if session_id:
+        cursor.execute("SELECT * FROM study_sessions WHERE id = ?", (session_id,))
+    else:
+        cursor.execute("""SELECT * FROM study_sessions
+                          WHERE ended_at IS NOT NULL AND kind IN ('review', 'cram')
+                          ORDER BY id DESC LIMIT 1""")
+    session = cursor.fetchone()
+    if session is None or not session["ended_at"]:
+        conn.close()
+        return None, []
+    cursor.execute("""
+        SELECT answer_log.quality, answer_log.confidence, answer_log.gap,
+               cards.id AS card_id, cards.question, cards.answer,
+               topics.title AS topic_title,
+               COALESCE(notes.page_start, topics.page_start) AS page_start,
+               COALESCE(notes.page_end, topics.page_end) AS page_end,
+               cards.pdf_id, pdfs.filename, courses.name AS course_name
+        FROM answer_log
+        JOIN cards      ON cards.id   = answer_log.card_id
+        JOIN topics     ON topics.id  = cards.topic_id
+        LEFT JOIN notes ON notes.id   = cards.note_id
+        JOIN pdfs       ON pdfs.id    = cards.pdf_id
+        JOIN courses    ON courses.id = cards.course_id
+        WHERE answer_log.at BETWEEN ? AND ?
+        ORDER BY answer_log.at
+    """, (session["started_at"], session["ended_at"]))
+    rows = cursor.fetchall()
+    conn.close()
+    return session, rows
 
 
 def set_exam_date(course_id, exam_date):

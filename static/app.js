@@ -29,6 +29,9 @@ const S = {
 };
 
 const $ = (id) => document.getElementById(id);
+// for titles inside inline onclick='...' strings: encodeURIComponent leaves
+// apostrophes alone, which breaks the attribute for titles like "'self'"
+const encT = (s) => encodeURIComponent(s ?? "").replace(/'/g, "%27");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -148,6 +151,34 @@ function renderMsg(m) {
       <div style="display:flex; flex-direction:column; gap:6px">${rows}</div>
     </div></div>`;
   }
+  // session gap report: what was missed, where to re-read, what to paste
+  // into an external tutor chat — the token-heavy explaining happens THERE
+  if (m.role === "report" && m.report) {
+    const rep = m.report;
+    window.__reports = window.__reports || {};
+    window.__reports[rep.session_id] = rep.text;
+    const missedRows = rep.missed.map((it, i) => `
+      <div class="gsec g-gap" style="align-items:flex-start">
+        <span class="gsec-label" style="flex:none">${i + 1}</span>
+        <span style="flex:1">
+          <b>${esc(it.question)}</b><br>
+          <span style="color:#5C616E">Expected: ${esc(it.answer)}</span>
+          ${it.gap ? `<br><span style="color:#8A3B00">Gap: ${esc(it.gap)}</span>` : ""}
+        </span>
+        <button class="conf-btn" style="flex:none" title="Open ${esc(it.topic_title)} at these pages in the reader"
+          onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}')">📖 p.${it.page_start}–${it.page_end}</button>
+      </div>`).join("");
+    return `<div class="msg-row-bot"><div class="gcard ${rep.missed.length ? "warn" : "good"}" style="max-width:min(85%, 820px)">
+      <div class="gcard-head ${rep.missed.length ? "warn" : "good"}">
+        <span class="gcard-pill ${rep.missed.length ? "warn" : "good"}">SESSION REPORT</span>
+        <span class="gcard-verdict">${rep.cards} cards · ${rep.accuracy != null ? rep.accuracy + "% recall · " : ""}${rep.missed.length} gap${rep.missed.length === 1 ? "" : "s"}</span>
+        <span style="flex:1"></span>
+        <button class="conf-btn" onclick="copyReport(${rep.session_id}, this)"
+          title="Copy a ready-made coaching prompt — paste it into Claude/ChatGPT and let THEM burn the tokens explaining">⧉ Copy tutor prompt</button>
+      </div>
+      ${rep.missed.length ? missedRows : `<div style="padding:12px 16px; font-size:13px">Clean sweep — nothing to re-study from this session.</div>`}
+    </div></div>`;
+  }
   // assistant: question marker → styled card (plain bubble for any lead-in text)
   const match = m.text.match(CARD_RE);
   if (match) {
@@ -166,6 +197,20 @@ function renderMsg(m) {
   }
   return `<div class="msg-row-bot"><div class="bubble-bot">${md(m.text)}</div></div>`;
 }
+
+window.copyReport = async (sessionId, btn) => {
+  let text = window.__reports?.[sessionId];
+  if (!text) {
+    const rep = await fetch(`/api/session_report?session_id=${sessionId}`).then((r) => r.ok ? r.json() : null);
+    text = rep?.text;
+  }
+  if (!text) { alert("Report unavailable."); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = "Copied ✓";
+    setTimeout(() => { btn.textContent = "⧉ Copy tutor prompt"; }, 1800);
+  } catch { alert("Clipboard blocked — try again after clicking the page."); }
+};
 
 window.undoGrade = (btn) => {
   document.querySelectorAll(".undo-btn").forEach((b) => (b.disabled = true));
@@ -330,6 +375,7 @@ async function sendChat(text) {
       if (row) row.outerHTML = renderMsg({ role: "assistant", text: data.reply || "" });
       // a fresh question card starts the response-latency clock
       S.qShownAt = CARD_RE.test(data.reply || "") ? Date.now() : S.qShownAt;
+      if (data.report) scroll.insertAdjacentHTML("beforeend", renderMsg({ role: "report", report: data.report }));
       scroll.scrollTop = scroll.scrollHeight;
       S.busy = false;
       fetchState();
@@ -450,7 +496,7 @@ function homeTopHTML(st) {
     <div style="display:flex; flex-direction:column; gap:4px">
       ${sorted.map((t) => `
       <div class="topic-row" style="cursor:pointer" title="Open pages ${t.pages}"
-           onclick="openTopic(${cur.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
+           onclick="openTopic(${cur.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
         <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
         <div style="flex:1; min-width:0">
           <div class="topic-title">${esc(t.title)}</div>
@@ -567,7 +613,7 @@ function renderProgress() {
       const d = deltaBits(p.delta);
       const topicRows = p.topics.map((t) => `
         <div class="trow" style="cursor:pointer" title="Open pages ${t.pages}"
-             onclick="event.stopPropagation(); openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
+             onclick="event.stopPropagation(); openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
           <span class="dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
           <span class="name">${esc(t.title)}</span>
           ${t.kind === "general" ? `<span class="info-tag" title="General info (admin/logistics) — no cards, not counted in completion">info</span>` : ""}
@@ -584,7 +630,7 @@ function renderProgress() {
           </div>
           <span class="badge" style="background:${bg}; color:${fg}">${badge}</span>
           <button class="pdf-del" title="Delete this document (topics, cards, and schedule included)"
-            onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encodeURIComponent(p.filename)}')">✕</button>
+            onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encT(p.filename)}')">✕</button>
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
           <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${p.completion_pct}%; background:${retColor(p.completion_pct)}"></div></div>
@@ -1007,7 +1053,7 @@ function renderReadingHub() {
         <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
         <button class="conf-btn" title="Split this topic into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
         <button class="pdf-del" title="Delete this topic, its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}, and its notes"
-          onclick="deleteTopicAsk(${t.id}, '${encodeURIComponent(t.title)}', ${t.cards_total})">✕</button>
+          onclick="deleteTopicAsk(${t.id}, '${encT(t.title)}', ${t.cards_total})">✕</button>
       </div>`;
       }).join("");
   } else {
@@ -1019,7 +1065,7 @@ function renderReadingHub() {
          href="/api/pdf/${selPdf.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
         ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF (p.${sel.map((t) => t.pages).join(", ")})</a>` : "";
     step = mergedBar + selPdf.topics.map((t) => `
-      <button class="pick-card" onclick="openTopic(${selPdf.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encodeURIComponent(t.title)}')">
+      <button class="pick-card" onclick="openTopic(${selPdf.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
         <input type="checkbox" class="rt-check" title="Tick topics, then download them together as one PDF"
           onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
         <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>

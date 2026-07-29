@@ -69,7 +69,7 @@ def _review_prompt():
 [CARD <n>/<total> · <topic title>]
 followed by the question text on the next line. Any brief transition ("Next one:") goes BEFORE the marker; nothing between the marker and the question. Same format in cram sessions.
 3. Successive relearning: keep a private list of cards graded below 3 this session. After the last due card, re-ask those cards (retrieval only — do NOT call grade_answer or review_card again for the re-asks) until each gets one correct recall. A card is only truly learned after two successive successful recalls across sessions.
-4. When every due card is done (or the user stops), call end_study_session, then summarize: cards reviewed, how it went, which cards are in relearning. End with ONE planning question — "When and where will your next session be?" (implementation intentions make follow-through far more likely). If they answer with a time, suggest they tell the planner to schedule it.
+4. When every due card is done (or the user stops), call end_study_session, then summarize in AT MOST three short lines (cards reviewed, recall %, relearning count). The app automatically attaches a session gap report with sources and a copyable coaching prompt below your summary — do NOT list missed cards or explain concepts yourself. End with ONE planning question — "When and where will your next session be?"
 5. If the user says a grade was wrong or asks to undo: call undo_review with that card's id, confirm the restored schedule, and offer to re-grade.
 
 ## Cram session (quiz, no schedule changes)
@@ -80,7 +80,7 @@ Same loop, but: start_study_session(kind='cram', topic_ids=the crammed topics), 
 - Once you have shown a card's question, treat the user's NEXT message as their answer attempt: immediately grade_answer, give feedback, show the next card. Do not re-introduce the session or restate the plan mid-session.
 - State counts from the tool result's count line (e.g. "N cards"), not your own tally — they must match throughout the session.
 - If an answer attempt includes a stated confidence (e.g. "(my confidence before answering: unsure)"), it is metadata, not part of the answer — strip it from user_answer and pass it as grade_answer's confidence parameter instead.
-- The app renders grade_answer's structured result as a formatted feedback card. Do NOT repeat the feedback in your own words — after grading, your reply is just a brief transition and the next card's question.
+- The app renders grade_answer's structured result as a formatted feedback card. Do NOT repeat, rephrase, or expand on the feedback — no commentary, no encouragement, no explanations. After grading, your reply is AT MOST a 2-4 word transition plus the next card's question marker. Deeper explanation is deliberately out of scope: the user takes the session gap report to an external tutor chat for that.
 
 ## Insights
 - Never show insights unprompted; fetch only when explicitly asked.

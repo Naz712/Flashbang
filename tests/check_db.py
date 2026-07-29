@@ -232,5 +232,18 @@ database.set_session_accuracy(sid, 83)
 row = next(r for r in database.get_study_log() if r["id"] == sid)
 assert row["accuracy"] == 83
 
+# --- session gap report data: window-matched answers, gap text, source pages
+rsid = database.start_session("review", course_id=course2)
+aid = database.log_answer(2, "sure", latency_ms=5000, gap="Mixed up modifiers with encapsulation")
+database.attach_card_to_answer(aid, cid)
+database.end_session(rsid, cards_reviewed=1)
+sess, rows = database.get_session_report_data(rsid)
+assert sess["id"] == rsid and len(rows) >= 1
+mine = next(r for r in rows if r["gap"] == "Mixed up modifiers with encapsulation")
+assert mine["question"] == "Q?" and mine["quality"] == 2
+assert mine["page_start"] == 1 and mine["page_end"] == 2, "topic range when card has no note"
+sess2, _ = database.get_session_report_data()   # latest-ended default
+assert sess2["id"] == rsid
+
 os.unlink(tmp.name)
 print("check_db: ALL PASSED")

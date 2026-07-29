@@ -24,7 +24,7 @@ from database import (
     save_occlusion, get_occlusions, delete_occlusion,
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
-    update_topic, split_topic, delete_topic,
+    update_topic, split_topic, delete_topic, get_session_report_data,
 )
 from generation import parse_flashcards
 
@@ -371,6 +371,56 @@ def _ingest_preview(pdf_id):
                         "kind": t["kind"] or "content"} for t in topics]}
 
 
+def _build_session_report(session_id=None):
+    """The take-it-to-a-tutor gap report for an ended session: what was
+    covered, what was missed (with the grader's gap diagnosis and source
+    pages), and a coaching prompt — assembled deterministically, zero LLM
+    calls. The whole point is spending the user's tokens OUTSIDE the app."""
+    session, rows = get_session_report_data(session_id)
+    if session is None or not rows:
+        return None
+    missed = [r for r in rows if r["quality"] <= 3]
+    passed = [r for r in rows if r["quality"] > 3]
+    courses = sorted({r["course_name"] for r in rows})
+    acc = session["accuracy"]
+
+    lines = [f"I just finished a {session['kind']} flashcard session on {', '.join(courses)}: "
+             f"{len(rows)} cards" + (f", {round(acc)}% recall." if acc is not None else ".")]
+    if missed:
+        lines += ["", "Cards I missed or only partly got:"]
+        for i, r in enumerate(missed, 1):
+            lines.append(f"{i}. [{r['filename']} p.{r['page_start']}-{r['page_end']} · {r['topic_title']}] "
+                         f"Q: {r['question']}")
+            lines.append(f"   Expected answer: {r['answer']}")
+            if r["gap"]:
+                lines.append(f"   My gap: {r['gap']}")
+            if r["confidence"]:
+                lines.append(f"   (I felt {r['confidence']} before answering)")
+    if passed:
+        lines += ["", "For context, I answered these correctly:"]
+        lines += [f"- {r['question']}" for r in passed]
+    lines += ["", "Please coach me on the missed items: 1) explain each underlying concept simply and "
+                  "connect them to each other, 2) give me one memorable hook per concept, 3) then quiz "
+                  "me with three fresh questions that test the same ideas from different angles."]
+    return {
+        "session_id": session["id"], "kind": session["kind"],
+        "cards": len(rows), "accuracy": acc, "passed_count": len(passed),
+        "missed": [{"card_id": r["card_id"], "question": r["question"], "answer": r["answer"],
+                    "gap": r["gap"], "confidence": r["confidence"],
+                    "topic_title": r["topic_title"], "pdf_id": r["pdf_id"],
+                    "page_start": r["page_start"], "page_end": r["page_end"]} for r in missed],
+        "text": "\n".join(lines),
+    }
+
+
+@app.get("/api/session_report")
+def session_report():
+    report = _build_session_report(request.args.get("session_id", type=int))
+    if report is None:
+        return jsonify({"error": "no ended session with graded answers"}), 404
+    return jsonify(report)
+
+
 def _clean_latency(value):
     """Client-reported ms from question shown to answer sent. Reject anything
     non-numeric, non-positive, or over 30 min (stale tab, walked away)."""
@@ -394,6 +444,7 @@ def chat():
 
     grades_this_turn = []
     saved_pdfs_this_turn = []
+    ended_sessions = []
 
     def on_tool(name, args, result):
         if name == "grade_answer" and isinstance(result, dict):
@@ -402,7 +453,8 @@ def chat():
             # confidence + latency apply to the attempt that produced the first grade of the turn
             conf = confidence if not grades_this_turn else None
             lat = latency_ms if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
+            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat,
+                                             gap=result.get("gap"))
             grades_this_turn.append(result)
         elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
             saved_pdfs_this_turn.append(args.get("pdf_id"))
@@ -418,6 +470,7 @@ def chat():
                 set_session_accuracy(result["session_id"],
                                      round(passed / len(session_grades) * 100))
             session_grades.clear()
+            ended_sessions.append(result["session_id"])
 
     try:
         reply = orchestrator.handle(sent, on_tool=on_tool)
@@ -425,14 +478,18 @@ def chat():
         reply = f"Something went wrong: {type(e).__name__}: {e}"
 
     pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
+    report = _build_session_report(ended_sessions[-1]) if ended_sessions else None
     for g in grades_this_turn:
         chat_history.append({"role": "grade", "text": g.get("feedback", ""),
                              "grade": g.get("quality", 0), "meta": g.get("meta", "")})
     for p in pdf_cards:
         chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
     chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
+    if report:
+        chat_history.append({"role": "report", "report": report, "text": "", "grade": 0, "meta": ""})
 
     return jsonify({"reply": reply, "grades": grades_this_turn, "pdfCards": pdf_cards,
+                    "report": report,
                     "sessionActive": orchestrator.session_active,
                     "agent": orchestrator.last_agent})
 
@@ -458,6 +515,7 @@ def chat_stream():
     q = queue.Queue()
     grades_this_turn = []
     saved_pdfs_this_turn = []
+    ended_sessions = []
 
     def on_event(msg):
         # "[tool: name({...})]" fires BEFORE the tool runs — that's the status signal
@@ -472,7 +530,8 @@ def chat_stream():
             session_grades.append(result["quality"])
             conf = confidence if not grades_this_turn else None
             lat = latency_ms if not grades_this_turn else None
-            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat)
+            result["answer_id"] = log_answer(result["quality"], conf, latency_ms=lat,
+                                             gap=result.get("gap"))
             grades_this_turn.append(result)
         elif name == "save_topics" and args.get("pdf_id") not in saved_pdfs_this_turn:
             saved_pdfs_this_turn.append(args.get("pdf_id"))
@@ -488,6 +547,7 @@ def chat_stream():
                 set_session_accuracy(result["session_id"],
                                      round(passed / len(session_grades) * 100))
             session_grades.clear()
+            ended_sessions.append(result["session_id"])
 
     def grade_entry(g):
         # structured feedback fields (Hattie & Timperley-style sections) + fallback text
@@ -505,14 +565,18 @@ def chat_stream():
         except Exception as e:
             reply = f"Something went wrong: {type(e).__name__}: {e}"
         pdf_cards = [p for p in (_ingest_preview(pid) for pid in saved_pdfs_this_turn) if p]
+        report = _build_session_report(ended_sessions[-1]) if ended_sessions else None
         for g in grades_this_turn:
             chat_history.append(grade_entry(g))
         for p in pdf_cards:
             chat_history.append({"role": "pdfcard", "pdf": p, "text": "", "grade": 0, "meta": ""})
         chat_history.append({"role": "assistant", "text": reply, "grade": 0, "meta": ""})
+        if report:
+            chat_history.append({"role": "report", "report": report, "text": "", "grade": 0, "meta": ""})
         q.put({"type": "done", "reply": reply,
                "grades": [grade_entry(g) for g in grades_this_turn],
                "pdfCards": pdf_cards,
+               "report": report,
                "sessionActive": orchestrator.session_active,
                "agent": orchestrator.last_agent})
 
