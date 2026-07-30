@@ -685,7 +685,7 @@ def ingest_auto():
             return jsonify({"error": "course_id or course_name required"}), 400
         existing = next((c for c in get_courses() if c["name"].lower() == name.lower()), None)
         course_id = existing["id"] if existing else create_course(name)
-    result = read_pdf(path, course_id)
+    result = read_pdf(path, course_id, force_vision=bool(body.get("force_vision")))
     pdf_id = result["pdf_id"]
     proposal = propose_topics(pdf_id)
     save_topics(pdf_id, proposal["topics"])

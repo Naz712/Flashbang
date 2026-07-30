@@ -150,7 +150,20 @@ def _parse_page_markers(text, expected_pages):
             if n in set(expected_pages) and t and t != "[EMPTY]"}
 
 
-def read_pdf(pdf_path, course_id):
+def pages_needing_vision(pages, force_vision=False):
+    """Which pages to send to the vision model.
+
+    Default: only pages whose local text extraction came back sparse — those
+    are scanned or diagram-only. NOTE the known limit: a slide carrying a big
+    diagram AND a paragraph of text passes the threshold, so its diagram is
+    never read. force_vision=True is the escape hatch for decks like that —
+    it reads every page as an image, at roughly $0.11 per 8 pages."""
+    if force_vision:
+        return [p["page_number"] for p in pages]
+    return [p["page_number"] for p in pages if len(p["text"]) < SPARSE_THRESHOLD]
+
+
+def read_pdf(pdf_path, course_id, force_vision=False):
     """Agent entry point: register the pdf, extract every page (pypdf + vision
     fallback for sparse pages), persist to pdf_pages. Returns ingestion stats."""
     if not os.path.exists(pdf_path):
@@ -160,7 +173,7 @@ def read_pdf(pdf_path, course_id):
     pdf_id = create_pdf(course_id, os.path.basename(pdf_path),
                         file_path=os.path.abspath(pdf_path), total_pages=len(pages))
 
-    sparse = [p["page_number"] for p in pages if len(p["text"]) < SPARSE_THRESHOLD]
+    sparse = pages_needing_vision(pages, force_vision)
     if sparse:
         vision_texts = vision_extract_pages(pdf_path, sparse)
         for p in pages:

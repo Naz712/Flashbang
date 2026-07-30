@@ -74,5 +74,16 @@ assert sp["days"][-1]["usd"] > 0 and sp["days"][0]["usd"] == 0
 # --- a logging failure must never break the caller
 database.log_llm_call("weird", None, None, None, None)   # tolerated, no raise
 
+# --- vision page selection: sparse-only by default, everything when forced
+from pdf_ingest import pages_needing_vision, SPARSE_THRESHOLD
+sample = [
+    {"page_number": 1, "text": ""},                        # blank / scanned
+    {"page_number": 2, "text": "x" * (SPARSE_THRESHOLD - 1)},   # sparse
+    {"page_number": 3, "text": "x" * (SPARSE_THRESHOLD + 500)}, # text-rich
+]
+assert pages_needing_vision(sample) == [1, 2], "only sparse pages by default"
+assert pages_needing_vision(sample, force_vision=True) == [1, 2, 3], "forced = every page"
+assert pages_needing_vision([], force_vision=True) == []
+
 os.unlink(tmp.name)
 print("check_spend: ALL PASSED")

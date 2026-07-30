@@ -10,6 +10,9 @@ const S = {
   pdfId: null,          // current doc
   navOpen: localStorage.getItem("fbNavOpen") === "1",   // icon sidenav expanded?
   courseId: null,       // course open on the course page
+  forceVision: false,   // ingest: read every page as an image (diagram decks)
+  asstSuggest: [],      // assistant input: current name suggestions
+  asstSuggestIdx: -1,   // highlighted suggestion
   docOpen: new Set(),   // expanded documents on the course page
   reviewView: "decks",  // review screen: "decks" picker | "chat" live session
   deckOpen: new Set(),  // expanded courses in the deck rail
@@ -964,11 +967,22 @@ function renderHome() {
   $("homeInner").innerHTML = `
     <div class="section-head"><span class="mono-label">COURSES</span><div class="rule"></div>
       ${st.dueTotal ? `<button class="conf-btn" onclick="startReviewSession({})" title="Review everything due, capped at your daily budget">▶ ${st.dueTotal} due</button>` : ""}
+      ${visionToggle()}
       <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs — they segment into topics and save automatically">＋ Add PDFs</button></div>
     ${S.ingesting ? ingestBanner() : ""}
     ${recap}${nudge}
     <div class="course-canvas">${cards || `<div class="card" style="font-size:12.5px; color:#8A8F9C">No courses yet — hit ＋ Add PDFs and Flashbang will read, split and file them for you.</div>`}</div>`;
 }
+
+/* opt-in for diagram-heavy decks: read every page as an image instead of
+   only the pages whose text came back sparse */
+function visionToggle() {
+  return `<label class="vision-toggle" title="Default reads only pages with almost no text. Turn this on for slide decks whose content is in the diagrams — a vision model reads every page (~$0.11 per 8 pages).">
+    <input type="checkbox" ${S.forceVision ? "checked" : ""} onchange="setForceVision(this.checked)">
+    read images on every page</label>`;
+}
+
+window.setForceVision = (on) => { S.forceVision = !!on; render(); };
 
 function ingestBanner() {
   return `<div class="card" style="padding:12px 16px; margin-bottom:12px; display:flex; align-items:center; gap:10px">
@@ -1139,6 +1153,7 @@ function renderCoursePage() {
       <span class="crumb-sep">›</span>
       <span class="crumb on">${esc(c.name)}</span>
       <span style="flex:1"></span>
+      ${visionToggle()}
       <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
     </div>
     ${S.ingesting ? ingestBanner() : ""}
@@ -1166,6 +1181,84 @@ window.toggleAsst = () => {
     $("asstInput").focus();
   }
 };
+
+/* ---- name autocomplete for the assistant box ----
+   Everything you might name — courses, documents, topics — is already in the
+   state payload, so suggesting them costs nothing and needs no round trip.
+   Deliberately NOT wired into the review answer box: completing an answer
+   mid-recall would hand you the card and make the grade meaningless. */
+function asstNames() {
+  const st = S.state;
+  if (!st) return [];
+  const out = [], seen = new Set();
+  const add = (label, kind) => {
+    const key = `${kind}:${label}`;
+    if (label && !seen.has(key)) { seen.add(key); out.push({ label, kind }); }
+  };
+  st.libCourses.forEach((c) => {
+    add(c.name, "course");
+    c.pdfs.forEach((p) => {
+      add(p.filename.replace(/\.pdf$/i, ""), "doc");
+      p.topics.forEach((t) => add(t.title, "topic"));
+    });
+  });
+  return out;
+}
+
+/* the word being typed: everything after the last space, or after an opening
+   quote so multi-word names can be completed inside quotes */
+function asstFragment(value) {
+  const upto = value.slice(0, $("asstInput").selectionStart ?? value.length);
+  const m = upto.match(/(?:^|\s)"([^"]*)$/) || upto.match(/(\S+)$/);
+  return m ? { text: m[1], start: upto.length - m[1].length } : null;
+}
+
+function renderAsstSuggest() {
+  const box = $("asstSuggest");
+  if (!S.asstSuggest.length) { box.style.display = "none"; return; }
+  box.innerHTML = S.asstSuggest.map((s, i) => `
+    <div class="sg-item ${i === S.asstSuggestIdx ? "on" : ""}" onmousedown="acceptAsstSuggest(${i})">
+      <span class="sg-kind">${s.kind}</span>
+      <span style="flex:1">${esc(s.label)}</span>
+    </div>`).join("") + `<div class="sg-hint">tab to accept · ↑↓ to pick · esc to dismiss</div>`;
+  box.style.display = "block";
+}
+
+function updateAsstSuggest() {
+  const input = $("asstInput");
+  const frag = asstFragment(input.value);
+  const q = (frag?.text || "").toLowerCase();
+  S.asstSuggest = q.length >= 2
+    ? asstNames().filter((n) => n.label.toLowerCase().includes(q)).slice(0, 6) : [];
+  S.asstSuggestIdx = S.asstSuggest.length ? 0 : -1;
+  renderAsstSuggest();
+}
+
+window.acceptAsstSuggest = (i) => {
+  const pick = S.asstSuggest[i];
+  const input = $("asstInput");
+  const frag = asstFragment(input.value);
+  if (!pick || !frag) return;
+  const needsQuotes = /\s/.test(pick.label);
+  const before = input.value.slice(0, frag.start);
+  const after = input.value.slice(frag.start + frag.text.length);
+  // if we're completing inside an opening quote, close it; else add both
+  const openQuote = before.endsWith('"');
+  const inserted = openQuote ? `${pick.label}"` : (needsQuotes ? `"${pick.label}"` : pick.label);
+  input.value = before + inserted + after;
+  const caret = (before + inserted).length;
+  input.setSelectionRange(caret, caret);
+  S.asstSuggest = [];
+  S.asstSuggestIdx = -1;
+  renderAsstSuggest();
+  input.focus();
+};
+
+function dismissAsstSuggest() {
+  S.asstSuggest = [];
+  S.asstSuggestIdx = -1;
+  renderAsstSuggest();
+}
 
 async function sendAsst(text) {
   text = (text || "").trim();
@@ -2022,6 +2115,10 @@ async function uploadPdfs(files) {
     course_name = (prompt("Which course do these documents belong to? (existing or new name)") || "").trim();
     if (!course_name) { $("fileInput").value = ""; return; }
   }
+  if (S.forceVision && !confirm(
+      "Read the images on EVERY page?\n\nUse this for slide decks whose content lives in "
+      + "diagrams — a vision model reads each page as a picture. Slower, and roughly "
+      + "$0.11 per 8 pages (a 40-slide deck ≈ $0.55).")) return;
   S.ingesting = { done: 0, total: pdfs.length, current: "", failed: [] };
   render();
   for (const file of pdfs) {
@@ -2031,7 +2128,8 @@ async function uploadPdfs(files) {
       const up = await xhrUpload(file, () => {});
       const res = await fetch("/api/ingest_auto", { method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: up.path, course_id, course_name }) })
+        body: JSON.stringify({ path: up.path, course_id, course_name,
+                               force_vision: S.forceVision }) })
         .then((r) => r.ok ? r.json() : null);
       if (!res) S.ingesting.failed.push(file.name);
       else if (res.course_id) { course_id = res.course_id; course_name = null; }
@@ -2060,7 +2158,24 @@ document.querySelectorAll(".conf-btn[data-conf]").forEach((b) => b.onclick = () 
 $("backToDecks").onclick = () => backToDecks();
 $("asstBubble").onclick = () => toggleAsst();
 $("asstSend").onclick = () => sendAsst($("asstInput").value);
-$("asstInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendAsst(e.target.value); });
+$("asstInput").addEventListener("input", updateAsstSuggest);
+$("asstInput").addEventListener("blur", () => setTimeout(dismissAsstSuggest, 120));
+$("asstInput").addEventListener("keydown", (e) => {
+  const open = S.asstSuggest.length > 0;
+  if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const n = S.asstSuggest.length;
+    S.asstSuggestIdx = (S.asstSuggestIdx + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+    renderAsstSuggest();
+    return;
+  }
+  if (open && e.key === "Tab") { e.preventDefault(); acceptAsstSuggest(Math.max(0, S.asstSuggestIdx)); return; }
+  if (open && e.key === "Escape") { e.preventDefault(); dismissAsstSuggest(); return; }
+  if (e.key === "Enter") {
+    if (open && S.asstSuggestIdx >= 0) { e.preventDefault(); acceptAsstSuggest(S.asstSuggestIdx); return; }
+    sendAsst(e.target.value);
+  }
+});
 $("navCollapse").onclick = toggleNav;
 $("sideNav").classList.toggle("closed", !S.navOpen);   // default: icons only
 $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";

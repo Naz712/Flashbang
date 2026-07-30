@@ -258,6 +258,27 @@ breakdown, 14-day bars). Instrumented at the shared paths — complete_text
 - Live: one assistant question logged 2 calls / $0.012 and appeared in the
   panel immediately.
 
+### 2026-07-29 — force-vision for diagram decks + name autocomplete
+- **Force vision.** The vision fallback triggers on TEXT SCARCITY (<200
+  chars/page), so a slide carrying a big diagram AND a paragraph never got
+  its diagram read — a real gap in picture-heavy decks. A "read images on
+  every page" checkbox now sits beside ＋ Add PDFs (Home and course pages)
+  and flows through /api/ingest_auto → read_pdf(force_vision=True), with a
+  confirm quoting the cost (~$0.11 per 8 pages, a 40-slide deck ≈ $0.55).
+  Page selection factored into `pages_needing_vision()` so it's covered
+  offline: sparse-only by default, every page when forced, empty stays
+  empty.
+- **Name autocomplete in the assistant box.** Courses, documents and topics
+  come from the state payload already in the browser, so suggestions cost
+  $0 and need no round trip. Substring match on 2+ chars, ↑↓ to pick, tab
+  or enter to accept, esc to dismiss; multi-word names insert quoted, in
+  place, at the caret. Live: "rename poly" → 6 real matches; accepting gave
+  `rename "Chapter 4 Polymorphism v3 Part 1"`.
+- **Deliberately NOT autocompleted: the review answer box.** Completing an
+  answer mid-recall would hand over the card and make the grade, the
+  latency and the retention curve fiction.
+- All ten suites pass; console clean.
+
 ## A/B evaluation — original (:5001) vs frameworks (:5002)
 
 Same prompts into both, results recorded here:
