@@ -1,11 +1,469 @@
-/* Flashbang v3 — design tokens and components from Flashbang v3.dc.html */
-html, body { margin: 0; padding: 0; min-height: 100%; }
-body { background: #F2F2EF; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1C1E26; }
-a { color: #0072B2; text-decoration: none; }
-a:hover { color: #005A8E; text-decoration: underline; }
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { background: #D5D5D0; border-radius: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
+/* Flashbang — visual system from the "flashbang Design System" handoff
+   (Figma/Bauhaus primaries on white; flat, hairline, no shadows).
+
+   Colour has exactly two jobs: it encodes mastery, or it marks the one primary
+   action per screen. Mastery hues are fills only — never type — so a bar never
+   ships without its percentage.
+
+   Assembled in the handoff's documented order: fonts -> colors -> typography ->
+   spacing -> shape -> motion -> base -> primitives -> components. Everything
+   below the LEGACY marker is the previous system, still serving the screens not
+   yet converted; it shrinks as each screen moves over. */
+
+/* ==================== tokens/fonts.css ==================== */
+/* Flashbang webfonts — IBM Plex Sans (language) + IBM Plex Mono (every datum).
+   Mono carries 700 because the big numerals are mono 700. */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+
+/* ==================== tokens/colors.css ==================== */
+/* Flashbang — colour. Figma/Bauhaus primaries on white.
+   Colour has exactly two jobs: it encodes mastery, or it marks the one
+   primary action. Never decoration, never a card wash, never a background tint. */
+:root{
+  /* structure — carries every surface, border and word */
+  --fb-page:#F4F5F5;      /* the page recedes; cards are the white */
+  --fb-canvas:#FFFFFF;
+  --fb-ink:#0A0A0A;
+  --fb-slate:#3F3F3F;
+  --fb-muted:#6B6B6B;
+  --fb-hairline:#DCDCDC;
+
+  /* the accent. Colour's SECOND job: it marks the one primary action per screen.
+     Deliberately not one of the mastery hues, and deep enough to carry white text
+     (6.7:1) — the sky blue below cannot, which is why it never fills a button. */
+  --fb-accent:#1B4FD8;
+  --fb-accent-hover:#1743B8;
+
+  /* the four hues. FILLS ONLY — bars, dots, rules. Never type. */
+  --fb-red:#E63A16;
+  --fb-blue:#0BA5E9;
+  --fb-yellow:#F5B800;
+  --fb-green:#00B87A;
+
+  /* mastery — the only semantics colour carries. Always beside its number. */
+  --fb-forgotten:var(--fb-red);      /* <40%   */
+  --fb-shaky:var(--fb-yellow);       /* 40-74% */
+  --fb-solid:var(--fb-green);        /* >=75%  */
+  --fb-untouched:var(--fb-hairline); /* never reviewed */
+  --fb-track:var(--fb-hairline);
+
+  /* 4px left rules — the only card-type signal */
+  --fb-rule-question:var(--fb-blue);
+  --fb-rule-correct:var(--fb-green);
+  --fb-rule-partial:var(--fb-yellow);
+}
+
+/* ==================== tokens/typography.css ==================== */
+/* Flashbang — type. IBM Plex Sans for language, IBM Plex Mono for every datum. */
+:root{
+  --fb-sans:'IBM Plex Sans',sans-serif; /* @kind font */
+  --fb-mono:'IBM Plex Mono',monospace; /* @kind font */
+
+  --fb-numeral:44px;     /* the one number a view is about */
+  --fb-numeral-sm:38px;
+  --fb-title:22px;
+  --fb-section:16px;
+  --fb-card-title:15px;
+  --fb-body:14px;
+  --fb-body-sm:13px;
+  --fb-meta:12px;
+  --fb-data:12px;
+  --fb-label:10px;
+
+  --fb-lh-tight:1.25; /* @kind other */
+  --fb-lh-body:1.65; /* @kind other */
+  --fb-lh-read:1.8; /* @kind other */
+}
+/* Big numerals: mono, 700, tight. The headline of any metric. */
+.fb-numeral{font-family:var(--fb-mono);font-size:var(--fb-numeral);font-weight:700;letter-spacing:-2px;line-height:1;color:var(--fb-ink)}
+.fb-numeral--sm{font-size:var(--fb-numeral-sm);letter-spacing:-1.6px}
+.fb-numeral small{font-family:var(--fb-sans);font-size:14px;font-weight:500;letter-spacing:0;color:var(--fb-muted)}
+.fb-title{font-size:var(--fb-title);font-weight:700;letter-spacing:-.4px;line-height:1.2;color:var(--fb-ink)}
+.fb-section{font-size:var(--fb-section);font-weight:600;letter-spacing:-.2px;color:var(--fb-ink)}
+.fb-card-title{font-size:var(--fb-card-title);font-weight:600;line-height:1.35;color:var(--fb-ink)}
+.fb-body{font-size:var(--fb-body);line-height:var(--fb-lh-body);color:var(--fb-slate)}
+.fb-body-sm{font-size:var(--fb-body-sm);line-height:1.6;color:var(--fb-slate)}
+.fb-meta{font-size:var(--fb-meta);color:var(--fb-muted)}
+/* Every count, timer, page range, interval and percentage. */
+.fb-data{font-family:var(--fb-mono);font-size:var(--fb-data);font-weight:500;color:var(--fb-ink)}
+/* The only uppercase in the system. */
+.fb-label{font-family:var(--fb-mono);font-size:var(--fb-label);font-weight:500;letter-spacing:1.8px;text-transform:uppercase;color:var(--fb-muted)}
+
+/* ==================== tokens/spacing.css ==================== */
+/* Flashbang — space. Light and airy: fewer, larger elements. 5-9 things per view. */
+:root{
+  --fb-1:4px; --fb-2:8px; --fb-3:12px; --fb-4:16px; --fb-5:20px;
+  --fb-6:24px; --fb-8:32px; --fb-12:48px; --fb-16:64px;
+
+  --fb-pad-card:24px 28px;
+  --fb-pad-card-sm:16px 18px;
+  --fb-gap-grid:20px;
+  --fb-gap-section:32px;
+
+  --fb-nav:208px;
+  --fb-nav-closed:56px;
+  --fb-content:1160px;
+  --fb-rail:320px;
+  --fb-notes:240px;
+}
+
+/* ==================== tokens/shape.css ==================== */
+/* Flashbang — shape and depth. Flat and quiet: no shadows anywhere, nothing rotated. */
+:root{
+  --fb-r-card:12px;
+  --fb-r-button:8px;
+  --fb-r-chip:6px;
+
+  --fb-border:1.5px solid var(--fb-hairline);
+  --fb-border-ink:1.5px solid var(--fb-ink);  /* the one card that matters */
+  --fb-rule-w:4px;                            /* coloured left rule */
+
+  --fb-focus:2px solid var(--fb-accent);
+  --fb-focus-offset:-2px;                     /* drawn INSIDE, so a focused
+                                                 nav item can't grow the rail */
+}
+
+/* ==================== tokens/motion.css ==================== */
+/* Flashbang — motion. Four earned moments, nothing else moves. */
+:root{
+  --fb-ease:cubic-bezier(.2,.8,.2,1); /* @kind other */
+  --fb-fast:120ms; /* @kind other */
+  --fb-base:240ms; /* @kind other */
+}
+
+/* 1. A 5/5 grade reveal — and ONLY 5/5. Four and below stay silent so the
+      mark keeps its meaning. */
+@keyframes fbGradeReveal{
+  0%{opacity:0;transform:translateY(6px)}
+  100%{opacity:1;transform:translateY(0)}
+}
+.fb-anim-grade5{animation:fbGradeReveal 420ms var(--fb-ease) both}
+
+/* 2. Session complete — the gap report arrives with weight. The recall
+      percentage counts up in JS against this. */
+@keyframes fbReportIn{
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.fb-anim-report{animation:fbReportIn 360ms var(--fb-ease) both}
+
+/* 3. Streak — the week dots fill with a beat. Stagger with --i. */
+@keyframes fbDotFill{
+  0%{transform:scale(.6);opacity:0}
+  60%{transform:scale(1.12);opacity:1}
+  100%{transform:scale(1);opacity:1}
+}
+.fb-anim-dot{animation:fbDotFill 260ms var(--fb-ease) both;animation-delay:calc(var(--i,0)*60ms)}
+
+/* 4. Ingest finished — the topic list builds in, since a PDF becoming topics
+      is the app's best trick. Stagger with --i. */
+@keyframes fbTopicIn{
+  from{opacity:0;transform:translateX(-6px)}
+  to{opacity:1;transform:translateX(0)}
+}
+.fb-anim-topic{animation:fbTopicIn 300ms var(--fb-ease) both;animation-delay:calc(var(--i,0)*45ms)}
+
+@media (prefers-reduced-motion:reduce){
+  .fb-anim-grade5,.fb-anim-report,.fb-anim-dot,.fb-anim-topic{animation:none}
+  *{transition-duration:1ms!important}
+}
+
+/* ==================== tokens/base.css ==================== */
+/* Flashbang — base. White paper, ink type, hairline structure. */
+html,body{margin:0;padding:0;min-height:100%}
+/* The page carries a faint dot grid — the one texture in the system, and it
+   reads only in the gaps between cards. */
+body{background:var(--fb-page);background-image:radial-gradient(var(--fb-hairline) 1.2px, transparent 1.2px);background-size:14px 14px;color:var(--fb-ink);font-family:var(--fb-sans);font-size:var(--fb-body);line-height:var(--fb-lh-body);-webkit-font-smoothing:antialiased}
+*,*::before,*::after{box-sizing:border-box}
+
+/* Links take the accent — the same colour that marks the primary action. */
+a{color:var(--fb-accent);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1.5px;text-decoration-color:color-mix(in srgb, var(--fb-accent) 35%, transparent)}
+a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover)}
+
+:focus-visible{outline:var(--fb-focus);outline-offset:var(--fb-focus-offset)}
+::selection{background:var(--fb-yellow);color:var(--fb-ink)}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--fb-hairline)}
+::-webkit-scrollbar-track{background:transparent}
+
+.fb-mono{font-family:var(--fb-mono)}
+
+/* ==================== css/primitives.css ==================== */
+/* Flashbang — the primitives every screen is built from. Flat, hairline, quiet. */
+
+/* CARD — 2px radius, 1.5px hairline, no shadow. */
+/* No border. The page recedes and the card is the white — that is the separation. */
+.fb-card{background:var(--fb-canvas);border:none;border-radius:var(--fb-r-card);padding:var(--fb-pad-card)}
+.fb-card--sm{padding:var(--fb-pad-card-sm)}
+/* The one card that matters on a screen. */
+.fb-card--key{border:var(--fb-border-ink)}
+/* 4px coloured left rule — the only card-type signal. */
+.fb-card--question{border-left:var(--fb-rule-w) solid var(--fb-rule-question)}
+.fb-card--correct{border-left:var(--fb-rule-w) solid var(--fb-rule-correct)}
+.fb-card--partial{border-left:var(--fb-rule-w) solid var(--fb-rule-partial)}
+/* the rule needs the radius clipped on its own edge so it reads as a rule, not a curve */
+.fb-card--question,.fb-card--correct,.fb-card--partial{border-top-left-radius:3px;border-bottom-left-radius:3px}
+
+/* SECTION HEAD — label, hairline rule, optional action. */
+.fb-section-head{display:flex;align-items:center;gap:var(--fb-3)}
+.fb-section-head .fb-rule{flex:1;height:1.5px;background:var(--fb-hairline)}
+
+/* BUTTONS — the primary action is cobalt, everything else is ghost. One filled
+   button per screen; if a screen seems to need two, one of them is not primary. */
+.fb-btn{font-family:var(--fb-sans);font-size:var(--fb-body-sm);font-weight:600;padding:10px 16px;border-radius:var(--fb-r-button);border:1.5px solid var(--fb-accent);background:var(--fb-accent);color:#fff;cursor:pointer;white-space:nowrap}
+.fb-btn:hover{background:var(--fb-accent-hover);border-color:var(--fb-accent-hover)}
+/* the ring is drawn inside, so on a filled button it has to be white to be seen */
+.fb-btn:focus-visible{outline:2px solid #fff;outline-offset:-3px}
+.fb-btn--ghost{background:var(--fb-canvas);color:var(--fb-ink);border:var(--fb-border)}
+.fb-btn--ghost:hover{border-color:var(--fb-accent);color:var(--fb-accent)}
+.fb-btn--ghost:focus-visible{outline:var(--fb-focus);outline-offset:var(--fb-focus-offset)}
+.fb-btn--block{display:block;width:100%}
+.fb-btn:disabled{color:var(--fb-muted);background:var(--fb-canvas);border-color:var(--fb-hairline);cursor:default}
+.fb-btn:disabled:hover{background:var(--fb-canvas);border-color:var(--fb-hairline);color:var(--fb-muted)}
+
+/* CHIP — 4px radius, hairline, mono. Counts, dates, page ranges. */
+.fb-chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--fb-mono);font-size:11px;font-weight:500;color:var(--fb-ink);border:var(--fb-border);border-radius:var(--fb-r-chip);padding:3px 8px;white-space:nowrap}
+.fb-chip--due{border-color:var(--fb-ink);font-weight:600}
+
+/* MASTERY BAR — hue fills the bar, the number stays ink. Never ships without it. */
+.fb-bar{display:flex;align-items:center;gap:var(--fb-3)}
+.fb-bar-track{flex:1;height:8px;background:var(--fb-track);overflow:hidden}
+.fb-bar-fill{height:100%;transition:width 600ms var(--fb-ease)}
+.fb-bar-pct{font-family:var(--fb-mono);font-size:var(--fb-data);font-weight:600;color:var(--fb-ink);flex:none}
+.fb-dot{width:8px;height:8px;flex:none}
+
+/* EVIDENCE — every derived number carries the sentence that explains it. */
+.fb-evidence{margin-top:var(--fb-4);padding-top:var(--fb-3);border-top:1.5px solid var(--fb-hairline);font-size:11.5px;line-height:1.55;color:var(--fb-muted)}
+
+/* ==================== css/components.css ==================== */
+/* Flashbang — component layer, on the flat white direction. */
+
+/* ---------------- nav ---------------- */
+.fb-nav{flex:none;width:var(--fb-nav);display:flex;flex-direction:column;gap:2px;background:var(--fb-canvas);padding:16px 12px 20px;transition:width var(--fb-fast) ease}
+.fb-nav--closed{width:var(--fb-nav-closed);padding:16px 8px 20px}
+.fb-nav-top{display:flex;align-items:center;gap:10px;padding:0 4px 20px}
+.fb-nav--closed .fb-nav-top{flex-direction:column;gap:14px}
+.fb-nav-toggle{border:none;background:none;color:var(--fb-muted);cursor:pointer;padding:6px;display:flex;border-radius:var(--fb-r-button)}
+.fb-nav-toggle:hover{color:var(--fb-ink)}
+.fb-logo-tile{width:24px;height:24px;border-radius:6px;background:var(--fb-ink);color:var(--fb-canvas);display:flex;align-items:center;justify-content:center;flex:none;font-family:var(--fb-mono);font-size:13px;font-weight:600}
+.fb-nav-items{display:flex;flex-direction:column;gap:2px}
+.fb-nav-item{display:flex;align-items:center;gap:12px;border:none;background:none;border-left:2px solid transparent;color:var(--fb-slate);font-family:var(--fb-sans);font-size:var(--fb-body-sm);font-weight:500;cursor:pointer;padding:9px 10px;width:100%;text-align:left;white-space:nowrap;overflow:hidden}
+.fb-nav-item svg{flex:none}
+.fb-nav-item:hover{color:var(--fb-ink)}
+.fb-nav-item--on{color:var(--fb-ink);font-weight:600;border-left-color:var(--fb-accent)}
+.fb-nav--closed .fb-nav-label{display:none}
+/* the count has nowhere to sit beside a 17px icon in a 56px rail — the title
+   attribute still carries it, and expanding the rail brings it back */
+.fb-nav--closed .fb-nav-badge{display:none}
+.fb-nav--closed .fb-nav-item{justify-content:center;padding:9px 0;border-left:none;border-bottom:2px solid transparent}
+.fb-nav--closed .fb-nav-item--on{border-bottom-color:var(--fb-accent)}
+.fb-nav-badge{margin-left:auto;font-family:var(--fb-mono);font-size:10px;font-weight:600;color:var(--fb-ink);border:1.5px solid var(--fb-ink);border-radius:var(--fb-r-chip);padding:1px 6px;flex:none}
+.fb-crumbs{display:flex;align-items:center;gap:10px}
+.fb-crumb{border:none;background:none;font-family:var(--fb-sans);font-size:var(--fb-body-sm);color:var(--fb-muted);cursor:pointer;padding:2px 0;text-decoration:underline;text-decoration-color:var(--fb-hairline);text-underline-offset:2px}
+.fb-crumb:hover{color:var(--fb-accent);text-decoration-color:var(--fb-accent)}
+.fb-crumb--on{color:var(--fb-ink);font-weight:600;cursor:default;text-decoration:none}
+.fb-crumb-sep{color:var(--fb-hairline);flex:none}
+
+/* ---------------- chat, during a review session only ---------------- */
+.fb-chat{flex:1;min-width:0;display:flex;flex-direction:column;border-radius:var(--fb-r-card);background:var(--fb-canvas);border:none;overflow:hidden}
+.fb-chat-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;border-bottom:1.5px solid var(--fb-hairline)}
+.fb-chat-title{font-size:var(--fb-body-sm);font-weight:600}
+.fb-chat-sub{font-family:var(--fb-mono);font-size:11px;color:var(--fb-muted)}
+.fb-chat-scroll{flex:1;overflow-y:auto;padding:32px 7%;display:flex;flex-direction:column;gap:20px}
+.fb-row-user{display:flex;justify-content:flex-end}
+.fb-row-bot{display:flex;justify-content:flex-start}
+.fb-bubble-user{max-width:min(70%,780px);padding:12px 16px;border-radius:var(--fb-r-button);background:var(--fb-ink);color:var(--fb-canvas);font-size:var(--fb-body);line-height:var(--fb-lh-body);white-space:pre-wrap}
+.fb-bubble-bot{max-width:min(70%,780px);padding:12px 16px;border-radius:var(--fb-r-card);background:var(--fb-canvas);border:none;font-size:var(--fb-body);line-height:var(--fb-lh-body)}
+.fb-chat-foot{flex:none;padding:16px 24px 20px;border-top:1.5px solid var(--fb-hairline)}
+.fb-input-row{display:flex;align-items:center;gap:12px;padding:4px 4px 4px 14px;border-radius:var(--fb-r-button);border:var(--fb-border)}
+.fb-input-row:focus-within{border-color:var(--fb-accent)}
+.fb-input-row input{flex:1;border:none;background:none;font-size:var(--fb-body);padding:10px 0;font-family:var(--fb-sans);color:var(--fb-ink);outline:none}
+.fb-input-row input::placeholder{color:var(--fb-muted)}
+.fb-send{font-family:var(--fb-mono);font-size:12px;color:#fff;background:var(--fb-accent);padding:8px 12px;border-radius:var(--fb-r-button);border:none;cursor:pointer}
+.fb-send:hover{background:var(--fb-accent-hover)}
+.fb-send:disabled{background:var(--fb-canvas);color:var(--fb-muted);border:var(--fb-border);cursor:default}
+.fb-qcard,.fb-gcard{max-width:min(72%,820px);min-width:300px;background:var(--fb-canvas);border:none;border-radius:var(--fb-r-card);overflow:hidden}
+.fb-qcard{border-left:var(--fb-rule-w) solid var(--fb-rule-question)}
+.fb-gcard--correct{border-left:var(--fb-rule-w) solid var(--fb-rule-correct)}
+.fb-gcard--partial{border-left:var(--fb-rule-w) solid var(--fb-rule-partial)}
+.fb-qcard-head,.fb-gcard-head{display:flex;align-items:center;gap:12px;padding:14px 20px 0}
+.fb-qcard-body{padding:12px 20px 18px;font-size:var(--fb-body);font-weight:500;line-height:var(--fb-lh-body)}
+.fb-qcard-hint{padding:0 20px 16px;font-family:var(--fb-mono);font-size:10px;color:var(--fb-muted);letter-spacing:1.2px;text-transform:uppercase}
+.fb-gcard-body{padding:12px 20px;font-size:var(--fb-body-sm);line-height:var(--fb-lh-body);color:var(--fb-slate)}
+.fb-pill{font-family:var(--fb-mono);font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;padding:2px 8px;border-radius:var(--fb-r-chip);border:1.5px solid var(--fb-ink);color:var(--fb-ink);white-space:nowrap}
+.fb-gsec{display:flex;gap:14px;padding:9px 20px;font-size:var(--fb-body-sm);line-height:1.6}
+.fb-gsec-label{flex:none;width:104px;font-family:var(--fb-mono);font-size:9.5px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--fb-muted);padding-top:3px}
+.fb-gsec--hook{border-top:1.5px solid var(--fb-hairline);margin-top:8px;padding-top:14px;padding-bottom:16px}
+.fb-gcard-meta{margin:0 20px;padding:12px 0 14px;border-top:1.5px solid var(--fb-hairline);font-family:var(--fb-mono);font-size:11px;color:var(--fb-muted)}
+.fb-undo{border:none;background:none;font-family:var(--fb-mono);font-size:10px;color:var(--fb-muted);cursor:pointer;text-decoration:underline;padding:0}
+.fb-undo:hover{color:var(--fb-ink)}
+.fb-undo:disabled{opacity:.4;cursor:default}
+.fb-conf-row{display:flex;justify-content:flex-end}
+.fb-conf-box{display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:var(--fb-r-card);border:var(--fb-border)}
+.fb-cmd{border-radius:var(--fb-r-card);background:var(--fb-canvas);border:var(--fb-border-ink);overflow:hidden;margin-bottom:10px}
+.fb-cmd-item{display:flex;align-items:center;gap:12px;padding:10px 16px;cursor:pointer;font-size:var(--fb-body-sm)}
+.fb-cmd-item+.fb-cmd-item{border-top:1.5px solid var(--fb-hairline)}
+.fb-cmd-item:hover{background:var(--fb-hairline)}
+
+/* ---------------- reader ---------------- */
+.fb-viewer-overlay{position:fixed;inset:0;background:rgba(17,17,17,.5);display:flex;align-items:center;justify-content:center;z-index:50}
+.fb-viewer-box{width:min(1240px,96vw);height:94vh;background:var(--fb-canvas);border:none;border-radius:var(--fb-r-card);display:flex;flex-direction:column;overflow:hidden}
+.fb-viewer-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-bottom:1.5px solid var(--fb-hairline)}
+.fb-viewer-main{flex:1;display:flex;overflow:hidden}
+.fb-viewer-body{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;align-items:center;gap:8px;background:var(--fb-page)}
+.fb-viewer-side{flex:none;width:var(--fb-notes);border-left:1.5px solid var(--fb-hairline);padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.fb-viewer-text{align-self:stretch;border:var(--fb-border);border-radius:var(--fb-r-card);padding:24px 32px;font-size:var(--fb-body);line-height:var(--fb-lh-read)}
+.fb-page-label{align-self:flex-start;font-family:var(--fb-mono);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--fb-muted);margin:10px 0 2px}
+.fb-page-wrap{position:relative}
+.fb-page-wrap--stretch{align-self:stretch}
+.fb-page-wrap[data-mode="blackout"],.fb-page-wrap[data-mode="note"]{cursor:crosshair}
+.fb-blackout{position:absolute;background:var(--fb-ink);border-radius:3px;cursor:pointer}
+.fb-blackout--peek{background:none;border:1.5px dashed var(--fb-muted)}
+.fb-blackout--drawing{background:rgba(17,17,17,.55);pointer-events:none}
+.fb-ann{position:absolute;border:2px solid var(--fb-blue);border-radius:4px;cursor:pointer}
+.fb-ann--pending{border-style:dashed;pointer-events:none}
+.fb-ann--flash{outline:3px solid var(--fb-yellow);outline-offset:1px}
+.fb-ann-num{position:absolute;top:-10px;right:-10px;min-width:18px;height:18px;padding:0 4px;border-radius:var(--fb-r-chip);background:var(--fb-ink);color:var(--fb-canvas);font-family:var(--fb-mono);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.fb-note-item{border:none;background:var(--fb-page);border-radius:var(--fb-r-button);padding:12px 14px;cursor:pointer}
+.fb-note-item:hover{border-color:var(--fb-ink)}
+.fb-note-item--flash{border-color:var(--fb-ink);outline:2px solid var(--fb-yellow);outline-offset:-2px}
+.fb-note-num{flex:none;min-width:18px;height:18px;border-radius:var(--fb-r-chip);background:var(--fb-ink);color:var(--fb-canvas);font-family:var(--fb-mono);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.fb-read-timer{font-family:var(--fb-mono);font-size:var(--fb-numeral-sm);font-weight:700;letter-spacing:-1.6px;line-height:1}
+.fb-icon-btn{background:none;border:1.5px solid transparent;color:var(--fb-muted);cursor:pointer;font-size:14px;padding:5px 8px;border-radius:var(--fb-r-button);font-family:var(--fb-sans);white-space:nowrap}
+.fb-icon-btn:hover{color:var(--fb-ink);border-color:var(--fb-hairline)}
+.fb-icon-btn--on{color:var(--fb-accent);border-color:var(--fb-accent)}
+.fb-icon-btn:disabled{color:var(--fb-hairline);cursor:default}
+
+/* ---------------- progress ---------------- */
+.fb-seg-track{display:flex;height:10px;overflow:hidden;gap:2px}
+.fb-key{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px}
+.fb-key-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--fb-slate)}
+.fb-key-swatch{width:9px;height:9px;flex:none}
+.fb-mini-track{display:block;height:3px;background:var(--fb-track);margin-top:6px;overflow:hidden}
+.fb-topic-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1.5px solid var(--fb-hairline)}
+.fb-topic-title{font-size:var(--fb-body-sm);line-height:1.4;color:var(--fb-ink)}
+.fb-topic-pct{font-family:var(--fb-mono);font-size:11px;font-weight:600;color:var(--fb-ink);flex:none;width:38px;text-align:right}
+.fb-week-dots{display:flex;gap:8px}
+.fb-week-day{display:flex;flex-direction:column;align-items:center;gap:6px}
+.fb-week-day .fb-wlbl{font-family:var(--fb-mono);font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--fb-muted)}
+.fb-wdot{width:18px;height:18px;border-radius:4px}
+.fb-forecast-row{display:flex;align-items:flex-end;gap:12px;min-height:110px}
+.fb-forecast-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px}
+.fb-forecast-n{font-family:var(--fb-mono);font-size:11px;font-weight:600;color:var(--fb-ink)}
+.fb-forecast-bar{width:100%;max-width:38px}
+.fb-forecast-day{font-family:var(--fb-mono);font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--fb-muted)}
+.fb-hm-grid{display:flex;gap:3px;overflow-x:auto}
+.fb-hm-col{display:flex;flex-direction:column;gap:3px}
+.fb-hm-cell{width:12px;height:12px;flex:none}
+.fb-fn-row{display:flex;align-items:center;gap:14px}
+.fb-fn-label{flex:none;width:96px;font-size:12px;color:var(--fb-slate)}
+.fb-fn-track{flex:1;height:10px;background:var(--fb-track);overflow:hidden}
+.fb-fn-n{flex:none;width:40px;text-align:right;font-family:var(--fb-mono);font-size:12px;font-weight:600}
+.fb-sweet-track{position:relative;height:10px;background:var(--fb-track);margin-top:12px}
+.fb-sweet-band{position:absolute;left:70%;width:25%;top:0;bottom:0;background:var(--fb-green)}
+.fb-sweet-pin{position:absolute;top:-4px;width:3px;height:18px;background:var(--fb-ink);transform:translateX(-50%)}
+.fb-cal-row{display:flex;align-items:flex-end;gap:20px;min-height:80px}
+.fb-cal-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px}
+.fb-cal-bars{display:flex;align-items:flex-end;gap:4px}
+.fb-cal-bar{width:16px}
+.fb-sess-row{display:flex;align-items:center;gap:12px}
+.fb-sess-track{flex:1;height:4px;background:var(--fb-track);overflow:hidden}
+.fb-recap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.fb-recap-num{font-family:var(--fb-mono);font-size:28px;font-weight:700;letter-spacing:-1.2px;line-height:1}
+.fb-recap-lbl{font-size:11.5px;color:var(--fb-muted);margin-top:6px}
+.fb-trow{display:flex;align-items:center;gap:12px}
+.fb-trow-name{font-size:12px;color:var(--fb-slate);width:42%;flex:none;line-height:1.4}
+.fb-trow-track{flex:1;height:4px;background:var(--fb-track);overflow:hidden}
+.fb-trow-time{font-family:var(--fb-mono);font-size:11px;color:var(--fb-muted);width:82px;flex:none;text-align:right}
+.fb-dur-row{display:flex;gap:8px}
+.fb-dur-btn{flex:1;padding:8px 0;border-radius:var(--fb-r-button);font-family:var(--fb-mono);font-size:12px;cursor:pointer;background:var(--fb-canvas);border:var(--fb-border);color:var(--fb-muted)}
+.fb-dur-btn:hover{border-color:var(--fb-ink);color:var(--fb-ink)}
+.fb-dur-btn--on{border-color:var(--fb-ink);color:var(--fb-ink);font-weight:600}
+.fb-nudge{border-radius:var(--fb-r-card);background:var(--fb-ink);color:var(--fb-canvas);padding:16px 20px;font-size:var(--fb-body-sm);line-height:var(--fb-lh-body)}
+.fb-select{font-family:var(--fb-sans);font-size:12px;color:var(--fb-ink);background:var(--fb-canvas);border:var(--fb-border);border-radius:var(--fb-r-button);padding:6px 10px;cursor:pointer}
+.fb-select:hover{border-color:var(--fb-accent)}
+.fb-editor{border:none;background:var(--fb-canvas);border-radius:var(--fb-r-card);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.fb-editor textarea{width:100%;border:var(--fb-border);border-radius:var(--fb-r-button);padding:10px 12px;font-family:var(--fb-sans);font-size:var(--fb-body-sm);line-height:1.6;resize:vertical;color:var(--fb-ink)}
+.fb-editor textarea:focus{outline:none;border-color:var(--fb-accent)}
+.fb-doc-name{font-size:var(--fb-card-title);font-weight:600;line-height:1.4}
+.fb-doc-meta{font-family:var(--fb-mono);font-size:11px;color:var(--fb-muted);margin-top:5px}
+.fb-pick-card{display:flex;align-items:center;gap:16px;width:100%;background:var(--fb-canvas);border:none;border-radius:var(--fb-r-card);padding:18px 20px;cursor:pointer;font-family:var(--fb-sans);text-align:left}
+.fb-pick-card:hover{border-color:var(--fb-ink)}
+.fb-course-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--fb-gap-grid)}
+.fb-doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:var(--fb-gap-grid)}
+
+/* METRICS BAND — four numbers across a card, hairline-divided. Drops to 2x2 below
+   1080px, where four cells would each be ~160px and their content would wrap. */
+.fb-band{display:grid;grid-template-columns:repeat(4,1fr);padding:26px 0}
+.fb-band>div{padding:0 26px;min-width:0}
+.fb-band>div+div{border-left:1.5px solid var(--fb-hairline)}
+@media (max-width:1080px){
+  .fb-band{grid-template-columns:1fr 1fr}
+  .fb-band>div+div{border-left:none}
+  .fb-band>div:nth-child(even){border-left:1.5px solid var(--fb-hairline)}
+  .fb-band>div:nth-child(n+3){margin-top:24px;padding-top:24px;border-top:1.5px solid var(--fb-hairline)}
+}
+.fb-band-num{font-family:var(--fb-mono);font-size:38px;font-weight:700;letter-spacing:-1.6px;line-height:1;color:var(--fb-ink);margin-top:12px;white-space:nowrap}
+.fb-band-num small{font-family:var(--fb-sans);font-size:13px;font-weight:500;letter-spacing:0;color:var(--fb-muted)}
+
+/* SEGMENTED CONTROL — the five analytics sections, one on screen at a time. */
+.fb-seg{display:inline-flex;gap:4px;background:var(--fb-canvas);border-radius:10px;padding:5px}
+.fb-seg button{font-family:var(--fb-sans);font-size:12.5px;font-weight:500;padding:9px 15px;border-radius:var(--fb-r-button);cursor:pointer;white-space:nowrap;background:none;color:var(--fb-slate);border:1.5px solid transparent}
+.fb-seg button:hover{color:var(--fb-ink)}
+.fb-seg button[aria-selected="true"]{background:var(--fb-ink);border-color:var(--fb-ink);color:#fff;font-weight:600}
+
+/* BENTO — variation in size, kept orderly by a six-column grid. Cards claim
+   2, 3, 4 or 6 columns; nothing is free-floating. */
+.fb-bento{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--fb-gap-grid);align-items:start}
+.fb-bento>.s2{grid-column:span 2}
+.fb-bento>.s3{grid-column:span 3}
+.fb-bento>.s4{grid-column:span 4}
+.fb-bento>.s6{grid-column:span 6}
+.fb-bento>.tall{align-self:stretch}
+@media (max-width:1080px){
+  .fb-bento{grid-template-columns:repeat(2,1fr)}
+  .fb-bento>.s2{grid-column:span 1}
+  .fb-bento>.s3,.fb-bento>.s4,.fb-bento>.s6{grid-column:span 2}
+}
+@media (max-width:680px){
+  .fb-bento{grid-template-columns:1fr}
+  .fb-bento>.s2,.fb-bento>.s3,.fb-bento>.s4,.fb-bento>.s6{grid-column:span 1}
+}
+
+/* CARDS · two pane — a list that stays put and an editor that never moves the page. */
+.fb-cards-split{display:grid;grid-template-columns:340px 1fr;gap:var(--fb-gap-grid);align-items:start}
+@media (max-width:980px){.fb-cards-split{grid-template-columns:1fr}}
+
+/* ---------------- screen shell (converted screens) ----------------
+   One scrolling column, 1160px, generous padding — the handoff's layout for
+   every non-reader screen. */
+.fb-screen { flex: 1; min-height: 0; overflow-y: auto; }
+.fb-col { max-width: var(--fb-content); margin: 0 auto; padding: 40px 48px 64px;
+  display: flex; flex-direction: column; gap: var(--fb-gap-section); }
+
+/* the assistant bubble: cobalt fill when closed, cobalt outline when open, so it
+   reads as the thing holding attention rather than a second primary action */
+.fb-asst-bubble { position: fixed; right: 28px; bottom: 26px; z-index: 60;
+  width: 48px; height: 48px; border-radius: var(--fb-r-card); border: 1.5px solid var(--fb-accent);
+  background: var(--fb-accent); color: #fff; font-size: 18px; cursor: pointer; }
+.fb-asst-bubble:hover { background: var(--fb-accent-hover); border-color: var(--fb-accent-hover); }
+.fb-asst-bubble--on { background: var(--fb-canvas); color: var(--fb-accent); }
+.fb-asst-bubble--on:hover { background: var(--fb-canvas); }
+.fb-asst-panel { position: fixed; right: 28px; bottom: 84px; z-index: 60; width: 400px;
+  max-height: min(540px, 70vh); background: var(--fb-canvas); border: var(--fb-border);
+  border-radius: var(--fb-r-card); display: flex; flex-direction: column; overflow: hidden; }
+
+.fb-vision-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--fb-muted); cursor: pointer; user-select: none; white-space: nowrap; }
+.fb-vision-toggle input { accent-color: var(--fb-accent); cursor: pointer; }
+
+/* ==================================================================
+   LEGACY — the previous warm-paper system. Still used by the screens
+   that have not been converted to the fb-* classes yet (Review,
+   Analytics, Cards, reader). Delete each block as its screen moves.
+   ================================================================== */
+
 @keyframes fbPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 
 .mono { font-family: 'IBM Plex Mono', monospace; }

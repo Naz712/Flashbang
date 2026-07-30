@@ -147,6 +147,16 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS course_snapshots (
+            course_id    INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            week_start   TEXT NOT NULL,          -- ISO date of that week's Monday
+            completion   REAL NOT NULL,
+            at           TEXT NOT NULL,
+            PRIMARY KEY (course_id, week_start)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS llm_calls (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             at                TEXT NOT NULL,
@@ -386,6 +396,54 @@ def delete_pdf(pdf_id):
     conn.commit()
     conn.close()
     vector_store.delete_where(pdf_id=pdf_id)  # mirror the SQL cascade
+
+
+# ---------------------------------------------------------------- course history
+
+def record_course_snapshot(course_id, completion, now=None):
+    """Store this week's completion for a course, once per ISO week. Feeds the
+    six-week sparkline on the Home course card — a trend can't be recovered
+    after the fact (only each card's LATEST review is stored), so it has to be
+    written as it happens. Re-recording the same week overwrites."""
+    now = now or datetime.now()
+    monday = (now.date() - timedelta(days=now.date().weekday())).isoformat()
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO course_snapshots (course_id, week_start, completion, at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(course_id, week_start) DO UPDATE
+        SET completion = excluded.completion, at = excluded.at
+    """, (course_id, monday, round(float(completion), 1), now.isoformat(timespec="seconds")))
+    conn.commit()
+    conn.close()
+
+
+def get_course_trend(course_id, weeks=6):
+    """The last `weeks` weekly readings, oldest first — [] until two exist,
+    because a one-point sparkline is a dot pretending to be a trend."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""SELECT completion FROM course_snapshots WHERE course_id = ?
+                      ORDER BY week_start DESC LIMIT ?""", (course_id, weeks))
+    rows = [r["completion"] for r in cursor.fetchall()][::-1]
+    conn.close()
+    return rows if len(rows) >= 2 else []
+
+
+def get_course_week(course_id, now=None):
+    """Which of the last 7 days (Monday-first) had a study session for this
+    course. Derived from the session log — no new storage needed."""
+    now = now or datetime.now()
+    today = now.date()
+    monday = today - timedelta(days=today.weekday())
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""SELECT started_at FROM study_sessions
+                      WHERE course_id = ? AND started_at >= ?""",
+                   (course_id, monday.isoformat()))
+    days = {datetime.fromisoformat(r["started_at"]).date() for r in cursor.fetchall()}
+    conn.close()
+    return [(monday + timedelta(days=i)) in days for i in range(7)]
 
 
 # ---------------------------------------------------------------- llm spend

@@ -26,6 +26,7 @@ from database import (
     update_topic, split_topic, delete_topic, get_session_report_data,
     start_session, end_session, review_card, undo_review,
     save_topics, save_concepts, create_course, init_db,
+    record_course_snapshot, get_course_trend, get_course_week,
 )
 from generation import parse_flashcards, extract_topic_concepts, generate_cards_for_topic
 from grading import grade_answer
@@ -185,11 +186,22 @@ def state():
             pdf_reports.append(payload)
         course_minutes = sum(
             sum(t["spent"] for t in r["topics"]) for r in pdf_reports)
+        # completion for the whole course, content topics weighted by their
+        # minute estimate — the number the Home card leads with
+        content = [t for r in pdf_reports for t in r["topics"] if t["kind"] != "general"]
+        weight_total = sum(t["est_minutes"] or 1 for t in content) or 1
+        course_completion = sum((t["est_minutes"] or 1) * t["mastery_pct"]
+                                for t in content) / weight_total
+        if content:
+            record_course_snapshot(course["id"], course_completion, now)
         lib_courses.append({
             "id": course["id"], "name": course["name"], "ci": i,
             "pdfCount": len(pdf_reports),
             "dueCount": sum(r["due"] for r in pdf_reports),
             "timeSpent": fmt_min(course_minutes),
+            "completion": round(course_completion, 1),
+            "trend": get_course_trend(course["id"]),
+            "week": get_course_week(course["id"], now),
             "pdfs": pdf_reports,
         })
 

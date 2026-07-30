@@ -922,62 +922,122 @@ function courseStats(c, st) {
 
 /* ---------------------------------------------------------------- home: course canvas */
 
+/* mastery band → hue. Fills only, never type: against white, yellow is 1.8:1
+   and green 2.6:1, so a coloured numeral would be illegible. Every bar that
+   uses these ships with its percentage beside it. */
+const MASTERY_HUE = (pct) => pct >= 75 ? "var(--fb-green)"
+  : pct >= 40 ? "var(--fb-yellow)" : "var(--fb-red)";
+
+/* six-week completion sparkline. The domain fits the SERIES, not 0–100 — on a
+   0–100 axis a 48→61 rise compresses to three pixels and reads as flat. */
+function sparkSVG(points, w = 96, h = 26) {
+  if (!points || points.length < 2) return "";
+  const lo = Math.min(...points) - 4, hi = Math.max(...points) + 4;
+  const y = (p) => (h - ((p - lo) / (hi - lo || 1)) * h).toFixed(1);
+  const d = points.map((p, i) => `${((i / (points.length - 1)) * w).toFixed(1)},${y(p)}`).join(" ");
+  const last = points[points.length - 1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible; flex:none"
+      aria-label="six-week trend, ${points[0]}% to ${last}%">
+    <polyline points="${d}" fill="none" stroke="var(--fb-ink)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    <circle cx="${w}" cy="${y(last)}" r="2.5" fill="${last >= points[0] ? "var(--fb-ink)" : "var(--fb-red)"}"></circle>
+  </svg>`;
+}
+
+/* this week's study dots — CONSISTENCY, not mastery. Green is safe here
+   because nothing on the row is a retention value. */
+function weekStrip(week) {
+  if (!week || !week.length) return "";
+  const lit = week.filter(Boolean).length;
+  return `<div style="display:flex; align-items:center; gap:6px">
+    ${week.map((on, i) => `<span class="${on ? "fb-anim-dot" : ""}" style="width:15px; height:15px; border-radius:4px; --i:${i};
+      background:${on ? "var(--fb-green)" : "var(--fb-hairline)"}"></span>`).join("")}
+    <span class="fb-data" style="color:var(--fb-muted); margin-left:6px; font-size:11px">${lit} of ${week.length} days</span>
+  </div>`;
+}
+
 function renderHome() {
   const st = S.state;
   if (!st || S.view !== "home") return;
 
+  /* the course canvas card — the densest card in the system, fixed order: ink
+     band names the course, then the one number with its trend, the bar with its
+     percentage, this week, what exists, and the consequence. */
   const cards = st.libCourses.map((c) => {
     const s = courseStats(c, st);
-    const color = SUBJ[c.ci % 4];
-    return `<div class="course-tile-card" onclick="openCourse(${c.id})">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
-        <span class="course-tile" style="background:${color}; width:26px; height:26px; border-radius:8px"></span>
-        <span style="flex:1; min-width:0; font-size:15px; font-weight:700; letter-spacing:-.2px">${esc(c.name)}</span>
-        ${s.due ? `<span class="deck-due">${s.due} due</span>` : ""}
+    const pct = c.completion != null ? c.completion : s.completion;
+    const untouched = !s.cards;
+    return `<div class="fb-card" style="padding:0; overflow:hidden; cursor:pointer" role="button" tabindex="0"
+        onclick="openCourse(${c.id})" onkeydown="if(event.key==='Enter')openCourse(${c.id})">
+      <div style="background:var(--fb-ink); padding:16px 22px; display:flex; align-items:center; gap:12px">
+        <span style="flex:1; min-width:0; font-size:16px; font-weight:600; color:#fff">${esc(c.name)}</span>
+        ${s.due ? `<span class="fb-chip" style="color:#fff; border-color:rgba(255,255,255,.5); font-weight:600">${s.due} due</span>` : ""}
       </div>
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
-        <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${s.completion}%; background:${retColor(s.completion)}"></div></div>
-        <span class="mono" style="font-size:13px; font-weight:600">${s.completion.toFixed(0)}%</span>
+      <div style="padding:22px 24px 24px">
+        ${untouched ? `
+          <div class="fb-numeral" style="margin-bottom:14px; color:var(--fb-muted)">—</div>
+          <div class="fb-bar" style="margin-bottom:18px">
+            <div class="fb-bar-track"></div>
+            <span class="fb-bar-pct" style="color:var(--fb-muted)">—</span>
+          </div>`
+        : `
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px">
+            <div class="fb-numeral">${pct.toFixed(0)}<small>% complete</small></div>
+            ${c.trend && c.trend.length > 1 ? `<div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px">
+              ${sparkSVG(c.trend)}<span class="fb-label">6 weeks</span></div>` : ""}
+          </div>
+          <div class="fb-bar" style="margin-bottom:18px">
+            <div class="fb-bar-track"><div class="fb-bar-fill" style="width:${pct}%; background:${MASTERY_HUE(pct)}"></div></div>
+            <span class="fb-bar-pct">${pct.toFixed(0)}%</span>
+          </div>`}
+        ${c.week ? `<div style="margin-bottom:18px">${weekStrip(c.week)}</div>` : ""}
+        <div class="fb-data" style="color:var(--fb-muted); line-height:1.8">
+          ${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${s.topicsTotal} topics · ${s.cards} cards<br>
+          ${untouched ? "no cards generated yet"
+            : `${s.covered} covered · ${s.started} in progress · ${fmtMin(s.readMin)} read`}
+        </div>
+        ${s.exam ? `<div style="margin-top:18px"><span class="fb-chip">Exam in ${s.exam.days_left}d${s.exam.today != null ? ` · ${s.exam.today}% if you stop now` : ""}</span></div>` : ""}
       </div>
-      <div style="font-size:11.5px; color:#5C616E; line-height:1.7">
-        ${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${s.topicsTotal} topics · ${s.cards} cards<br>
-        ${s.covered} covered · ${s.started} in progress · ${fmtMin(s.readMin)} read
-      </div>
-      ${s.exam ? `<div class="exam-chip" style="margin-top:12px">🎓 ${s.exam.days_left}d to exam${s.exam.today != null ? ` · ${s.exam.today}% if you stop now` : ""}</div>` : ""}
     </div>`;
   }).join("");
 
   const r = S.recap;
-  const recap = r ? `<div class="card" style="border-color:#9BD4BE; margin-bottom:14px">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
-      <span class="mono-label" style="color:#00794F; font-weight:600">LAST FOCUS BLOCK</span>
-      <button class="icon-btn" title="Dismiss" onclick="dismissRecap()">✕</button>
+  const recap = r ? `<div class="fb-card fb-card--key">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+      <span class="fb-label">Last focus block</span>
+      <button class="fb-icon-btn" title="Dismiss" onclick="dismissRecap()">✕</button>
     </div>
-    <div class="recap-grid">
-      <div><div class="recap-num">${r.mins}m</div><div class="recap-lbl">focused</div></div>
-      <div><div class="recap-num">${r.cards}</div><div class="recap-lbl">cards</div></div>
-      <div><div class="recap-num" style="color:#00794F">${r.acc == null ? "—" : r.acc + "%"}</div><div class="recap-lbl">recall</div></div>
+    <div class="fb-recap-grid">
+      <div><div class="fb-recap-num">${r.mins}m</div><div class="fb-recap-lbl">focused</div></div>
+      <div><div class="fb-recap-num">${r.cards}</div><div class="fb-recap-lbl">cards</div></div>
+      <div><div class="fb-recap-num">${r.acc == null ? "—" : r.acc + "%"}</div><div class="fb-recap-lbl">recall</div></div>
     </div>
-    <div style="font-size:11.5px; color:#5C616E">${r.ext} intervals extended · <span style="color:${LOW}">${r.reset} reset to 1d</span></div>
+    <div class="fb-data" style="color:var(--fb-muted); margin-top:14px">${r.ext} intervals extended · ${r.reset} reset to 1d</div>
   </div>` : "";
 
-  const nudge = new Date().getHours() >= 18 && st.dueTotal > 0 && !S.focusStart
-    ? `<div class="nudge" style="margin-bottom:14px">🌙 ${st.dueTotal} cards due — a short review before sleep helps consolidation. Even 10 minutes counts.</div>` : "";
+  const hour = new Date().getHours();
+  const nudge = hour >= 18 && st.dueTotal > 0
+    ? `<div class="fb-nudge">It's ${String(hour).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}
+       and you've got ${st.dueTotal} cards due. A short review before sleep helps consolidation — even ten minutes counts.</div>` : "";
 
   $("homeInner").innerHTML = `
-    <div class="section-head"><span class="mono-label">COURSES</span><div class="rule"></div>
-      ${st.dueTotal ? `<button class="conf-btn" onclick="startReviewSession({})" title="Review everything due, capped at your daily budget">▶ ${st.dueTotal} due</button>` : ""}
+    <div class="fb-section-head">
+      <span class="fb-label">Courses</span><span class="fb-rule"></span>
       ${visionToggle()}
-      <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs — they segment into topics and save automatically">＋ Add PDFs</button></div>
+      ${st.dueTotal ? `<button class="fb-btn" style="padding:8px 14px; font-size:12px"
+        onclick="startReviewSession({})" title="Review everything due, capped at your daily budget">▶ Review ${st.dueTotal} due</button>` : ""}
+      <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
+        onclick="pickPdfs()" title="Upload PDFs — they segment into topics and save automatically">＋ Add PDFs</button>
+    </div>
     ${S.ingesting ? ingestBanner() : ""}
-    ${recap}${nudge}
-    <div class="course-canvas">${cards || `<div class="card" style="font-size:12.5px; color:#8A8F9C">No courses yet — hit ＋ Add PDFs and Flashbang will read, split and file them for you.</div>`}</div>`;
+    ${recap}
+    <div class="fb-course-grid">${cards || `<div class="fb-card"><div class="fb-body">No courses yet. Add a PDF and Flashbang will read it, split it into topics with time estimates, and file them here.</div></div>`}</div>
+    ${nudge}`;
 }
 
 /* opt-in for diagram-heavy decks: read every page as an image instead of
    only the pages whose text came back sparse */
 function visionToggle() {
-  return `<label class="vision-toggle" title="Default reads only pages with almost no text. Turn this on for slide decks whose content is in the diagrams — a vision model reads every page (~$0.11 per 8 pages).">
+  return `<label class="fb-vision-toggle" title="Default reads only pages with almost no text. Turn this on for slide decks whose content is in the diagrams — a vision model reads every page (~$0.11 per 8 pages).">
     <input type="checkbox" ${S.forceVision ? "checked" : ""} onchange="setForceVision(this.checked)">
     read images on every page</label>`;
 }
@@ -985,9 +1045,11 @@ function visionToggle() {
 window.setForceVision = (on) => { S.forceVision = !!on; render(); };
 
 function ingestBanner() {
-  return `<div class="card" style="padding:12px 16px; margin-bottom:12px; display:flex; align-items:center; gap:10px">
-    <span style="width:8px; height:8px; border-radius:50%; background:#E69F00; animation:fbPulse 1.6s infinite"></span>
-    <span style="font-size:12.5px">Ingesting ${S.ingesting.done + 1} of ${S.ingesting.total}: <b>${esc(S.ingesting.current)}</b> — reading, splitting into topics, saving (~30–90s per file)</span>
+  return `<div class="fb-card fb-card--sm fb-card--key" style="display:flex; align-items:center; gap:14px">
+    <span class="fb-label">Ingesting</span>
+    <span class="fb-body-sm" style="flex:1; color:var(--fb-ink)">${esc(S.ingesting.current)} —
+      reading, splitting into topics, saving.</span>
+    <span class="fb-data" style="color:var(--fb-muted)">${S.ingesting.done + 1} of ${S.ingesting.total}</span>
   </div>`;
 }
 
@@ -1170,7 +1232,7 @@ function renderCoursePage() {
 window.toggleAsst = () => {
   const open = $("asstPanel").style.display === "none";
   $("asstPanel").style.display = open ? "flex" : "none";
-  $("asstBubble").classList.toggle("on", open);
+  $("asstBubble").classList.toggle("fb-asst-bubble--on", open);
   if (open) {
     if (!$("asstScroll").children.length) {
       $("asstScroll").insertAdjacentHTML("beforeend",
@@ -1591,10 +1653,12 @@ function render() {
     $("sessionLabel").textContent =
       `· ${st.currentCourse.name} · ${st.current.filename.replace(/\.pdf$/i, "")}`;
   }
-  $("tabHome").classList.toggle("on", S.view === "home" || S.view === "course");
-  $("tabStudy").classList.toggle("on", S.view === "study");
-  $("tabProgress").classList.toggle("on", S.view === "progress");
-  $("tabCards").classList.toggle("on", S.view === "cards");
+  $("tabHome").classList.toggle("fb-nav-item--on", S.view === "home" || S.view === "course");
+  $("tabStudy").classList.toggle("fb-nav-item--on", S.view === "study");
+  $("tabProgress").classList.toggle("fb-nav-item--on", S.view === "progress");
+  $("tabCards").classList.toggle("fb-nav-item--on", S.view === "cards");
+  $("navDue").textContent = st.dueTotal;
+  $("navDue").style.display = st.dueTotal ? "" : "none";
   $("homeScreen").style.display = S.view === "home" ? "block" : "none";
   $("courseScreen").style.display = S.view === "course" ? "block" : "none";
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
@@ -1622,7 +1686,7 @@ window.setExam = async (courseId, date) => {
 window.toggleNav = () => {
   S.navOpen = !S.navOpen;
   localStorage.setItem("fbNavOpen", S.navOpen ? "1" : "0");
-  $("sideNav").classList.toggle("closed", !S.navOpen);
+  $("sideNav").classList.toggle("fb-nav--closed", !S.navOpen);
   $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
 };
 window.pickLen = (m) => { S.sessionLen = m; renderReadSide(); };
@@ -2177,7 +2241,7 @@ $("asstInput").addEventListener("keydown", (e) => {
   }
 });
 $("navCollapse").onclick = toggleNav;
-$("sideNav").classList.toggle("closed", !S.navOpen);   // default: icons only
+$("sideNav").classList.toggle("fb-nav--closed", !S.navOpen);   // default: icons only
 $("navCollapse").title = S.navOpen ? "Collapse sidebar" : "Expand sidebar";
 
 fetchState();
