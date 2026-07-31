@@ -1064,6 +1064,16 @@ window.openCourse = (courseId) => {
 
 /* ---------------------------------------------------------------- one course */
 
+/* one column of the metrics band: mono label, one numeral, then whatever
+   qualifies it — a bar, a button, a date input. */
+function bandMetric(label, value, unit, body) {
+  return `<div>
+    <div class="fb-label">${label}</div>
+    <div class="fb-band-num">${value}${unit ? `<small>${unit}</small>` : ""}</div>
+    ${body}
+  </div>`;
+}
+
 function renderCoursePage() {
   const st = S.state;
   if (!st || S.view !== "course") return;
@@ -1075,7 +1085,53 @@ function renderCoursePage() {
   const docs = [...c.pdfs].sort((a, b) => a.pdf_id - b.pdf_id);   // upload order
   if (!S.docOpen.size && docs.length) S.docOpen.add(docs[0].pdf_id);
 
-  // ---- left: documents → topics
+  /* ---- the band: four numbers across the top, so the documents below get the
+     full width. The evidence line sits under a hairline INSIDE the card — the
+     band doesn't get an exemption from the rule that a derived number carries
+     its reasoning. */
+  const untouched = !s.cards;
+  const band = `<div class="fb-card fb-card--key" style="padding:0">
+    <div class="fb-band">
+      ${bandMetric("Completion", untouched ? "—" : s.completion.toFixed(0), untouched ? "" : "%", `
+        <div class="fb-bar" style="margin-top:14px">
+          <div class="fb-bar-track">${untouched ? "" : `<div class="fb-bar-fill" style="width:${s.completion}%; background:${MASTERY_HUE(s.completion)}"></div>`}</div>
+          <span class="fb-bar-pct"${untouched ? ` style="color:var(--fb-muted)"` : ""}>${untouched ? "—" : `${s.completion.toFixed(0)}%`}</span>
+        </div>
+        <div class="fb-body-sm" style="margin-top:10px">${untouched ? "no cards generated yet"
+          : `${s.covered} of ${s.topicsTotal} covered · ${s.started} in progress`}</div>`)}
+
+      ${bandMetric("Due now", s.due, "", `
+        <div class="fb-body-sm" style="margin-top:10px">of ${s.cards} card${s.cards === 1 ? "" : "s"} in this course</div>
+        <button class="fb-btn fb-btn--block" style="margin-top:14px" ${s.due ? "" : "disabled"}
+          onclick="startReviewSession({ course_id: ${c.id} })">▶ Review this course</button>`)}
+
+      ${bandMetric("Time invested", c.timeSpent, "", `
+        <div class="fb-body-sm" style="margin-top:10px">on flashcards</div>
+        <div class="fb-data" style="margin-top:12px; color:var(--fb-muted); line-height:1.7">
+          ${fmtMin(s.readMin)} reading<br>${s.notes} note${s.notes === 1 ? "" : "s"}</div>`)}
+
+      ${bandMetric("Exam readiness",
+        s.exam && s.exam.onPlan != null ? s.exam.onPlan : "—",
+        s.exam && s.exam.onPlan != null ? "%" : "", `
+        ${s.exam && s.exam.today != null
+          ? `<div class="fb-body-sm" style="margin-top:10px">${s.exam.days_left} days left ·
+              <b style="color:var(--fb-ink)">${s.exam.today}%</b> if you stop today</div>`
+          : s.exam
+          ? `<div class="fb-body-sm" style="margin-top:10px">${s.exam.days_left} days left — generate some cards to get a projection.</div>`
+          : `<div class="fb-body-sm" style="margin-top:12px">Set a date and you'll get a projected exam-day recall.</div>`}
+        <input type="date" class="fb-select" value="${courseInfo?.exam_date || ""}"
+          style="font-family:var(--fb-mono); font-size:11px; margin-top:12px; width:100%"
+          title="Exam date — drives the readiness projection" onchange="setExam(${c.id}, this.value)">`)}
+    </div>
+    <div style="padding:0 26px 20px">
+      <div class="fb-evidence" style="margin-top:0">Completion is retrieval-weighted, so a topic only counts
+        once its cards are actually recalled, not once it has been read — which is also why the reading
+        time below is kept apart from it.</div>
+    </div>
+  </div>`;
+
+  /* ---- documents: a disclosure each, two up. Closed it's a filename and its
+     counts; open it's the topic list, or the split editor over the same rows. */
   const docBlocks = docs.map((p) => {
     const open = S.docOpen.has(p.pdf_id);
     const readMin = rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0;
@@ -1085,147 +1141,136 @@ function renderCoursePage() {
 
     let body = "";
     if (open && editing) {
-      const inp = `border:1px solid #E3E3DE; border-radius:7px; padding:5px 7px; font-family:'IBM Plex Sans',sans-serif; font-size:12px`;
-      body = `<div style="font-size:11px; color:#8A8F9C; padding:4px 2px 8px">Your split, your rules — ranges may overlap or leave gaps. Splitting keeps existing cards with the original topic.</div>`
+      const inp = `border:var(--fb-border); border-radius:var(--fb-r-button); padding:6px 8px;
+        font-family:var(--fb-sans); font-size:12.5px; color:var(--fb-ink)`;
+      body = `<div class="fb-body-sm" style="padding:12px 0 4px">Your split, your rules — ranges may overlap
+          or leave gaps. Splitting keeps existing cards with the original topic.</div>`
         + p.topics.map((t) => {
           const [ps, pe] = t.pages.split("-").map(Number);
-          return `<div class="topic-row-edit ts-row" data-id="${t.id}">
-            <input class="ts-title" style="${inp}; flex:1; min-width:110px" value="${esc(t.title)}">
-            <input class="ts-start" type="number" min="1" value="${ps}" style="${inp}; width:52px">
-            <span style="color:#8A8F9C">–</span>
-            <input class="ts-end" type="number" min="1" value="${pe}" style="${inp}; width:52px">
-            <select class="ts-kind sort-select" style="font-size:11px">
+          return `<div class="fb-split-row ts-row" data-id="${t.id}">
+            <input class="ts-title" style="${inp}; flex:1; min-width:140px" value="${esc(t.title)}" aria-label="Topic title">
+            <input class="ts-start" type="number" min="1" value="${ps}" aria-label="First page" style="${inp}; width:58px; font-family:var(--fb-mono)">
+            <span style="color:var(--fb-muted)">–</span>
+            <input class="ts-end" type="number" min="1" value="${pe}" aria-label="Last page" style="${inp}; width:58px; font-family:var(--fb-mono)">
+            <select class="ts-kind fb-select" aria-label="Topic kind">
               <option value="content" ${t.kind !== "general" ? "selected" : ""}>content</option>
               <option value="general" ${t.kind === "general" ? "selected" : ""}>general</option>
             </select>
-            <button class="conf-btn" onclick="saveTopicEdit(${t.id}, this)">Save</button>
-            <button class="conf-btn" title="Split into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
-            <button class="pdf-del" title="Delete this topic and its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}"
+            <button class="fb-btn" style="padding:6px 12px; font-size:11.5px" onclick="saveTopicEdit(${t.id}, this)">Save</button>
+            <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
+              title="Split into two at a page" onclick="splitTopicAsk(${t.id}, ${ps}, ${pe})">Split…</button>
+            <button class="fb-icon-btn" title="Delete this topic and its ${t.cards_total} card${t.cards_total === 1 ? "" : "s"}"
               onclick="deleteTopicAsk(${t.id}, '${encT(t.title)}', ${t.cards_total})">✕</button>
           </div>`;
         }).join("");
+    } else if (open && p.topics.length) {
+      body = `<div style="margin-top:12px">`
+        + (sel.length ? `<a class="fb-btn fb-btn--block" style="margin-bottom:10px; text-align:center; text-decoration:none"
+            href="/api/pdf/${p.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
+            ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF</a>` : "")
+        + p.topics.map((t) => {
+          const general = t.kind === "general";
+          return `<div class="fb-topic-row" style="cursor:pointer" title="Open p.${t.pages} in the reader"
+              onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
+            <input type="checkbox" class="fb-topic-check" title="Tick topics, then download them together as one PDF"
+              onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
+            <span class="fb-dot" style="background:${general ? "var(--fb-hairline)" : MASTERY_HUE(t.mastery_pct)}"></span>
+            <span style="flex:1; min-width:0">
+              <span class="fb-topic-title" style="display:block; font-weight:500">${esc(t.title)}</span>
+              <span class="fb-doc-meta">p.${t.pages} · ~${fmtMin(t.est_minutes)}${general ? "" : ` · ${t.mastery_pct.toFixed(0)}%`}</span>
+            </span>
+            ${t.cards_due ? `<span class="fb-chip fb-chip--due">${t.cards_due} due</span>` : ""}
+            ${general ? `<span class="fb-chip" style="color:var(--fb-muted); font-size:10px; letter-spacing:.8px; text-transform:uppercase">info</span>`
+              : t.cards_total ? `<span class="fb-data" style="color:var(--fb-muted); flex:none">${t.cards_total} cards</span>`
+              : `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
+                  title="Generate flashcards for this topic (~$0.05, ~30s)"
+                  onclick="event.stopPropagation(); generateCards(${t.id}, this)">Make cards</button>`}
+          </div>`;
+        }).join("")
+        + `</div>`;
     } else if (open) {
-      body = (sel.length ? `<a class="btn-block" style="margin:2px 0 8px; text-align:center; text-decoration:none; box-sizing:border-box"
-          href="/api/pdf/${p.pdf_id}/slice?ranges=${sel.map((t) => t.pages).join(",")}" download>
-          ⬇ ${sel.length} topic${sel.length === 1 ? "" : "s"} as one PDF</a>` : "")
-        + p.topics.map((t) => `
-        <div class="topic-row2" onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')"
-             title="Open p.${t.pages} in the reader">
-          <input type="checkbox" class="rt-check" title="Tick topics, then download them together as one PDF"
-            onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
-          <span class="ret-dot" style="background:${t.kind === "general" ? "#C9CCD4" : retColor(t.mastery_pct)}"></span>
-          <span style="flex:1; min-width:0">
-            <span style="display:block; font-size:12.5px; font-weight:600; line-height:1.35">${esc(t.title)}</span>
-            <span style="display:block; font-size:10.5px; color:#8A8F9C; margin-top:2px">p.${t.pages} · ~${fmtMin(t.est_minutes)}${t.kind === "general" ? "" : ` · ${t.mastery_pct.toFixed(0)}%`}</span>
-          </span>
-          ${t.cards_due ? `<span class="due-tag">${t.cards_due} due</span>` : ""}
-          ${t.kind === "general" ? `<span class="info-tag">info</span>`
-            : t.cards_total ? `<span class="mono" style="font-size:10px; color:#8A8F9C; flex:none">${t.cards_total} cards</span>`
-            : `<button class="conf-btn" style="flex:none" title="Generate flashcards for this topic (~$0.05, ~30s)"
-                onclick="event.stopPropagation(); generateCards(${t.id}, this)">⚡ Cards</button>`}
-        </div>`).join("");
+      body = `<div class="fb-body-sm" style="margin-top:12px">Ingest didn't finish for this document, so it has
+        no topics yet. Delete it and add it again, and Flashbang will read, split and file it.</div>`;
     }
 
-    return `<div class="doc-block">
-      <div class="doc-head" onclick="toggleDoc(${p.pdf_id})">
-        <span class="deck-caret">${open ? "▾" : "▸"}</span>
+    return `<div class="fb-card fb-card--sm">
+      <div style="display:flex; align-items:flex-start; gap:12px; cursor:pointer" onclick="toggleDoc(${p.pdf_id})">
+        <span style="flex:none; width:14px; color:var(--fb-muted); font-family:var(--fb-mono); font-size:11px; line-height:20px">${open ? "▾" : "▸"}</span>
         <span style="flex:1; min-width:0">
-          <span style="display:block; font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(p.filename)}</span>
-          <span style="display:block; font-size:10.5px; color:#8A8F9C; margin-top:2px">${p.total_pages}p · ${p.topics.length} topics · ${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
+          <span class="fb-doc-name" style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(p.filename)}</span>
+          <span class="fb-doc-meta" style="display:block">${p.total_pages}p · ${p.topics.length} topics · ${fmtMin(readMin)} read${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}</span>
         </span>
-        ${p.status === "pending" ? `<span class="badge" style="background:rgba(213,94,0,.12); color:#D55E00">Ingest incomplete</span>` : ""}
-        ${p.due ? `<span class="deck-due">${p.due} due</span>` : ""}
-        ${open ? `<button class="conf-btn ${editing ? "picked" : ""}" title="Rename topics, fix page ranges, split or delete"
+        ${p.status === "pending" ? `<span class="fb-chip" style="color:var(--fb-red); border-color:var(--fb-red)">Ingest incomplete</span>` : ""}
+        ${p.due ? `<span class="fb-chip fb-chip--due">${p.due} due</span>` : ""}
+        ${open && p.topics.length ? `<button class="fb-btn${editing ? "" : " fb-btn--ghost"}" style="padding:5px 10px; font-size:11px; flex:none"
+          title="Rename topics, fix page ranges, split or delete"
           onclick="event.stopPropagation(); toggleEditSplit(${p.pdf_id})">✎ Split</button>` : ""}
-        <button class="pdf-del" title="Delete this document and everything under it"
+        <button class="fb-icon-btn" title="Delete this document and everything under it"
           onclick="event.stopPropagation(); deletePdf(${p.pdf_id}, '${encT(p.filename)}')">✕</button>
       </div>
       ${body}
     </div>`;
   }).join("");
 
-  // ---- right: this course's numbers
-  const metrics = `
-    <div class="card" style="padding:18px 20px">
-      <div class="mono-label" style="margin-bottom:10px">COMPLETION</div>
-      <div class="stat-num" style="color:${retColor(s.completion)}">${s.completion.toFixed(0)}%</div>
-      <div class="bar-track" style="margin:10px 0 8px"><div class="bar-fill" style="width:${s.completion}%; background:${retColor(s.completion)}"></div></div>
-      <div class="stat-sub">${s.covered} of ${s.topicsTotal} topics covered · ${s.started} in progress</div>
-      ${evidence("Completion is retrieval-weighted: a topic only counts once its cards are actually recalled, not once it's been read.")}
-    </div>
-    <div class="card" style="padding:18px 20px">
-      <div class="mono-label" style="margin-bottom:10px">DUE NOW</div>
-      <div class="stat-num" style="color:${s.due ? LOW : "#00794F"}">${s.due}</div>
-      <div class="stat-sub">${s.cards} cards in this course</div>
-      <button class="btn-block" style="margin-top:12px" ${s.due ? "" : "disabled"}
-        onclick="startReviewSession({ course_id: ${c.id} })">▶ Review this course</button>
-    </div>
-    <div class="card" style="padding:18px 20px">
-      <div class="mono-label" style="margin-bottom:10px">TIME INVESTED</div>
-      <div style="display:flex; gap:18px">
-        <div><div class="stat-num" style="font-size:20px">${c.timeSpent}</div><div class="stat-sub">flashcards</div></div>
-        <div><div class="stat-num" style="font-size:20px">${fmtMin(s.readMin)}</div><div class="stat-sub">reading</div></div>
-        <div><div class="stat-num" style="font-size:20px">${s.notes}</div><div class="stat-sub">notes</div></div>
-      </div>
-    </div>
-    ${(() => {
-      // reading analytics for THIS course: where the reading time went, and
-      // which documents are still untouched
-      const perDoc = docs.map((p) => ({
-        name: p.filename.replace(/\.pdf$/i, ""),
-        min: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0,
-        notes: rd.notes_by_pdf?.[p.pdf_id] || 0,
-        last: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.last_read,
-      })).sort((a, b) => b.min - a.min);
-      const read = perDoc.filter((d) => d.min > 0);
-      const maxMin = Math.max(1, ...perDoc.map((d) => d.min));
-      const lastRead = read.map((d) => d.last).filter(Boolean).sort().pop();
-      return `<div class="card" style="padding:18px 20px">
-        <div class="mono-label" style="margin-bottom:12px">READING · THIS COURSE</div>
-        ${read.length ? `
-          <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px">
-            ${read.slice(0, 6).map((d) => `
-              <div class="fn-row" title="${esc(d.name)}${d.notes ? ` · ${d.notes} notes` : ""}">
-                <span class="fn-label" style="width:96px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(d.name)}</span>
-                <div class="fn-track"><div class="fn-fill" style="width:${Math.max(3, d.min / maxMin * 100)}%; background:#0072B2"></div></div>
-                <span class="fn-n">${fmtMin(d.min)}</span>
-              </div>`).join("")}
-          </div>
-          <div style="font-size:11.5px; color:#5C616E">${read.length} of ${docs.length} documents opened${lastRead ? ` · last read ${new Date(lastRead).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}</div>`
-        : `<div style="font-size:12px; color:#8A8F9C; line-height:1.6">No reading blocks logged for this course yet. Open a topic and start a block in the reader's sidebar.</div>`}
-        ${evidence("Reading time is tracked apart from recall on purpose: hours in the PDF never move mastery — only retrieval does.")}
-      </div>`;
-    })()}
-    <div class="card" style="padding:18px 20px">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
-        <span class="mono-label">EXAM</span>
-        <input type="date" class="exam-input" value="${courseInfo?.exam_date || ""}"
-          title="Exam date — drives the readiness projection" onchange="setExam(${c.id}, this.value)">
-      </div>
-      ${s.exam && s.exam.today != null ? `
-        <div class="stat-num" style="color:${s.exam.onPlan >= 70 ? "#00794F" : LOW}">${s.exam.onPlan}%</div>
-        <div class="stat-sub">projected recall on exam day if you keep to the schedule · ${s.exam.today}% if you stop today · ${s.exam.days_left} days left</div>`
-      : s.exam ? `<div class="stat-sub">${s.exam.days_left} days left — generate some cards to get a readiness projection.</div>`
-      : `<div class="stat-sub">Set a date and you'll get a projected exam-day recall.</div>`}
-    </div>`;
+  /* ---- reading: where the hours went, kept below the documents because the
+     band had no room for it and dropping a metric is the worse trade. */
+  const perDoc = docs.map((p) => ({
+    name: p.filename.replace(/\.pdf$/i, ""),
+    min: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.minutes || 0,
+    notes: rd.notes_by_pdf?.[p.pdf_id] || 0,
+    last: rd.by_pdf?.find((e) => e.pdf_id === p.pdf_id)?.last_read,
+  })).sort((a, b) => b.min - a.min);
+  const read = perDoc.filter((d) => d.min > 0);
+  const maxMin = Math.max(1, ...perDoc.map((d) => d.min));
+  const lastRead = read.map((d) => d.last).filter(Boolean).sort().pop();
+
+  const reading = `<div class="fb-card">
+    <div class="fb-label" style="margin-bottom:18px">Reading · this course</div>
+    ${read.length ? `
+      <div class="fb-read-split">
+        <div style="display:flex; flex-direction:column; gap:12px">
+          ${read.slice(0, 6).map((d) => `
+            <div class="fb-fn-row" title="${esc(d.name)}${d.notes ? ` · ${d.notes} notes` : ""}">
+              <span class="fb-fn-label" style="width:112px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(d.name)}</span>
+              <span class="fb-fn-track"><span style="display:block; height:100%; width:${Math.max(3, d.min / maxMin * 100)}%; background:var(--fb-ink)"></span></span>
+              <span class="fb-fn-n">${fmtMin(d.min)}</span>
+            </div>`).join("")}
+        </div>
+        <div>
+          <div class="fb-body-sm">${read.length} of ${docs.length} documents opened${lastRead
+            ? ` · last read ${new Date(lastRead).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}</div>
+          <div class="fb-evidence">Reading time is tracked apart from recall on purpose: hours in the PDF
+            never move mastery — only retrieval does.</div>
+        </div>
+      </div>`
+    : `<div class="fb-body-sm">No reading blocks logged for this course yet. Open a topic and start a block
+        in the reader's sidebar.</div>`}
+  </div>`;
 
   $("courseInner").innerHTML = `
-    <div class="crumbs">
-      <button class="crumb" onclick="goHome()">Courses</button>
-      <span class="crumb-sep">›</span>
-      <span class="crumb on">${esc(c.name)}</span>
+    <div style="display:flex; align-items:center; gap:16px">
+      <div class="fb-crumbs">
+        <button class="fb-crumb" onclick="goHome()">Courses</button>
+        <span class="fb-crumb-sep">›</span>
+        <span class="fb-crumb fb-crumb--on">${esc(c.name)}</span>
+      </div>
       <span style="flex:1"></span>
       ${visionToggle()}
-      <button class="conf-btn" onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
+      <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
+        onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
     </div>
     ${S.ingesting ? ingestBanner() : ""}
-    <div class="course-grid">
-      <div style="display:flex; flex-direction:column; gap:8px">
-        <div class="mono-label" style="padding:2px">DOCUMENTS &amp; TOPICS · CLICK A TOPIC TO READ</div>
-        ${docBlocks || `<div class="card" style="font-size:12.5px; color:#8A8F9C">Nothing in this course yet.</div>`}
+    ${band}
+    <div>
+      <div class="fb-section-head" style="margin-bottom:18px">
+        <span class="fb-label">Documents &amp; topics · click a topic to read</span>
+        <span class="fb-rule"></span>
       </div>
-      <div style="display:flex; flex-direction:column; gap:12px">${metrics}</div>
-    </div>`;
+      ${docs.length ? `<div class="fb-doc-grid">${docBlocks}</div>`
+        : `<div class="fb-card"><div class="fb-body-sm">Nothing in this course yet. Hit ＋ Add PDFs and
+            Flashbang will read, split and file them for you.</div></div>`}
+    </div>
+    ${reading}`;
 }
 
 /* ---- assistant bubble: a scoped agent, only when you open it ---- */

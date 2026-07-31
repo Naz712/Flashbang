@@ -458,6 +458,20 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   color: var(--fb-muted); cursor: pointer; user-select: none; white-space: nowrap; }
 .fb-vision-toggle input { accent-color: var(--fb-accent); cursor: pointer; }
 
+/* course page: the last topic in a document has the card edge below it, so its
+   own rule would read as a second, thinner border */
+.fb-topic-row:last-child { border-bottom: none; }
+/* tick topics, then download them as one merged PDF — the only control on the
+   row that isn't "open this in the reader" */
+.fb-topic-check { flex: none; margin: 0; accent-color: var(--fb-accent); cursor: pointer; }
+/* the split editor, over the same rows the topic list occupies */
+.fb-split-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; flex-wrap: wrap;
+  border-bottom: 1.5px solid var(--fb-hairline); }
+.fb-split-row:last-child { border-bottom: none; }
+/* reading: bars on the left, the count and its evidence on the right */
+.fb-read-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px 40px; align-items: center; }
+@media (max-width: 900px) { .fb-read-split { grid-template-columns: 1fr; } }
+
 /* ==================================================================
    LEGACY — the previous warm-paper system. Still used by the screens
    that have not been converted to the fb-* classes yet (Review,
@@ -571,23 +585,10 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   cursor: pointer; box-shadow: 0 1px 2px rgba(16,18,24,.04); transition: border-color .12s, transform .12s; }
 .course-tile-card:hover { border-color: #B0B4BE; transform: translateY(-1px); }
 
-/* course page: documents/topics left, that course's numbers right */
-.course-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: start; }
-.doc-block { background: #fff; border: 1px solid #E3E3DE; border-radius: 12px; padding: 4px 6px; }
-.doc-head { display: flex; align-items: center; gap: 9px; padding: 9px 8px; cursor: pointer; border-radius: 9px; }
-.doc-head:hover { background: #F7F7F4; }
-.topic-row2 { display: flex; align-items: center; gap: 9px; padding: 7px 9px 7px 26px; border-radius: 8px;
-  cursor: pointer; }
-.topic-row2:hover { background: #F7F7F4; }
-.topic-row-edit { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 22px; flex-wrap: wrap; }
+/* the course page moved to the fb-* classes in phase 2 — .course-grid,
+   .doc-block, .doc-head, .topic-row2, .topic-row-edit, .crumb*, .rt-check,
+   .exam-input, .ret-dot, .due-tag and .pdf-del went with it. */
 
-/* reading-library stepper */
-.crumbs { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.crumb { border: none; background: none; font-family: 'IBM Plex Sans', sans-serif; font-size: 12.5px;
-  color: #8A8F9C; cursor: pointer; padding: 3px 6px; border-radius: 7px; }
-.crumb:hover { color: #1C1E26; background: #ECECE8; }
-.crumb.on { color: #1C1E26; font-weight: 600; cursor: default; background: none; }
-.crumb-sep { color: #C9CCD4; font-size: 13px; flex: none; }
 .pick-card { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
   background: #fff; border: 1px solid #E3E3DE; border-radius: 12px; padding: 13px 16px;
   cursor: pointer; font-family: 'IBM Plex Sans', sans-serif;
@@ -595,7 +596,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .pick-card:hover { border-color: #B0B4BE; }
 .pick-card:focus-visible { outline: 2px solid #0072B2; outline-offset: -2px; }
 .pick-card .course-tile { width: 26px; height: 26px; border-radius: 8px; }
-.rt-check { flex: none; width: 15px; height: 15px; accent-color: #1C1E26; cursor: pointer; }
 
 /* full-width chat: keep bubbles readable, not viewport-wide */
 .bubble-user, .bubble-bot, .qcard, .gcard { max-width: min(70%, 780px); }
@@ -740,14 +740,11 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   border-top: 1px dashed #E3E3DE; }
 .topic-row { display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: 8px; }
 .topic-row:hover { background: #F7F7F4; }
-.ret-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
 .topic-title { font-size: 11.5px; line-height: 1.35; overflow-wrap: break-word; }
 .mini-track { height: 3px; border-radius: 2px; background: #ECECE8; margin-top: 5px; overflow: hidden; }
 .mini-fill { height: 100%; border-radius: 2px; }
 .topic-pct { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A8F9C; flex: none;
   width: 30px; text-align: right; }
-.due-tag { flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600;
-  color: #A34700; background: rgba(213,94,0,.10); padding: 2px 7px; border-radius: 999px; }
 .dur-row { display: flex; gap: 6px; margin-bottom: 10px; }
 .dur-btn { flex: 1; padding: 7px 0; border-radius: 8px; font-family: 'IBM Plex Mono', monospace;
   font-size: 11px; cursor: pointer; background: #fff; border: 1px solid #E3E3DE; color: #8A8F9C; }
@@ -788,9 +785,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .pdf-card { border-radius: 12px; background: #FBFBF9; border: 1px solid #E9E9E5; padding: 16px 18px; cursor: pointer; }
 .pdf-card:hover { border-color: #B0B4BE; background: #fff; }
 .badge { flex: none; font-size: 10.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
-.pdf-del { flex: none; border: none; background: transparent; color: #C9CCD4; cursor: pointer;
-  font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 6px; }
-.pdf-del:hover { color: #D55E00; background: rgba(213, 94, 0, .08); }
 .info-tag { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #8A8F9C;
   background: #F0F0EC; padding: 2px 6px; border-radius: 999px; text-transform: uppercase; }
 /* ingest preview card rendered in chat after save_topics */
@@ -851,9 +845,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   background: #1C1E26; transform: translateX(-50%); }
 .exam-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 10px;
   border-radius: 999px; background: #F4F4F1; border: 1px solid #E3E3DE; white-space: nowrap; }
-.exam-input { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8A8F9C;
-  border: 1px solid #E3E3DE; border-radius: 8px; padding: 3px 8px; background: #fff; }
-.exam-input:hover { border-color: #B0B4BE; color: #1C1E26; }
 
 /* sort/filter selects */
 .sort-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; color: #1C1E26;
