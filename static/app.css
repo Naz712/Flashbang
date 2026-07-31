@@ -171,9 +171,9 @@
 /* ==================== tokens/base.css ==================== */
 /* Flashbang — base. White paper, ink type, hairline structure. */
 html,body{margin:0;padding:0;min-height:100%}
-/* The page carries a faint dot grid — the one texture in the system, and it
-   reads only in the gaps between cards. */
-body{background:var(--fb-page);background-image:radial-gradient(var(--fb-hairline) 1.2px, transparent 1.2px);background-size:14px 14px;color:var(--fb-ink);font-family:var(--fb-sans);font-size:var(--fb-body);line-height:var(--fb-lh-body);-webkit-font-smoothing:antialiased}
+/* Plain page. The handoff put a faint dot grid here; removed at Naz's request —
+   the white-card-on-grey-page contrast is the only separation the system needs. */
+body{background:var(--fb-page);color:var(--fb-ink);font-family:var(--fb-sans);font-size:var(--fb-body);line-height:var(--fb-lh-body);-webkit-font-smoothing:antialiased}
 *,*::before,*::after{box-sizing:border-box}
 
 /* Links take the accent — the same colour that marks the primary action. */
