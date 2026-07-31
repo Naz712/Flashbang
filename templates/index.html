@@ -48,34 +48,32 @@
   <!-- review screen: deck picker when idle, chat when a session is live -->
   <div id="studyScreen" class="study">
     <div id="reviewHome" class="fb-review-home"></div>
-    <div class="chat" id="chatPane" style="display:none">
-      <div class="chat-head">
-        <div class="chat-head-left">
-          <button class="icon-btn" id="backToDecks" title="Back to your decks">‹ Decks</button>
-          <span id="agentDot" class="agent-dot"></span>
-          <span class="chat-title" id="agentName">Review</span>
-          <span class="chat-sub" id="sessionLabel"></span>
+    <div class="fb-chat" id="chatPane" style="display:none">
+      <div class="fb-chat-head">
+        <div style="display:flex; align-items:center; gap:12px; min-width:0">
+          <button class="fb-icon-btn" id="backToDecks" title="Back to your decks">‹ Decks</button>
+          <span class="fb-chat-title" id="agentName">Review</span>
+          <span class="fb-chat-sub" id="sessionLabel"></span>
         </div>
-        <span id="focusChip" class="focus-chip" style="display:none">
-          <span class="pulse"></span>FOCUS · <span id="focusElapsedHead">0</span>M
-        </span>
+        <div id="sessionBar" style="display:none; gap:8px">
+          <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
+            onclick="skipCard()" title="Move on without grading — the card stays due">Skip card</button>
+          <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
+            onclick="endSession()" title="End now and get the gap report">End session</button>
+        </div>
       </div>
-      <div id="chatScroll" class="chat-scroll"></div>
-      <div class="chat-foot">
-        <div id="confRow" class="conf-row" style="display:none; margin-bottom:10px">
-          <div class="conf-box">
-            <span>Before answering — how confident are you?</span>
+      <div id="chatScroll" class="fb-chat-scroll"></div>
+      <div class="fb-chat-foot">
+        <div id="confRow" class="fb-conf-row" style="display:none; margin-bottom:10px">
+          <div class="fb-conf-box">
+            <span class="fb-body-sm">Before answering — how confident are you?</span>
             <button class="conf-btn" data-conf="sure">Sure</button>
             <button class="conf-btn" data-conf="unsure">Unsure</button>
           </div>
         </div>
-        <div id="sessionBar" style="display:none; gap:8px; margin-bottom:10px">
-          <button class="conf-btn" onclick="skipCard()" title="Move on without grading — the card stays due">Skip card</button>
-          <button class="conf-btn" onclick="endSession()" title="End now and get the gap report">End session</button>
-        </div>
-        <div class="input-row">
+        <div class="fb-input-row">
           <input id="chatInput" placeholder="Start a review to begin — cards get dealt here." autocomplete="off">
-          <button id="sendBtn" class="send-key">⏎</button>
+          <button id="sendBtn" class="fb-send">⏎</button>
         </div>
       </div>
     </div>

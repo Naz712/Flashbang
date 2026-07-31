@@ -603,6 +603,9 @@ def review_answer():
 
     grade = grade_answer(card["question"], card["answer"], answer, confidence)
     meta = ""
+    # the reschedule, structured: the grade card draws the old interval as a
+    # ghost tick against the new one, so it needs the numbers, not a string
+    schedule = None
     if sess["phase"] == "main":
         aid = log_answer(grade["quality"], confidence,
                          latency_ms=_clean_latency(body.get("latency_ms")),
@@ -611,7 +614,7 @@ def review_answer():
         grade_log.append({"at": datetime.now(), "quality": grade["quality"]})
         sess["grades"].append(grade["quality"])
         if sess["kind"] == "review":
-            meta = str(review_card(card["id"], grade["quality"]))
+            schedule = review_card(card["id"], grade["quality"])
         if grade["quality"] < 3:
             sess["relearn"].append(card)
     else:
@@ -619,7 +622,7 @@ def review_answer():
 
     grade_entry = {"role": "grade", "grade": grade.get("quality", 0),
                    "text": grade.get("feedback", ""), "meta": meta,
-                   "card_id": card["id"],
+                   "schedule": schedule, "card_id": card["id"],
                    "right": grade.get("right", ""), "gap": grade.get("gap", ""),
                    "why": grade.get("why", ""), "hook": grade.get("hook", ""),
                    "calibration": grade.get("calibration", ""),

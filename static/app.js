@@ -108,37 +108,101 @@ async function fetchHistory() {
    [CARD 2/4 · Topic Title]\n<question> */
 const CARD_RE = /\[CARD\s+(\d+)\s*(?:\/|of)\s*(\d+)\s*[·\-–:]\s*([^\]]+)\]/i;
 
+/* One labelled section of the grade card. Marker geometry is constant — an 18px
+   square everywhere — and ONLY the evaluative pair takes a hue: green for what
+   was recalled, red for what was not. Marking all four would make the card look
+   like a form and would spend colour on sections that judge nothing. */
+const GMARK = {
+  right: { fill: "var(--fb-green)", border: "var(--fb-green)", glyph: "✓" },
+  gap:   { fill: "var(--fb-red)", border: "var(--fb-red)", glyph: "✗" },
+  plain: { fill: "transparent", border: "var(--fb-hairline)", glyph: "" },
+  hook:  { fill: "var(--fb-ink)", border: "var(--fb-ink)", glyph: "" },
+};
+
+function gradeSection(label, text, kind = "plain") {
+  if (!text) return "";
+  const m = GMARK[kind] || GMARK.plain;
+  const hook = kind === "hook";
+  return `<div style="display:grid; grid-template-columns:18px 1fr; gap:14px; padding:14px 24px;
+      ${hook ? "border-top:1.5px solid var(--fb-hairline)" : ""}">
+    <span style="width:18px; height:18px; border-radius:4px; background:${m.fill};
+      border:1.5px solid ${m.border}; display:flex; align-items:center; justify-content:center;
+      font-size:11px; font-weight:700; color:var(--fb-ink); margin-top:2px">${m.glyph}</span>
+    <div style="min-width:0">
+      <div class="fb-label" style="margin-bottom:6px">${label}</div>
+      <div style="font-size:13.5px; line-height:1.6; color:${hook ? "var(--fb-ink)" : "var(--fb-slate)"};
+        font-weight:${hook ? 600 : 400}">${esc(text)}</div>
+    </div>
+  </div>`;
+}
+
+/* The schedule footer answers exactly one question — when do I see this card
+   again — and puts the OLD interval on the same track as a ghost tick, so the
+   consequence of the grade is one alignment rather than two bars to compare.
+   A shortened interval is information, not a telling-off: nothing here is red. */
+function gradeSchedule(sc) {
+  const from = Math.max(0, sc.old_interval || 0), to = Math.max(0, sc.new_interval || 0);
+  const max = Math.max(from, to, 1);
+  const nowPct = to / max * 100, wasPct = from / max * 100;
+  const tick = (pct, text, strong) => `<span style="position:absolute; ${pct > 92
+      ? "right:0" : `left:${pct}%; transform:translateX(-50%)`}; white-space:nowrap;
+    color:var(--fb-${strong ? "ink" : "muted"}); font-weight:${strong ? 600 : 400}">${text}</span>`;
+  const note = to === from ? `Same interval as before — the grade held it where it was.`
+    : to > from ? `${to} days instead of ${from}. Recalling it cleanly pushes the card further out — that is the whole consequence of this grade.`
+    : `${to} day${to === 1 ? "" : "s"} instead of ${from}. A partial answer pulls the card back in — that is the whole consequence of this grade.`;
+  return `<div style="margin:0 24px; padding:16px 0 20px; border-top:1.5px solid var(--fb-hairline)">
+    <div class="fb-label" style="margin-bottom:10px">Next review</div>
+    <div style="display:flex; align-items:baseline; gap:9px; margin-bottom:16px">
+      <span style="font-family:var(--fb-mono); font-size:26px; font-weight:700; letter-spacing:-1px; line-height:1">in ${to} day${to === 1 ? "" : "s"}</span>
+      ${sc.next_review ? `<span class="fb-data" style="font-size:13px; color:var(--fb-muted)">· ${esc(sc.next_review)}</span>` : ""}
+    </div>
+    <div style="position:relative; height:22px; margin-bottom:8px">
+      <span style="position:absolute; left:0; right:0; top:9px; height:3px; background:var(--fb-hairline); border-radius:2px"></span>
+      <span style="position:absolute; left:0; width:${nowPct}%; top:9px; height:3px; background:var(--fb-ink); border-radius:2px"></span>
+      <span style="position:absolute; left:0; top:4px; width:3px; height:13px; background:var(--fb-ink)"></span>
+      <span style="position:absolute; left:calc(${wasPct}% - 1.5px); top:4px; width:3px; height:13px; background:var(--fb-hairline)"></span>
+      <span style="position:absolute; left:calc(${nowPct}% - 1.5px); top:0; width:3px; height:21px; background:var(--fb-ink)"></span>
+    </div>
+    <div style="position:relative; height:14px; font-family:var(--fb-mono); font-size:10px; letter-spacing:.6px; text-transform:uppercase">
+      <span style="position:absolute; left:0; color:var(--fb-muted)">today</span>
+      ${tick(wasPct, `${from}d · was`, false)}
+      ${tick(nowPct, `${to}d · now`, true)}
+    </div>
+    <div class="fb-body-sm" style="margin-top:14px">${note}</div>
+  </div>`;
+}
+
 function renderMsg(m) {
   if (m.role === "user") {
-    const meta = m.meta ? `<div class="grade-head"><span class="grade-meta" style="color:#B9BDC7">${esc(m.meta)}</span></div>` : "";
-    return `<div class="msg-row-user"><div class="bubble-user">${meta}${esc(m.text)}</div></div>`;
+    const meta = m.meta ? `<div class="fb-data" style="font-size:10px; color:rgba(255,255,255,.6); margin-bottom:6px">${esc(m.meta)}</div>` : "";
+    return `<div class="fb-row-user"><div class="fb-bubble-user">${meta}${esc(m.text)}</div></div>`;
   }
   if (m.role === "grade") {
+    /* No red verdict rule: a missed card is scheduling information, not a
+       failure, so the left rule is green at 4+ and yellow below. */
     const good = m.grade >= 4;
-    const cls = good ? "good" : "warn";
     const verdict = good ? "Correct" : m.grade === 3 ? "Partially correct" : "Not quite";
-    // structured feedback (right/gap/model answer/why/hook/calibration) with
-    // plain-text fallback for pre-upgrade history entries
-    const section = (label, text, extraClass = "") => text
-      ? `<div class="gsec ${extraClass}"><span class="gsec-label">${label}</span><span>${esc(text)}</span></div>` : "";
+    const pill = `${good ? "Correct" : m.grade === 3 ? "Partial" : "Missed"} · ${m.grade}/5`;
+    // structured feedback, with a plain-text fallback for pre-upgrade history
     const structured = m.right || m.gap || m.answer;
     const body = structured
-      ? section("✓ YOU HAD", m.right, "g-right")
-        + section("✗ THE GAP", m.gap, "g-gap")
-        + section("MODEL ANSWER", m.answer)
-        + section("WHY", m.why)
-        + section("REMEMBER", m.hook, "g-hook")
-        + (m.calibration ? `<div class="g-cal">${esc(m.calibration)}</div>` : "")
-      : `<div style="padding:12px 16px; font-size:13.5px; line-height:1.6">${md(m.text)}</div>`;
-    return `<div class="msg-row-bot"><div class="gcard ${cls}">
-      <div class="gcard-head ${cls}">
-        <span class="gcard-pill ${cls}">✓ GRADE ${m.grade}/5</span>
-        <span class="gcard-verdict">${verdict}</span>
+      ? gradeSection("You had", m.right, "right")
+        + gradeSection("The gap", m.gap, "gap")
+        + gradeSection("Model answer", m.answer)
+        + gradeSection("Why", m.why)
+        + gradeSection("Remember", m.hook, "hook")
+        + (m.calibration ? `<div class="fb-gcard-meta">${esc(m.calibration)}</div>` : "")
+      : `<div class="fb-gcard-body">${md(m.text)}</div>`;
+    return `<div class="fb-row-bot"><div class="fb-gcard ${good ? "fb-gcard--correct" : "fb-gcard--partial"}${m.grade === 5 ? " fb-anim-grade5" : ""}">
+      <div style="display:flex; align-items:center; gap:12px; padding:18px 24px 4px">
+        <span class="fb-pill">${pill}</span>
+        <span class="fb-body-sm" style="color:var(--fb-ink); font-weight:600; font-size:14px">${verdict}</span>
         <span style="flex:1"></span>
-        <button class="undo-btn" data-card="${m.card_id || ""}" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
+        <button class="fb-undo" data-card="${m.card_id || ""}" onclick="undoGrade(this)" title="Mis-graded? Restore the card's previous schedule">undo</button>
       </div>
       ${body}
-      ${m.meta ? `<div class="gcard-meta">${esc(m.meta)}</div>` : ""}
+      ${m.schedule ? gradeSchedule(m.schedule)
+        : m.meta ? `<div class="fb-gcard-meta">${esc(m.meta)}</div>` : ""}
     </div></div>`;
   }
   // ingest preview: the course card for a just-saved pdf, like Progress shows
@@ -151,7 +215,7 @@ function renderMsg(m) {
         ${t.kind === "general" ? `<span class="info-tag">info</span>` : ""}
         <span class="time" style="margin-left:auto; flex:none">p.${t.pages} · ${fmtMin(t.est_minutes)}</span>
       </div>`).join("");
-    return `<div class="msg-row-bot"><div class="chat-pdfcard" onclick="openDoc(${p.pdf_id})" title="Open in Study">
+    return `<div class="fb-row-bot"><div class="chat-pdfcard" onclick="openDoc(${p.pdf_id})" title="Open in Study">
       <div style="font-size:13px; font-weight:600; line-height:1.4">📄 ${esc(p.filename)}</div>
       <div class="doc-meta" style="margin-bottom:10px">${p.total_pages} pages · ${esc(p.est)} est · ${p.topics.length} topics</div>
       <div style="display:flex; flex-direction:column; gap:6px">${rows}</div>
@@ -174,7 +238,7 @@ function renderMsg(m) {
         <button class="conf-btn" style="flex:none" title="Open ${esc(it.topic_title)} at these pages in the reader"
           onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}')">📖 p.${it.page_start}–${it.page_end}</button>
       </div>`).join("");
-    return `<div class="msg-row-bot"><div class="gcard ${rep.missed.length ? "warn" : "good"}" style="max-width:min(85%, 820px)">
+    return `<div class="fb-row-bot"><div class="gcard ${rep.missed.length ? "warn" : "good"}" style="max-width:min(85%, 820px)">
       <div class="gcard-head ${rep.missed.length ? "warn" : "good"}">
         <span class="gcard-pill ${rep.missed.length ? "warn" : "good"}">SESSION REPORT</span>
         <span class="gcard-verdict">${rep.cards} cards · ${rep.accuracy != null ? rep.accuracy + "% recall · " : ""}${rep.missed.length} gap${rep.missed.length === 1 ? "" : "s"}</span>
@@ -191,17 +255,19 @@ function renderMsg(m) {
     const at = m.text.search(CARD_RE);
     const pre = m.text.slice(0, at).trim();
     const question = m.text.slice(at + match[0].length).trim();
-    return (pre ? `<div class="msg-row-bot"><div class="bubble-bot">${md(pre)}</div></div>` : "") + `
-      <div class="msg-row-bot"><div class="qcard">
-        <div class="qcard-head">
-          <span class="qcard-label">Q · CARD ${match[1]} OF ${match[2]}</span>
-          <span class="qcard-topic">· ${esc(match[3].trim())}</span>
+    /* the 4px sky left rule is the card-type signal — no head tint, no wash.
+       Blue means exactly one thing here: answer this. */
+    return (pre ? `<div class="fb-row-bot"><div class="fb-bubble-bot">${md(pre)}</div></div>` : "") + `
+      <div class="fb-row-bot"><div class="fb-qcard">
+        <div class="fb-qcard-head">
+          <span class="fb-label">Question ${match[1]} of ${match[2]}</span>
+          <span class="fb-data" style="font-size:11px; color:var(--fb-muted)">· ${esc(match[3].trim())}</span>
         </div>
-        <div class="qcard-body">${md(question)}</div>
-        <div class="qcard-hint">TYPE YOUR ANSWER BELOW</div>
+        <div class="fb-qcard-body">${md(question)}</div>
+        <div class="fb-qcard-hint">Type your answer below</div>
       </div></div>`;
   }
-  return `<div class="msg-row-bot"><div class="bubble-bot">${md(m.text)}</div></div>`;
+  return `<div class="fb-row-bot"><div class="fb-bubble-bot">${md(m.text)}</div></div>`;
 }
 
 window.copyReport = async (sessionId, btn) => {
@@ -348,6 +414,7 @@ function showQuestion(card) {
   RV.card = card;
   chatLine(renderMsg({ role: "assistant",
     text: `[CARD ${card.n}/${card.total} · ${card.topic_title}]\n${card.question}` }));
+  $("sessionLabel").textContent = `· card ${card.n} of ${card.total}`;
   S.qShownAt = Date.now();
   $("chatInput").placeholder = card.phase === "relearn"
     ? "Re-ask (not scored) — type what you remember…"
@@ -397,7 +464,7 @@ async function submitAnswer(text) {
   S.pendingConf = null;
   const latency_ms = S.qShownAt ? Date.now() - S.qShownAt : null;
   chatLine(renderMsg({ role: "user", text, meta: confidence ? `confidence: ${confidence}` : "" }));
-  chatLine(`<div id="thinking" class="msg-row-bot"><div class="bubble-bot"><span class="status-line working">Grading…</span></div></div>`);
+  chatLine(`<div id="thinking" class="fb-row-bot"><div class="fb-bubble-bot"><span class="status-line working">Grading…</span></div></div>`);
   $("chatInput").value = "";
   renderConfRow();
   const res = await fetch("/api/review/answer", { method: "POST",
@@ -1717,11 +1784,8 @@ function render() {
   $("dueTotal").textContent = st.dueTotal;
   $("doNext").title = st.best
     ? `Weakest due topic: ${st.best.title} (${st.best.pct.toFixed(0)}% retention)` : "All caught up";
-  if (st.currentCourse) {
-    $("agentDot").style.background = SUBJ[st.currentCourse.ci % 4];
-    $("sessionLabel").textContent =
-      `· ${st.currentCourse.name} · ${st.current.filename.replace(/\.pdf$/i, "")}`;
-  }
+  // the session label belongs to the review driver — it counts the deal
+  // (`· card 3 of 6`), which a render pass has no business overwriting
   $("tabHome").classList.toggle("fb-nav-item--on", S.view === "home" || S.view === "course");
   $("tabStudy").classList.toggle("fb-nav-item--on", S.view === "study");
   $("tabProgress").classList.toggle("fb-nav-item--on", S.view === "progress");
@@ -1799,7 +1863,6 @@ window.toggleFocus = async (kind) => {
     const mins = Math.max(1, Math.round((Date.now() - S.focusStart) / 60000));
     S.focusStart = null;
     clearInterval(S._tick);
-    $("focusChip").style.display = "none";
     // reading blocks attribute to the doc open in the reader, not the rail's doc
     const cur = S.state?.current;
     let course_id = cur?.course_id, pdf_id = cur?.pdf_id;
@@ -1821,12 +1884,10 @@ window.toggleFocus = async (kind) => {
     S.focusKind = kind === "reading" ? "reading" : "review";
     S.focusStart = Date.now();
     S.blockDone = false;
-    $("focusChip").style.display = "flex";
     S._tick = setInterval(() => {
       // timestamps, not tick counts — throttled background tabs must not drift
       const elapsedSec = Math.floor((Date.now() - S.focusStart) / 1000);
       const elapsed = Math.floor(elapsedSec / 60);
-      $("focusElapsedHead").textContent = elapsed;
       const el = $("focusElapsed"), bar = $("focusBar");
       if (el) el.textContent = elapsed;
       if (bar) bar.style.width = `${Math.min(100, elapsed / S.sessionLen * 100)}%`;
