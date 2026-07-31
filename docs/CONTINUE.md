@@ -57,25 +57,31 @@ header, 44px mono numeral, six-week sparkline, mastery bar, week strip. Backed b
 `course_snapshots` table, because a completion trend cannot be reconstructed after the
 fact.
 
+**Phase 2 is done** (`b264616`): the course page. The four numbers moved from a
+right-hand column into one ink-bordered metrics band across the top, which gives the
+documents the full 1160px and lets them sit two-up. Evidence line inside the band's
+card, under a hairline. Documents are `fb-card` disclosures whose topics show a
+`Make cards` button *instead of* a card count when they have none; the split editor and
+the merged-PDF export carried over. Reading dropped below the documents. Each screen
+that converts also deletes its legacy CSS block — that is the pattern to keep.
+
 **Phases left, in the handoff's order:**
 
-1. **Course page** — metrics band (4 columns, hairline-divided, inside one ink-bordered
-   card), document disclosures, split editor, reading bars.
-2. **Review** — deck rail + today's card, then the session surface; question card, grade
+1. **Review** — deck rail + today's card, then the session surface; question card, grade
    card (verdict pill, labelled sections, next-review footer), and the **session report
    that replaces the transcript** rather than appending to it.
-3. **Analytics** — five tabbed sections on a six-column bento grid, with five
+2. **Analytics** — five tabbed sections on a six-column bento grid, with five
    hand-written SVG charts (arc gauge, line-with-target, forgetting curve, stacked area,
    bar rows). Note this reinstates the forgetting-curve panel that was deliberately
    deleted earlier.
-4. **Cards** — two panes, an editor that never moves when you select another card.
-5. **Reader** — a screen, not a modal: **continuous vertical scroll** (Naz overrode the
+3. **Cards** — two panes, an editor that never moves when you select another card.
+4. **Reader** — a screen, not a modal: **continuous vertical scroll** (Naz overrode the
    earlier page-at-a-time decision), two collapsible rails (thumbnails, notes), a
    fullscreen control that collapses the nav and both rails, and blackout/annotation
    boxes **re-measured from text rects** via ResizeObserver instead of stored 0–1
    coordinates. ⚠️ Discuss before starting: text-rect measurement needs a pdf.js text
    layer and cannot work on scanned pages, which is exactly where blackouts matter most.
-6. **The four motion moments**, last: 5/5-only grade reveal, session complete, streak
+5. **The four motion moments**, last: 5/5-only grade reveal, session complete, streak
    dots, ingest topic list.
 
 Deviations already agreed: **no `f` logo tile** (Naz asked for it removed; the design
