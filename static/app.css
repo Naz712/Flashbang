@@ -472,6 +472,14 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-read-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px 40px; align-items: center; }
 @media (max-width: 900px) { .fb-read-split { grid-template-columns: 1fr; } }
 
+/* review, deck state: a 320px rail of decks, today's card beside it */
+.fb-review-home { flex: 1; min-height: 0; display: flex; gap: var(--fb-gap-grid);
+  padding: 40px 48px 48px; overflow-y: auto; }
+@media (max-width: 900px) {
+  .fb-review-home { flex-direction: column; padding: 32px 24px 40px; }
+  .fb-review-home > div:first-child { width: auto; }
+}
+
 /* ==================================================================
    LEGACY — the previous warm-paper system. Still used by the screens
    that have not been converted to the fb-* classes yet (Review,
@@ -516,28 +524,12 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .nav-do { position: relative; }
 
 /* review layout: deck picker when idle, chat when a session is live */
-.study { display: flex; flex: 1; min-height: 0; padding: 16px 26px 22px; box-sizing: border-box; gap: 16px; }
-.study .chat { flex: 1; min-width: 0; }
-.review-home { flex: 1; min-width: 0; display: flex; gap: 14px; align-items: stretch; overflow-y: auto; }
-.deck-rail { flex: none; width: 300px; display: flex; flex-direction: column; gap: 6px;
-  overflow-y: auto; }
-.deck-course { background: #fff; border: 1px solid #E3E3DE; border-radius: 12px; padding: 4px 6px; }
-.deck-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px; cursor: pointer;
-  border-radius: 8px; }
-.deck-head:hover { background: #F7F7F4; }
-.deck-caret { flex: none; width: 14px; color: #8A8F9C; font-size: 11px; }
-.deck-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.deck-due { flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
-  color: #D55E00; background: rgba(213,94,0,.1); border-radius: 999px; padding: 2px 7px; }
-.deck-due.zero { color: #8A8F9C; background: #F0F0EC; }
-.deck-go { flex: none; border: none; background: #1C1E26; color: #fff; border-radius: 999px;
-  width: 24px; height: 24px; font-size: 10px; cursor: pointer; }
-.deck-go:disabled { background: #C9CCD4; cursor: default; }
-.deck-doc { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 28px; border-radius: 8px; }
-.deck-doc:hover { background: #F7F7F4; }
-.deck-doc .deck-name { font-size: 12px; font-weight: 500; color: #5C616E; }
-.today-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+/* the two review states pad differently — the deck picker is a page, the live
+   session is a surface — so the padding sits on each state, not on the shell */
+.study { display: flex; flex: 1; min-height: 0; box-sizing: border-box; }
+.study .chat { flex: 1; min-width: 0; margin: 24px 48px 32px; }
+/* the deck rail moved to the fb-* classes in phase 3 — .deck-*, .today-panel
+   and .review-home went with it. */
 
 
 

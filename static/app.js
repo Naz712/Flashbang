@@ -245,50 +245,74 @@ function renderReviewHome() {
   const home = $("reviewHome");
   if (!st || S.view !== "study" || S.reviewView !== "decks") return;
 
+  /* One deck row per course, expanding to its documents. The ▶ is DISABLED at
+     zero rather than hidden: a course you owe nothing on is information, and a
+     row that changes shape between states is harder to scan. No course colour —
+     in this system colour means mastery and nothing else. */
+  const deckRow = (lead, name, due, title, onclick, indented) => `
+    <div style="display:flex; align-items:center; gap:10px; ${indented
+      ? "padding:8px 0 8px 22px; border-top:1.5px solid var(--fb-hairline)" : "cursor:pointer"}"
+      ${indented ? "" : `onclick="toggleDeck(${lead.id})"`}>
+      ${indented ? "" : `<span style="flex:none; width:12px; color:var(--fb-muted); font-family:var(--fb-mono); font-size:11px">${lead.caret}</span>`}
+      <span style="flex:1; min-width:0; ${indented
+        ? "font-size:12.5px; color:var(--fb-slate)" : "font-size:13.5px; font-weight:600"};
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${esc(name)}">${esc(name)}</span>
+      <span class="fb-chip${due ? " fb-chip--due" : ""}"${due ? "" : ` style="color:var(--fb-muted)"`}>${due} due</span>
+      <button class="fb-btn" style="padding:4px 9px; font-size:11px; flex:none" ${due ? "" : "disabled"}
+        title="${title}" onclick="event.stopPropagation(); ${onclick}">▶</button>
+    </div>`;
+
   const decks = st.libCourses.map((c) => {
     const open = S.deckOpen.has(c.id);
-    const docs = open ? c.pdfs.map((p) => `
-      <div class="deck-doc">
-        <span class="deck-name" title="${esc(p.filename)}">${esc(p.filename.replace(/\.pdf$/i, ""))}</span>
-        <span class="deck-due ${p.due ? "" : "zero"}">${p.due} due</span>
-        <button class="deck-go" ${p.due ? "" : "disabled"} title="Review this document's due cards"
-          onclick="event.stopPropagation(); startReviewSession({ pdf_id: ${p.pdf_id} })">▶</button>
-      </div>`).join("") : "";
-    return `<div class="deck-course">
-      <div class="deck-head" onclick="toggleDeck(${c.id})">
-        <span class="deck-caret">${open ? "▾" : "▸"}</span>
-        <span class="course-tile" style="background:${SUBJ[c.ci % 4]}; width:16px; height:16px; border-radius:5px"></span>
-        <span class="deck-name">${esc(c.name)}</span>
-        <span class="deck-due ${c.dueCount ? "" : "zero"}">${c.dueCount} due</span>
-        <button class="deck-go" ${c.dueCount ? "" : "disabled"} title="Review this course's due cards"
-          onclick="event.stopPropagation(); startReviewSession({ course_id: ${c.id} })">▶</button>
-      </div>${docs}
+    return `<div class="fb-card fb-card--sm" style="padding:12px 14px">
+      ${deckRow({ id: c.id, caret: open ? "▾" : "▸" }, c.name, c.dueCount,
+        "Review this course's due cards", `startReviewSession({ course_id: ${c.id} })`, false)}
+      ${open && c.pdfs.length ? `<div style="margin-top:10px; display:flex; flex-direction:column">
+        ${c.pdfs.map((p) => deckRow(null, p.filename.replace(/\.pdf$/i, ""), p.due,
+          "Review this document's due cards", `startReviewSession({ pdf_id: ${p.pdf_id} })`, true)).join("")}
+      </div>` : ""}
+      ${open && !c.pdfs.length ? `<div class="fb-body-sm" style="margin-top:10px; padding-left:22px">No documents in this course yet.</div>` : ""}
     </div>`;
   }).join("");
 
+  /* The budget sentence is derived from the DEAL, not written: a screen that
+     promises 17 cards and hands you 6 is the kind of small lie that makes the
+     whole thing untrustworthy. */
   const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
   const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : null;
   const dealing = fit ? Math.min(fit, st.dueTotal) : st.dueTotal;
+  const mins = Math.max(1, Math.round(dealing * b.sec_per_card / 60));
+
   home.innerHTML = `
-    <div class="deck-rail">
-      <div class="mono-label" style="padding:2px 4px 4px">DECKS</div>
-      ${decks || `<div class="card" style="font-size:12px; color:#8A8F9C">No decks yet — add PDFs in the Reading tab.</div>`}
+    <div style="flex:none; width:var(--fb-rail); display:flex; flex-direction:column; gap:10px">
+      <span class="fb-label">Decks</span>
+      ${decks || `<div class="fb-card fb-card--sm"><div class="fb-body-sm">No decks yet — add PDFs from Home.</div></div>`}
     </div>
-    <div class="today-panel">
-      <div class="card" style="padding:20px 22px">
-        <div class="mono-label" style="margin-bottom:10px">TODAY'S REVIEW</div>
-        <div class="stat-num" style="color:${st.dueTotal ? LOW : "#00794F"}">${st.dueTotal}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> cards due</span></div>
-        <div class="stat-sub">${st.dueTotal === 0 ? "all caught up — nothing owed today"
-          : fit ? `dealing ${dealing} (your ${b.daily_minutes}-min budget · ~${b.sec_per_card}s/card)` : "no daily budget set — deals everything due"}</div>
-        <button class="btn-block" style="margin-top:14px" ${st.dueTotal ? "" : "disabled"}
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--fb-gap-grid)">
+      <div class="fb-card fb-card--key">
+        <div class="fb-label" style="margin-bottom:16px">Today's review</div>
+        <div class="fb-numeral">${st.dueTotal}<small> cards due</small></div>
+        <div class="fb-body-sm" style="margin-top:14px">${st.dueTotal === 0
+          ? "All caught up — nothing owed today."
+          : dealing < st.dueTotal
+          ? `Dealing ${dealing} of them — about ${mins} minute${mins === 1 ? "" : "s"} at ${b.sec_per_card}s a card. The rest wait.`
+          : `Dealing all ${dealing} — about ${mins} minute${mins === 1 ? "" : "s"} at ${b.sec_per_card}s a card.${
+              fit ? "" : " No daily budget set, so nothing is held back."}`}</div>
+        <button class="fb-btn fb-btn--block" style="margin-top:20px" ${st.dueTotal ? "" : "disabled"}
           onclick="startReviewSession({})">▶ Start today's review</button>
-        ${evidence("Due order = most at risk first; courses interleave naturally, which beats blocking (Rohrer &amp; Taylor, 2007).")}
+        <div class="fb-evidence">Due order is most-at-risk first, and courses interleave naturally — which
+          beats blocking one subject at a time (Rohrer &amp; Taylor, 2007).</div>
       </div>
-      ${st.best ? `<div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:8px">WEAKEST DUE TOPIC</div>
-        <div style="font-size:13px; font-weight:600">${esc(st.best.title)}</div>
-        <div class="stat-sub">${st.best.pct.toFixed(0)}% retention — most in need of a rep</div>
-        <button class="btn-block ghost" style="margin-top:10px" onclick="startReviewSession({ topic_id: ${st.best.topic_id} })">Review just this topic</button>
+      ${st.best ? `<div class="fb-card">
+        <div class="fb-label" style="margin-bottom:16px">Weakest due topic</div>
+        <div style="font-size:15px; font-weight:600">${esc(st.best.title)}</div>
+        <div class="fb-bar" style="margin:16px 0 12px">
+          <div class="fb-bar-track"><div class="fb-bar-fill" style="width:${st.best.pct}%; background:${MASTERY_HUE(st.best.pct)}"></div></div>
+          <span class="fb-bar-pct">${st.best.pct.toFixed(0)}%</span>
+        </div>
+        <div class="fb-body-sm">The lowest retention you own among cards that are due. Most in need of a rep.</div>
+        <button class="fb-btn fb-btn--ghost fb-btn--block" style="margin-top:18px"
+          onclick="startReviewSession({ topic_id: ${st.best.topic_id} })">Review just this topic</button>
       </div>` : ""}
     </div>`;
 }
