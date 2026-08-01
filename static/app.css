@@ -501,11 +501,9 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
    ================================================================== */
 
 @keyframes fbPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-
 .mono { font-family: 'IBM Plex Mono', monospace; }
 .shell { display: flex; height: 100vh; box-sizing: border-box; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-
 /* icon side nav (collapsible, Claude-style) */
 .sidenav { flex: none; width: 176px; display: flex; flex-direction: column; gap: 4px;
   background: #fff; border-right: 1px solid #E3E3DE; padding: 10px 8px 14px;
@@ -536,7 +534,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .sidenav.closed .nav-badge { position: absolute; margin: 0; transform: translate(10px, -10px);
   padding: 1px 5px; }
 .nav-do { position: relative; }
-
 /* review layout: deck picker when idle, chat when a session is live */
 /* the two review states pad differently — the deck picker is a page, the live
    session is a surface — so the padding sits on each state, not on the shell */
@@ -584,13 +581,11 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   border-radius: 12px 12px 4px 12px; padding: 8px 11px; white-space: pre-wrap; }
 .asst-msg-bot { align-self: flex-start; max-width: 92%; background: #F4F4F1; border: 1px solid #E9E9E5;
   border-radius: 12px 12px 12px 4px; padding: 8px 11px; }
-
 /* home: course canvas */
 .course-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 14px; }
 .course-tile-card { background: #fff; border: 1px solid #E3E3DE; border-radius: 14px; padding: 18px 20px;
   cursor: pointer; box-shadow: 0 1px 2px rgba(16,18,24,.04); transition: border-color .12s, transform .12s; }
 .course-tile-card:hover { border-color: #B0B4BE; transform: translateY(-1px); }
-
 /* the course page moved to the fb-* classes in phase 2 — .course-grid,
    .doc-block, .doc-head, .topic-row2, .topic-row-edit, .crumb*, .rt-check,
    .exam-input, .ret-dot, .due-tag and .pdf-del went with it. */
@@ -602,7 +597,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .pick-card:hover { border-color: #B0B4BE; }
 .pick-card:focus-visible { outline: 2px solid #0072B2; outline-offset: -2px; }
 .pick-card .course-tile { width: 26px; height: 26px; border-radius: 8px; }
-
 /* full-width chat: keep bubbles readable, not viewport-wide */
 /* the session report moved to the fb-* classes in phase 3c — the whole
    legacy grade-card layer (.gcard*, .gsec*, .g-cal) went with it. These two
@@ -611,7 +605,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 16px 18px; }
 .mono-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1.8px;
   color: #8A8F9C; font-weight: 500; }
-
 .conf-btn { padding: 5px 13px; border-radius: 999px; border: 1px solid #C9CCD4; background: #fff;
   font-size: 11.5px; font-weight: 600; font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; }
 .conf-btn:hover, .conf-btn.picked { border-color: #1C1E26; }
@@ -624,7 +617,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .thinking span { width: 6px; height: 6px; border-radius: 50%; background: #B0B4BE; animation: fbPulse 1.2s infinite; }
 .thinking span:nth-child(2) { animation-delay: .2s; }
 .thinking span:nth-child(3) { animation-delay: .4s; }
-
 /* rail */
 .rail { flex: none; width: 300px; display: flex; flex-direction: column; gap: 12px;
   overflow-y: auto; padding-right: 2px; }
@@ -664,7 +656,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .recap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .recap-num { font-family: 'IBM Plex Mono', monospace; font-size: 17px; font-weight: 600; }
 .recap-lbl { font-size: 10px; color: #8A8F9C; margin-top: 2px; }
-
 /* progress */
 .progress-wrap { flex: 1; min-height: 0; overflow-y: auto; }
 .progress { max-width: 1160px; margin: 0 auto; padding: 22px 26px 40px; display: flex;
@@ -672,20 +663,7 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .section-head { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
 .section-head .mono-label { letter-spacing: 2.2px; }
 .section-head .rule { flex: 1; height: 1px; background: #E3E3DE; }
-.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.grid2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px; align-items: stretch; }
-.stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 25px; font-weight: 600; letter-spacing: -.5px; }
-.stat-sub { font-size: 11.5px; color: #8A8F9C; margin-top: 5px; }
-.week-dots { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.week-day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .week-day .lbl { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; color: #B0B4BE; }
-.wdot { width: 15px; height: 15px; border-radius: 5px; box-sizing: border-box; }
-.forecast-row { flex: 1; display: flex; align-items: flex-end; gap: 10px; min-height: 104px; }
-.forecast-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.forecast-n { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5C616E; }
-.forecast-bar { width: 100%; max-width: 34px; border-radius: 5px 5px 2px 2px; }
-.forecast-day { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #B0B4BE; }
-.seg-track { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; margin-bottom: 14px; }
 .course-card { border-radius: 14px; background: #fff; border: 1px solid #E3E3DE;
   box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 18px 20px; }
 .course-head { display: flex; align-items: center; gap: 11px; margin-bottom: 15px; }
@@ -711,57 +689,28 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .trow .fill { height: 100%; border-radius: 3px; background: #B9BDC7; }
 .trow .time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A8F9C; width: 78px;
   flex: none; text-align: right; }
-
 /* 85%-rule flags */
 .flag-tag { flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600;
   padding: 2px 7px; border-radius: 999px; cursor: default; }
 .flag-tag.easy { color: #005A8E; background: rgba(0,114,178,.10); }
 .flag-tag.hard { color: #A34700; background: rgba(213,94,0,.10); }
-
 /* evening nudge */
 .nudge { border-radius: 12px; background: #1C1E26; color: #E8E8E4; padding: 13px 16px;
   font-size: 11.5px; line-height: 1.6; }
-
 /* calibration chart */
 .cal-key { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5C616E; }
-.cal-dot { width: 8px; height: 8px; border-radius: 2px; }
-.cal-row { flex: 1; display: flex; align-items: flex-end; gap: 14px; min-height: 72px; }
-.cal-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.cal-bars { display: flex; align-items: flex-end; gap: 3px; }
-.cal-bar { width: 14px; border-radius: 3px 3px 1px 1px; }
-
 /* recent sessions */
 .sess-row { display: flex; align-items: center; gap: 9px; }
-.sess-track { flex: 1; height: 4px; border-radius: 2px; background: #ECECE8; overflow: hidden; }
-
 /* study metrics — heatmap / funnel / hardest cards */
 .hm-grid { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
-.hm-col { display: flex; flex-direction: column; gap: 3px; }
-.hm-cell { width: 11px; height: 11px; border-radius: 3px; flex: none; }
-.fn-row { display: flex; align-items: center; gap: 10px; }
-.fn-label { flex: none; width: 74px; font-size: 11.5px; color: #5C616E; }
-.fn-track { flex: 1; height: 9px; border-radius: 5px; background: #ECECE8; overflow: hidden; }
-.fn-fill { height: 100%; border-radius: 5px; }
-.fn-n { flex: none; width: 38px; text-align: right; font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px; font-weight: 600; }
-.hard-row { display: flex; align-items: center; gap: 9px; }
-.hard-q { flex: 1; font-size: 11.5px; color: #1C1E26; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-
 /* sweet-spot meter + exam chip */
 .sweet-track { position: relative; height: 8px; border-radius: 4px; background: #ECECE8; margin-top: 9px; }
-.sweet-band { position: absolute; left: 70%; width: 25%; top: 0; bottom: 0;
-  background: rgba(0,158,115,.25); border-radius: 4px; }
-.sweet-pin { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
-  background: #1C1E26; transform: translateX(-50%); }
 .exam-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 10px;
   border-radius: 999px; background: #F4F4F1; border: 1px solid #E3E3DE; white-space: nowrap; }
-
 /* sort/filter selects */
 .sort-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; color: #1C1E26;
   background: #fff; border: 1px solid #E3E3DE; border-radius: 8px; padding: 5px 8px; cursor: pointer; }
 .sort-select:hover { border-color: #B0B4BE; }
-
 /* cards editor screen */
 .cardedit { border-radius: 12px; background: #fff; border: 1px solid #E3E3DE;
   box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 13px 16px; display: flex;
@@ -774,14 +723,12 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .cardedit .ce-q { font-weight: 600; }
 .ce-save:not(:disabled) { border-color: #1C1E26; background: #1C1E26; color: #fff; }
 .ce-save:disabled { opacity: .45; cursor: default; }
-
 /* slash-command palette */
 .cmd-palette { margin-bottom: 8px; border-radius: 12px; background: #fff; border: 1px solid #E3E3DE;
   box-shadow: 0 6px 24px rgba(16,18,24,.10); overflow: hidden; }
 .cmd-item { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; }
 .cmd-item:hover { background: #F4F4F1; }
 .cmd-item + .cmd-item { border-top: 1px solid #F2F2EF; }
-
 /* live status while the agent works — Claude-style shimmer + elapsed counter */
 .status-line { font-size: 12px; color: #8A8F9C; font-style: italic; min-height: 15px; }
 .status-line.working { background: linear-gradient(90deg, #9BA0AC 25%, #1C1E26 50%, #9BA0AC 75%);
@@ -789,11 +736,9 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   -webkit-text-fill-color: transparent; animation: fbShimmer 1.8s linear infinite; }
 @keyframes fbShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .status-elapsed { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #B0B4BE; }
-
 /* upload progress */
 .up-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.25); overflow: hidden; }
 .up-fill { height: 100%; width: 0%; border-radius: 3px; background: #fff; transition: width .15s linear; }
-
 /* topic page viewer */
 .viewer-overlay { position: fixed; inset: 0; background: rgba(16,18,24,.45); display: flex;
   align-items: center; justify-content: center; z-index: 50; }
@@ -814,7 +759,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
   font-size: 9.5px; color: #8A8F9C; margin: 8px 0 2px; }
 .viewer-text { align-self: stretch; background: #fff; border: 1px solid #E3E3DE; border-radius: 8px;
   padding: 18px 24px; font-size: 14px; line-height: 1.75; }
-
 /* blackout (image occlusion) */
 .page-wrap { position: relative; }
 .page-wrap-stretch { align-self: stretch; }
@@ -825,7 +769,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .blackout-box.drawing { background: rgba(28, 30, 38, .55); pointer-events: none; }
 .viewer-body.bo-edit .blackout-box:hover { border-color: #D55E00; background: #43302B; }
 .icon-btn.bo-on { color: #1C1E26; background: #F0F0EC; }
-
 /* annotations: "window box" notes anchored to page areas */
 .viewer-body.ann-edit .page-wrap { cursor: crosshair; }
 .ann-box { position: absolute; border: 2px solid #0072B2; border-radius: 4px;

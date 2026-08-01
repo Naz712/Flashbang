@@ -14,6 +14,7 @@ const S = {
   asstSuggest: [],      // assistant input: current name suggestions
   asstSuggestIdx: -1,   // highlighted suggestion
   docOpen: new Set(),   // expanded documents on the course page
+  anaTab: 0,            // analytics: which of the six sections is on screen
   reviewView: "decks",  // review screen: "decks" picker | "chat" live | "report"
   report: null,         // the ended session's report, once it replaces the chat
   deckOpen: new Set(),  // expanded courses in the deck rail
@@ -671,6 +672,96 @@ function flagTag(topicId) {
    are started from the reader's sidebar (reading) and review sessions log
    their own time — nothing needs to hover over the app. */
 
+/* ------------------------------------------------------- analytics: charts
+   Hand-written SVG, no chart library. viewBox + width:100% so they scale, and
+   vector-effect keeps strokes at 1.5px however far they stretch. Every chart
+   ships with its number beside it — a shape alone is not a measurement. */
+
+/* A line with an optional filled area. The domain fits the SERIES, not 0–100:
+   on a full axis a 62→74 rise compresses to three pixels and reads as flat. */
+function lineChart(points, labels, { height = 132, target = null, hue = "var(--fb-ink)", unit = "%" } = {}) {
+  if (!points || points.length < 2) return "";
+  const W = 300, H = 100, pad = 3;
+  const all = target == null ? points : points.concat([target]);
+  const lo = Math.min(...all) - 6, hi = Math.max(...all) + 6;
+  const x = (i) => pad + (i / (points.length - 1)) * (W - pad * 2);
+  const y = (v) => H - pad - ((v - lo) / (hi - lo)) * (H - pad * 2);
+  const line = points.map((p, i) => `${x(i).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  return `<div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:${height}px; display:block"
+      role="img" aria-label="trend, ${points[0]}${unit} to ${last}${unit}">
+      ${target != null ? `<line x1="${pad}" y1="${y(target)}" x2="${W - pad}" y2="${y(target)}"
+        stroke="var(--fb-muted)" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"></line>` : ""}
+      <polygon points="${line} ${W - pad},${H} ${pad},${H}" fill="${hue}" opacity=".08"></polygon>
+      <polyline points="${line}" fill="none" stroke="${hue}" stroke-width="1.5" stroke-linecap="round"
+        stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+      ${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p)}" r="${i === points.length - 1 ? 3 : 1.8}"
+        fill="${hue}" vector-effect="non-scaling-stroke"></circle>`).join("")}
+    </svg>
+    <div style="display:flex; justify-content:space-between; margin-top:10px">
+      ${labels.map((l, i) => `<span class="fb-data" style="font-size:9.5px; letter-spacing:.8px;
+        text-transform:uppercase; color:${i === labels.length - 1 ? "var(--fb-ink)" : "var(--fb-muted)"}">${esc(l)}</span>`).join("")}
+    </div>
+    <div class="fb-data" style="margin-top:12px; color:var(--fb-muted)">
+      now <b style="color:var(--fb-ink)">${last}${unit}</b>${target != null ? ` · target ${target}${unit}` : ""}</div>
+  </div>`;
+}
+
+/* An arc gauge for a projection. The arc is ink; the shortfall is hairline. */
+function gauge(value, sub) {
+  const W = 200, H = 108, cx = 100, cy = 96, r = 78;
+  const a = (t) => [cx - r * Math.cos(Math.PI * t), cy - r * Math.sin(Math.PI * t)];
+  const arc = (from, to) => {
+    const [x1, y1] = a(from), [x2, y2] = a(to);
+    return `M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)}`;
+  };
+  return `<div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; max-width:240px; height:132px; display:block"
+      role="img" aria-label="${value} percent projected">
+      <path d="${arc(0, 1)}" fill="none" stroke="var(--fb-hairline)" stroke-width="12"></path>
+      <path d="${arc(0, Math.max(0.004, value / 100))}" fill="none" stroke="var(--fb-ink)" stroke-width="12"></path>
+    </svg>
+    <div style="margin-top:-6px">
+      <div class="fb-numeral">${value}<small>%</small></div>
+      ${sub ? `<div class="fb-body-sm" style="margin-top:10px">${sub}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+/* Horizontal bars with the value at the end — "where the time went". */
+function barRows(rows, { unit = "", hue = "var(--fb-ink)" } = {}) {
+  if (!rows.length) return "";
+  const peak = Math.max(...rows.map((r) => r.value), 1);
+  return `<div style="display:flex; flex-direction:column; gap:12px">
+    ${rows.map((r) => `<div class="fb-fn-row" title="${esc(r.title || r.label)}">
+      <span class="fb-fn-label" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(r.label)}</span>
+      <span class="fb-fn-track"><span style="display:block; height:100%;
+        width:${Math.max(2, r.value / peak * 100)}%; background:${r.hue || hue}"></span></span>
+      <span class="fb-fn-n">${r.display != null ? r.display : r.value + unit}</span>
+    </div>`).join("")}
+  </div>`;
+}
+
+/* A card in the bento. `span` is columns of six. */
+function panel(span, label, note, body, { key = false, tall = false } = {}) {
+  return `<div class="fb-card${key ? " fb-card--key" : ""} s${span}${tall ? " tall" : ""}"
+      ${tall ? `style="display:flex; flex-direction:column"` : ""}>
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:18px">
+      <span class="fb-label">${label}</span>
+      ${note ? `<span class="fb-data" style="color:var(--fb-muted); font-size:11px">${note}</span>` : ""}
+    </div>
+    ${body}
+  </div>`;
+}
+
+function fbEvidence(text) {
+  return SHOW_EVIDENCE ? `<div class="fb-evidence">${text}</div>` : "";
+}
+
+const ANA_TABS = ["Where you stand", "Pacing", "Trends", "Diagnostics", "Reading", "Spend"];
+window.setAnaTab = (i) => { S.anaTab = i; renderProgress(); };
+
 /* ---------------------------------------------------------------- progress */
 
 function renderProgress() {
@@ -679,35 +770,32 @@ function renderProgress() {
   const inner = $("progressInner");
   const stats = st.stats;
 
+  /* Study consistency, not mastery — so the dots take ink and hairline, never a
+     mastery hue. A future day is an outline: nothing is known about it yet. */
   const weekDots = stats.week.map((d) => `
-    <div class="week-day">
-      <span class="wdot" style="${d.lit ? `background:${GOOD}` : d.future ? "background:#fff; border:1.5px dashed #D9D9D4" : "background:#ECECE8"}"></span>
-      <span class="lbl">${d.day}</span>
+    <div class="fb-week-day">
+      <span class="fb-wdot" style="${d.lit ? "background:var(--fb-ink)"
+        : d.future ? "background:transparent; border:1.5px dashed var(--fb-hairline)"
+        : "background:var(--fb-hairline)"}"></span>
+      <span class="fb-wlbl">${d.day}</span>
     </div>`).join("");
 
   const fMax = Math.max(1, ...st.forecast.map((f) => f.count));
   const forecastTotal = st.forecast.reduce((a, f) => a + f.count, 0);
   const forecastCols = st.forecast.map((f, i) => `
-    <div class="forecast-col">
-      <span class="forecast-n">${f.count}</span>
-      <div class="forecast-bar" style="height:${Math.max(4, f.count / fMax * 64)}px; background:${i === 0 ? "#0072B2" : "rgba(0,114,178,.45)"}"></div>
-      <span class="forecast-day">${i === 0 ? "today" : `+${i}d`}</span>
-    </div>`).join("");
-
-  const segs = st.subjectTime.map((r) =>
-    `<div style="width:${r.share}%; background:${SUBJ[r.ci % 4]}"></div>`).join("");
-  const legend = st.subjectTime.map((r) => `
-    <div style="display:flex; align-items:center; gap:9px">
-      <span style="flex:none; width:9px; height:9px; border-radius:3px; background:${SUBJ[r.ci % 4]}"></span>
-      <span style="font-size:12.5px; flex:1">${esc(r.name)}</span>
-      <span class="mono" style="font-size:11px; color:#8A8F9C">${r.time} · ${r.share}%</span>
+    <div class="fb-forecast-col">
+      <span class="fb-forecast-n">${f.count}</span>
+      <div class="fb-forecast-bar" style="height:${Math.max(4, f.count / fMax * 64)}px;
+        background:${i === 0 ? "var(--fb-ink)" : "var(--fb-hairline)"}"></div>
+      <span class="fb-forecast-day">${i === 0 ? "today" : `+${i}d`}</span>
     </div>`).join("");
 
   // ---- ordering follows the learning-analytics evidence: a few north-star
   // numbers with reference frames and an action first, then pacing (spacing
   // made visible), then outcome trends, then drill-down diagnostics.
   // Cognitive-load research caps a useful view around 5-9 items per layer.
-  const mx = renderMetrics(st.metrics) || {};
+  const mx = renderMetrics(st.metrics);
+  if (!mx) return;   // no metrics payload yet — nothing honest to draw
   const b = st.budget || { daily_minutes: 0, sec_per_card: 84 };
   const fit = b.daily_minutes ? Math.max(1, Math.floor(b.daily_minutes * 60 / b.sec_per_card)) : 0;
   const exams = Object.entries(st.metrics?.exams || {})
@@ -717,100 +805,133 @@ function renderProgress() {
   const nextExam = exams[0];
   const latest = mx.latestRetention;
 
-  inner.innerHTML = `
-    <div class="section-head"><span class="mono-label">WHERE YOU STAND</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">the four numbers worth acting on</span></div>
-    <div class="grid2">
-      <div class="card" style="padding:18px 20px">
-        <div class="mono-label" style="margin-bottom:9px">DUE NOW</div>
-        <div class="stat-num" style="color:${st.dueTotal ? LOW : "#00794F"}">${st.dueTotal}</div>
-        <div class="stat-sub">across ${st.courses.length} course${st.courses.length === 1 ? "" : "s"}${fit ? ` · your budget fits ~${fit}` : ""}</div>
-        <div style="display:flex; align-items:center; gap:6px; margin-top:12px; flex-wrap:wrap">
-          <span style="font-size:11px; color:#5C616E">Daily budget</span>
-          ${[15, 25, 45, 60].map((m) => `<button class="dur-btn ${b.daily_minutes === m ? "on" : ""}" onclick="setBudget(${b.daily_minutes === m ? 0 : m})">${m}m</button>`).join("")}
-          <span style="font-size:10.5px; color:#8A8F9C">${b.sec_per_card}s/card ${b.sec_per_card === 84 ? "(est.)" : "(measured)"}</span>
+  /* Retention as a line, but only where it is actually a line: weeks with no
+     graded answers have no rate, and interpolating across them would draw a
+     trend that never happened. Below two real points the panel says so. */
+  const retPts = mx.retention.filter((r) => r.rate != null);
+  const tab = S.anaTab;
+
+  const sections = [];
+
+  // ---------------- 1 · where you stand
+  sections[0] = `<div class="fb-bento">
+    ${panel(2, "Due now", null, `
+      <div class="fb-numeral">${st.dueTotal}</div>
+      <div class="fb-body-sm" style="margin-top:12px">across ${st.courses.length} course${st.courses.length === 1 ? "" : "s"}${fit ? ` · a ${b.daily_minutes}m budget has room for about ${fit}` : ""}</div>
+      <div style="margin-top:18px">
+        <div class="fb-label" style="margin-bottom:10px">Daily budget</div>
+        <div class="fb-dur-row">
+          ${[15, 25, 45, 60].map((m) => `<button class="fb-dur-btn${b.daily_minutes === m ? " fb-dur-btn--on" : ""}"
+            onclick="setBudget(${b.daily_minutes === m ? 0 : m})">${m}m</button>`).join("")}
         </div>
-        ${fit && st.dueTotal > fit ? `<button class="btn-block ghost" style="margin-top:10px" onclick="spreadBacklog()"
+        <div class="fb-data" style="color:var(--fb-muted); font-size:11px; margin-top:8px">${b.sec_per_card}s per card ${b.sec_per_card === 84 ? "(assumed — needs 6 timed answers)" : "(measured)"}</div>
+      </div>
+      ${fit && st.dueTotal > fit ? `<button class="fb-btn fb-btn--ghost fb-btn--block" style="margin-top:16px" onclick="spreadBacklog()"
           title="Keep the ${fit} most overdue due today; push the other ${st.dueTotal - fit} onto the coming days">Spread ${st.dueTotal - fit} onto later days</button>`
-          : st.dueTotal ? `<button class="btn-block" style="margin-top:10px" onclick="startReviewSession({})">▶ Start today's review</button>` : ""}
-      </div>
-      <div class="card" style="padding:18px 20px">
-        <div class="mono-label" style="margin-bottom:9px">EXAM READINESS</div>
-        ${nextExam ? `
-          <div class="stat-num" style="color:${nextExam.onPlan >= 70 ? "#00794F" : LOW}">${nextExam.onPlan}%</div>
-          <div class="stat-sub">${esc(nextExam.course)} · projected recall on exam day if you keep to the schedule</div>
-          <div style="font-size:11.5px; color:#5C616E; margin-top:8px">${nextExam.days_left} days left · <b style="color:${nextExam.today >= 70 ? "#00794F" : LOW}">${nextExam.today}%</b> if you stopped studying today</div>
-          ${exams.length > 1 ? `<div style="font-size:11px; color:#8A8F9C; margin-top:6px">${exams.slice(1).map((e) => `${esc(e.course)}: ${e.onPlan}% in ${e.days_left}d`).join(" · ")}</div>` : ""}`
-        : `<div style="font-size:12px; color:#8A8F9C; line-height:1.6">No exam dates set. Add one on a course page and this becomes the number that tells you whether the current pace is enough.</div>`}
-        ${evidence("A goal with a deadline and a projection beats a raw score: it turns 'how am I doing' into 'is this pace enough' (Kluger &amp; DeNisi, 1996).")}
-      </div>
-    </div>
-    <div class="grid2">
-      ${mx.knowledge || ""}
-      <div class="card" style="padding:18px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:9px">RETENTION RIGHT NOW</div>
-        ${latest ? `<div class="stat-num" style="color:${latest.rate >= 80 ? "#00794F" : latest.rate >= 60 ? "#8A6100" : LOW}">${latest.rate}%</div>
-          <div class="stat-sub">of cards recalled at review time this week · aim ≈85%</div>`
-        : `<div style="font-size:12px; color:#8A8F9C; flex:1">No graded answers yet — review a deck and this fills in.</div>`}
-        ${evidence("True retention is the outcome measure: everything else on this page is a means to it.")}
-      </div>
-    </div>
+        : st.dueTotal ? `<button class="fb-btn fb-btn--block" style="margin-top:16px" onclick="startReviewSession({})">▶ Start today's review</button>` : ""}`,
+      { key: true })}
 
-    <div class="section-head" style="margin-top:14px"><span class="mono-label">PACING</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">is the work spread out?</span></div>
-    <div class="grid2">
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
-          <span class="mono-label">REVIEW FORECAST · NEXT 7 DAYS</span>
-          <span class="mono" style="font-size:10.5px; color:#8A8F9C">${forecastTotal} scheduled</span>
-        </div>
-        <div class="forecast-row">${forecastCols}</div>
-        ${evidence("Spacing effect: each successful recall pushes the next one further out, so daily load stays small (Cepeda et al., 2006).")}
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:12px">THIS WEEK</div>
-        <div class="week-dots">${weekDots}</div>
-        <div style="font-size:11.5px; color:#5C616E; margin-bottom:14px"><span style="font-weight:600; color:#1C1E26">${stats.litCount} of last 7 days</span> · streak ${stats.streak}d · ${stats.weekTime} in ${stats.sessionCount} session${stats.sessionCount === 1 ? "" : "s"}</div>
-        <div class="mono-label" style="margin-bottom:10px">TIME BY COURSE · ALL TIME</div>
-        <div class="seg-track">${segs}</div>
-        <div style="display:flex; flex-direction:column; gap:8px">${legend}</div>
-      </div>
-    </div>
-    ${mx.heatmap || ""}
+    ${panel(2, "Exam readiness", nextExam ? esc(nextExam.course) : null, nextExam
+      ? gauge(nextExam.onPlan, `Projected recall on exam day if you keep to the schedule.
+          ${nextExam.days_left} days left, <b style="color:var(--fb-ink)">${nextExam.today}%</b> if you stop today.`)
+        + (exams.length > 1 ? `<div class="fb-data" style="color:var(--fb-muted); font-size:11px; margin-top:10px">${exams.slice(1).map((e) => `${esc(e.course)}: ${e.onPlan}% in ${e.days_left}d`).join(" · ")}</div>` : "")
+        + fbEvidence("A goal with a deadline and a projection beats a raw score: it turns 'how am I doing' into 'is this pace enough' (Kluger &amp; DeNisi, 1996).")
+      : `<div class="fb-body-sm">No exam dates set. Add one on a course page and this becomes the number that tells you whether the current pace is enough.</div>`)}
 
-    <div class="section-head" style="margin-top:14px"><span class="mono-label">TRENDS</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">is it sticking over time?</span></div>
-    <div class="grid2">
-      ${mx.retention || ""}
-      ${mx.maturity || ""}
-    </div>
+    ${panel(2, "Retention right now", "aim 85%", latest
+      ? `<div class="fb-numeral">${latest.rate}<small>%</small></div>
+         <div class="fb-body-sm" style="margin-top:12px">of cards recalled at review time this week</div>
+         ${fbEvidence("True retention is the outcome measure: everything else here is a means to it.")}`
+      : `<div class="fb-body-sm">No graded answers yet — review a deck and this fills in.</div>`)}
 
-    <div class="section-head" style="margin-top:14px"><span class="mono-label">DIAGNOSTICS</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">where exactly it's going wrong</span></div>
-    <div class="grid2">
-      ${mx.hardest || ""}
-      ${mx.fluency || ""}
-    </div>
-    <div class="grid2">
-      ${mx.sweet || ""}
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">CALIBRATION · CONFIDENCE VS RECALL</div>
-        ${renderCalibration(st.calibration)}
-        ${evidence("Comparing predicted vs actual recall improves self-regulated study — and confident errors are the most correctable.")}
-      </div>
-    </div>
-    <div class="card" style="padding:16px 20px">
-      <div class="mono-label" style="margin-bottom:14px">RECENT SESSIONS</div>
-      ${renderRecentSessions(st.recentSessions)}
-    </div>
+    ${panel(3, "Knowledge in memory", "decay-weighted", `
+      <div class="fb-numeral">${mx.kn.held}<small> / ${mx.kn.total} facts</small></div>
+      <div class="fb-body-sm" style="margin-top:12px">${mx.kn.pct}% of your cards, held right now</div>
+      ${fbEvidence("Retrievability-weighted total (the FSRS 'knowledge' metric): each card counts as its current recall probability.")}`)}
 
-    <div class="section-head" style="margin-top:14px"><span class="mono-label">READING</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">tracked separately — reading never moves mastery</span></div>
-    ${readingBandHTML(st)}
+    ${panel(3, "Card maturity", "all cards", mx.funnelRows
+      + fbEvidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams."))}
+  </div>`;
 
-    <div class="section-head" style="margin-top:14px"><span class="mono-label">SPEND</span><div class="rule"></div>
-      <span style="font-size:11px; color:#8A8F9C">what running this has cost</span></div>
-    ${spendBandHTML(st)}`;
+  // ---------------- 2 · pacing
+  sections[1] = `<div class="fb-bento">
+    ${panel(4, "Review forecast · next 7 days", `${forecastTotal} scheduled`, `
+      <div class="fb-forecast-row">${forecastCols}</div>
+      ${fbEvidence("Spacing effect: each successful recall pushes the next one further out, so daily load stays small (Cepeda et al., 2006).")}`)}
+
+    ${panel(2, "This week", null, `
+      <div class="fb-week-dots">${weekDots}</div>
+      <div class="fb-body-sm" style="margin-top:16px">
+        <b style="color:var(--fb-ink)">${stats.litCount} of the last 7 days</b> · streak ${stats.streak}d</div>
+      <div class="fb-numeral fb-numeral--sm" style="margin-top:18px">${esc(stats.weekTime)}</div>
+      <div class="fb-body-sm" style="margin-top:10px">in ${stats.sessionCount} session${stats.sessionCount === 1 ? "" : "s"}</div>`,
+      { tall: true })}
+
+    ${panel(6, `Study consistency · last ${mx.weeks} weeks`, "volume, not mastery — so it takes no hue", `
+      <div class="fb-hm-grid">${mx.heatCols}</div>
+      <div class="fb-data" style="color:var(--fb-muted); font-size:11px; margin-top:12px">${mx.activeDays} active days</div>
+      ${fbEvidence("Distributed practice: many short sessions beat few long ones (Cepeda et al., 2006).")}`)}
+
+    ${panel(3, "Time by course", "all time", barRows(st.subjectTime.map((r) => ({
+      label: r.name, value: r.minutes ?? 0, display: `${r.share}%`, title: `${r.name} · ${r.time}` }))))}
+
+    ${panel(3, "Session length", st.recentSessions.length ? `last ${Math.min(6, st.recentSessions.length)}` : null,
+      st.recentSessions.length
+        ? barRows(st.recentSessions.slice(0, 6).map((s) => ({
+            label: new Date(s.at).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+            value: Math.round(s.minutes || 0), unit: "m", display: fmtMin(s.minutes) })), { unit: "m" })
+          + fbEvidence("Short and frequent beats long and rare — the schedule assumes you come back tomorrow.")
+        : `<div class="fb-body-sm">No sessions logged yet.</div>`)}
+  </div>`;
+
+  // ---------------- 3 · trends
+  sections[2] = `<div class="fb-bento">
+    ${panel(4, "True retention · by week", "graded answers only", retPts.length >= 2
+      ? lineChart(retPts.map((r) => r.rate), retPts.map((r) => r.label), { target: 85, height: 168 })
+        + fbEvidence("The trend matters more than any single week — one bad session is noise.")
+      : `<div class="fb-body-sm">${retPts.length === 1
+          ? `One week has graded answers so far (${retPts[0].rate}% in ${retPts[0].label}). A trend needs at least two.`
+          : "No graded answers yet, so there is no trend to draw."}</div>`)}
+
+    ${panel(2, "Card maturity", null, mx.funnelRows
+      + fbEvidence("Cards that were never carded are not scheduled at all — coverage is not the same as retention."),
+      { tall: true })}
+  </div>`;
+
+  // ---------------- 4 · diagnostics
+  sections[3] = `<div class="fb-bento">
+    ${panel(3, "Hardest cards", "by failures", mx.hardRows
+      + fbEvidence("Leeches: a handful of cards eat most of your failures. Blackout them in the reader or rewrite them — don't just keep failing them."))}
+
+    ${panel(3, "Difficulty · the 85% rule", null, mx.sweetBody
+      + fbEvidence("~85% success is the optimal difficulty for learning (Wilson et al., 2019; Bjork's desirable difficulties)."))}
+
+    ${panel(4, "Calibration · confidence vs recall", null, renderCalibration(st.calibration)
+      + fbEvidence("Comparing predicted vs actual recall improves self-regulated study — and confident errors are the most correctable."))}
+
+    ${panel(2, "Retrieval fluency", "28 days", mx.fluencyBody, { tall: true })}
+
+    ${panel(6, "Recent sessions", "recall per session", renderRecentSessions(st.recentSessions)
+      + fbEvidence("Recall per session, not cards per session — volume without recall is time spent, not learning."))}
+  </div>`;
+
+  // ---------------- 5 · reading
+  sections[4] = `<div class="fb-bento">${readingBandHTML(st)}</div>`;
+
+  // ---------------- 6 · spend (no design counterpart — this app's own)
+  sections[5] = `<div class="fb-bento">${spendBandHTML(st)}</div>`;
+
+  inner.innerHTML = `
+    <div style="display:flex; align-items:baseline; gap:16px; flex-wrap:wrap">
+      <span class="fb-title">Analytics</span>
+      <span style="flex:1"></span>
+      <span class="fb-data" style="color:var(--fb-muted)">${mx.weeks} weeks of data</span>
+    </div>
+    <div class="fb-seg" role="tablist" style="align-self:flex-start">
+      ${ANA_TABS.map((t, i) => `<button role="tab" aria-selected="${i === tab}"
+        onclick="setAnaTab(${i})">${t}</button>`).join("")}
+    </div>
+    ${sections[tab] || sections[0]}`;
 }
 
 /* spend: estimated from logged token usage × list prices. Every number here
@@ -820,77 +941,54 @@ function spendBandHTML(st) {
   if (!sp) return "";
   const usd = (n) => n == null ? "–" : n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(n < 0.01 ? 4 : 3)}`;
   if (!sp.calls) {
-    return `<div class="card" style="padding:16px 20px">
-      <div style="font-size:12.5px; color:#8A8F9C; line-height:1.6">
-        No model calls logged yet. Grading, card generation, ingestion and the assistant
-        all record their tokens here from now on.</div></div>`;
+    return panel(6, "Spend", null, `<div class="fb-body-sm">No model calls logged yet. Grading, card
+      generation, ingestion and the assistant all record their tokens here from now on.</div>`);
   }
   const maxDay = Math.max(0.0001, ...sp.days.map((d) => d.usd));
   const dayCols = sp.days.map((d) => `
-    <div class="forecast-col" title="${d.date} · ${usd(d.usd)}">
-      <div class="forecast-bar" style="height:${Math.max(3, d.usd / maxDay * 54)}px;
-        background:${d.usd ? "#0072B2" : "#ECECE8"}"></div>
+    <div class="fb-forecast-col" title="${d.date} · ${usd(d.usd)}">
+      <div class="fb-forecast-bar" style="height:${Math.max(3, d.usd / maxDay * 54)}px;
+        background:${d.usd ? "var(--fb-ink)" : "var(--fb-hairline)"}"></div>
     </div>`).join("");
-  const rows = sp.by_purpose.map((p) => {
-    const share = sp.total ? p.usd / sp.total * 100 : 0;
-    return `<div class="fn-row" title="${p.calls} call${p.calls === 1 ? "" : "s"} · ${p.tokens.toLocaleString()} tokens">
-      <span class="fn-label" style="width:118px">${esc(p.purpose)}</span>
-      <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, share)}%; background:#0072B2"></div></div>
-      <span class="fn-n" style="width:62px">${usd(p.usd)}</span>
-    </div>`;
-  }).join("");
 
   return `
-    <div class="grid3">
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">ALL TIME</div>
-        <div class="stat-num">${usd(sp.total)}</div>
-        <div class="stat-sub">${sp.calls} model call${sp.calls === 1 ? "" : "s"}${sp.biggest ? ` · mostly ${esc(sp.biggest)}` : ""}</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">LAST 7 DAYS</div>
-        <div class="stat-num">${usd(sp.week)}</div>
-        <div class="stat-sub">${usd(sp.today)} today</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">UNIT COST</div>
-        <div style="display:flex; gap:20px">
-          <div><div class="stat-num" style="font-size:20px">${usd(sp.per_answer)}</div><div class="stat-sub">per graded answer</div></div>
-          <div><div class="stat-num" style="font-size:20px">${usd(sp.per_card)}</div><div class="stat-sub">per card made</div></div>
-        </div>
-      </div>
-    </div>
-    <div class="grid2">
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">WHERE IT WENT</div>
-        <div style="display:flex; flex-direction:column; gap:9px">${rows}</div>
-      </div>
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">LAST 14 DAYS</div>
-        <div class="forecast-row">${dayCols}</div>
-        ${evidence("Estimated from each call's token counts at published list prices — your provider dashboard is the actual bill. Embeddings and search cost $0 here: they run locally.")}
-      </div>
-    </div>`;
+    ${panel(2, "All time", null, `
+      <div class="fb-numeral fb-numeral--sm">${usd(sp.total)}</div>
+      <div class="fb-body-sm" style="margin-top:10px">${sp.calls} model call${sp.calls === 1 ? "" : "s"}${sp.biggest ? ` · mostly ${esc(sp.biggest)}` : ""}</div>`)}
+    ${panel(2, "Last 7 days", null, `
+      <div class="fb-numeral fb-numeral--sm">${usd(sp.week)}</div>
+      <div class="fb-body-sm" style="margin-top:10px">${usd(sp.today)} today</div>`)}
+    ${panel(2, "Unit cost", null, `
+      <div style="display:flex; gap:24px">
+        <div><div class="fb-numeral fb-numeral--sm" style="font-size:22px">${usd(sp.per_answer)}</div>
+          <div class="fb-body-sm" style="margin-top:8px">per graded answer</div></div>
+        <div><div class="fb-numeral fb-numeral--sm" style="font-size:22px">${usd(sp.per_card)}</div>
+          <div class="fb-body-sm" style="margin-top:8px">per card made</div></div>
+      </div>`)}
+    ${panel(3, "Where it went", "by purpose", barRows(sp.by_purpose.map((p) => ({
+      label: p.purpose, value: p.usd, display: usd(p.usd),
+      title: `${p.calls} call${p.calls === 1 ? "" : "s"} · ${p.tokens.toLocaleString()} tokens` }))))}
+    ${panel(3, "Last 14 days", null, `<div class="fb-forecast-row">${dayCols}</div>
+      ${fbEvidence("Estimated from each call's token counts at published list prices — your provider dashboard is the actual bill. Embeddings and search cost $0 here: they run locally.")}`)}`;
 }
 
 function renderCalibration(weeks) {
   const hasData = (weeks || []).some((w) => w.sure_n + w.unsure_n > 0);
   if (!hasData) {
-    return `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">
-      No confidence-tagged answers yet. Pick <em>Sure</em> or <em>Unsure</em> before
-      answering during reviews and this chart fills in.</div>`;
+    return `<div class="fb-body-sm">No confidence-tagged answers yet. Pick <em>Sure</em> or
+      <em>Unsure</em> before answering during reviews and this chart fills in.</div>`;
   }
   const cols = weeks.map((w) => {
     const bar = (rate, color, n, label) => rate == null
-      ? `<div class="cal-bar" style="height:4px; background:#ECECE8" title="${label}: no data"></div>`
-      : `<div class="cal-bar" style="height:${Math.max(4, rate * 0.56)}px; background:${color}"
+      ? `<div class="fb-cal-bar" style="height:4px; background:var(--fb-hairline)" title="${label}: no data"></div>`
+      : `<div class="fb-cal-bar" style="height:${Math.max(4, rate * 0.56)}px; background:${color}"
            title="${label}: ${rate}% recall over ${n} answers"></div>`;
-    return `<div class="cal-col">
-      <div class="cal-bars">
-        ${bar(w.sure_rate, "#0072B2", w.sure_n, "Sure")}
-        ${bar(w.unsure_rate, "#CC79A7", w.unsure_n, "Unsure")}
+    return `<div class="fb-cal-col">
+      <div class="fb-cal-bars">
+        ${bar(w.sure_rate, "var(--fb-ink)", w.sure_n, "Sure")}
+        ${bar(w.unsure_rate, "var(--fb-hairline)", w.unsure_n, "Unsure")}
       </div>
-      <span class="forecast-day">${w.label}</span>
+      <span class="fb-forecast-day">${w.label}</span>
     </div>`;
   }).join("");
   // calibration verdict from the most recent week with both series
@@ -902,29 +1000,28 @@ function renderCalibration(weeks) {
       : gap <= 0 ? "Miscalibrated: you recall MORE when unsure — trust yourself less when “sure”."
       : "Slightly compressed — confidence and recall barely differ.";
   }
-  return `<div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
-      <span class="cal-key"><span class="cal-dot" style="background:#0072B2"></span>Sure</span>
-      <span class="cal-key"><span class="cal-dot" style="background:#CC79A7"></span>Unsure</span>
+  return `<div class="fb-cal-row">${cols}</div>
+    <div class="fb-key">
+      <span class="fb-key-item"><span class="fb-key-swatch" style="background:var(--fb-ink)"></span>said sure</span>
+      <span class="fb-key-item"><span class="fb-key-swatch" style="background:var(--fb-hairline)"></span>said unsure</span>
     </div>
-    <div class="cal-row">${cols}</div>
-    ${verdict ? `<div style="font-size:11.5px; color:#5C616E; margin-top:10px">${verdict}</div>` : ""}`;
+    ${verdict ? `<div class="fb-body-sm" style="margin-top:16px">${verdict}</div>` : ""}`;
 }
 
 function renderRecentSessions(sessions) {
   if (!sessions || !sessions.length) {
-    return `<div style="font-size:12px; color:#8A8F9C; flex:1">No sessions yet.</div>`;
+    return `<div class="fb-body-sm">No sessions yet.</div>`;
   }
-  return `<div style="display:flex; flex-direction:column; gap:8px">` + sessions.map((s) => {
+  return `<div style="display:flex; flex-direction:column; gap:14px">` + sessions.map((s) => {
     const day = new Date(s.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    const acc = s.accuracy == null ? "" :
-      `<span class="mono" style="font-size:10.5px; font-weight:600; color:${s.accuracy >= 80 ? GOOD : s.accuracy >= 60 ? "#8A6100" : LOW}">${s.accuracy}%</span>`;
-    const accBar = s.accuracy == null ? "" :
-      `<div class="sess-track"><div style="height:100%; width:${s.accuracy}%; border-radius:2px; background:${s.accuracy >= 80 ? GOOD : s.accuracy >= 60 ? WARN : LOW}"></div></div>`;
-    return `<div class="sess-row">
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:74px; flex:none">${day}</span>
-      <span style="font-size:11.5px; width:64px; flex:none">${esc(s.kind)}</span>
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C; width:118px; flex:none">${s.cards} cards · ${fmtMin(s.minutes)}</span>
-      ${accBar}${acc}
+    // the bar is the recall rate, so it takes the mastery hue and never ships
+    // without the number beside it
+    return `<div class="fb-sess-row">
+      <span class="fb-data" style="font-size:11px; color:var(--fb-muted); width:78px; flex:none">${day}</span>
+      <span class="fb-data" style="font-size:11px; color:var(--fb-muted); width:126px; flex:none">${s.cards} card${s.cards === 1 ? "" : "s"} · ${fmtMin(s.minutes)}</span>
+      <span class="fb-sess-track">${s.accuracy == null ? ""
+        : `<span style="display:block; height:100%; width:${s.accuracy}%; background:${MASTERY_HUE(s.accuracy)}"></span>`}</span>
+      <span class="fb-data" style="font-size:11px; font-weight:600; width:42px; text-align:right; flex:none">${s.accuracy == null ? "—" : s.accuracy + "%"}</span>
     </div>`;
   }).join("") + "</div>";
 }
@@ -932,18 +1029,20 @@ function renderRecentSessions(sessions) {
 /* ---------------------------------------------------------------- study metrics */
 
 function renderMetrics(mx) {
-  if (!mx) return "";
+  if (!mx) return null;
 
-  // heatmap: 26 columns of weeks, Monday-first rows, green scale by minutes
-  const shade = (mins) => mins <= 0 ? "#ECECE8"
-    : mins < 10 ? "rgba(0,158,115,.25)" : mins < 25 ? "rgba(0,158,115,.5)"
-    : mins < 45 ? "rgba(0,158,115,.75)" : "#009E73";
+  /* heatmap: one column per week, Monday-first rows. This is VOLUME, not
+     mastery, so it takes ink density rather than a hue — a green cell here
+     would read as "recalled well", which it does not mean. */
+  const shade = (mins) => mins <= 0 ? "var(--fb-hairline)"
+    : mins < 10 ? "rgba(10,10,10,.22)" : mins < 25 ? "rgba(10,10,10,.45)"
+    : mins < 45 ? "rgba(10,10,10,.7)" : "var(--fb-ink)";
   const cols = [];
   for (let w = 0; w < mx.weeks; w++) {
     const cells = mx.heatmap.slice(w * 7, w * 7 + 7).map((c) => `
-      <div class="hm-cell" title="${c.date} · ${c.minutes} min"
+      <div class="fb-hm-cell" title="${c.date} · ${c.minutes} min"
         style="${c.future ? "background:transparent" : `background:${shade(c.minutes)}`}"></div>`).join("");
-    cols.push(`<div class="hm-col">${cells}</div>`);
+    cols.push(`<div class="fb-hm-col">${cells}</div>`);
   }
   const activeDays = mx.heatmap.filter((c) => c.minutes > 0).length;
 
@@ -956,32 +1055,20 @@ function renderMetrics(mx) {
     ["Young", f.young, "rgba(0,158,115,.55)", "interval 7–21d"],
     ["Mature", f.mature, "#009E73", "interval 21d+ — stable"],
   ];
-  const funnelRows = stages.map(([label, n, color, hint]) => `
-    <div class="fn-row" title="${hint}">
-      <span class="fn-label">${label}</span>
-      <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, n / fTotal * 100)}%; background:${color}"></div></div>
-      <span class="fn-n">${n}</span>
-    </div>`).join("");
+  const funnelRows = barRows(stages.map(([label, n, color, hint]) => ({
+    label, value: n, display: String(n), hue: color, title: `${label} — ${hint}` })));
 
-  // retention trend
-  const rMax = 100;
-  const retCols = mx.retention.map((r) => `
-    <div class="forecast-col" title="${r.n} answers">
-      <span class="forecast-n">${r.rate == null ? "–" : r.rate + "%"}</span>
-      <div class="forecast-bar" style="height:${r.rate == null ? 4 : Math.max(4, r.rate / rMax * 64)}px;
-        background:${r.rate == null ? "#ECECE8" : r.rate >= 80 ? "#009E73" : r.rate >= 60 ? "#E69F00" : "#D55E00"}"></div>
-      <span class="forecast-day">${r.label}</span>
-    </div>`).join("");
   const latest = [...mx.retention].reverse().find((r) => r.rate != null);
 
   // hardest cards
-  const hardRows = mx.hardest.length ? mx.hardest.map((h) => `
-    <div class="hard-row" title="${esc(h.topic || "")}">
-      <span class="mono" style="font-size:10px; color:#D55E00; font-weight:700; flex:none">${h.fails}×</span>
-      <span class="hard-q">${esc(h.question || "(deleted card)")}</span>
-      <span class="mono" style="font-size:9.5px; color:#8A8F9C; flex:none">${h.fail_rate}% fail</span>
-    </div>`).join("")
-    : `<div style="font-size:11.5px; color:#8A8F9C">No repeat-failed cards — nothing is beating you yet.</div>`;
+  const hardRows = mx.hardest.length ? `<div style="display:flex; flex-direction:column">
+    ${mx.hardest.map((h) => `
+    <div style="display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1.5px solid var(--fb-hairline)"
+         title="${esc(h.topic || "")}">
+      <span style="flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(h.question || "(deleted card)")}</span>
+      <span class="fb-chip">${h.fails} fail${h.fails === 1 ? "" : "s"}</span>
+    </div>`).join("")}</div>`
+    : `<div class="fb-body-sm">No repeat-failed cards — nothing is beating you yet.</div>`;
 
   // knowledge in memory (retrievability-weighted, FSRS-style)
   const kn = mx.knowledge;
@@ -990,94 +1077,49 @@ function renderMetrics(mx) {
   const sec = (ms) => ms == null ? "–" : `${(ms / 1000).toFixed(1)}s`;
   let fluencyBody;
   if (fl.fluent_pct == null) {
-    fluencyBody = `<div style="font-size:12px; color:#8A8F9C; line-height:1.6; flex:1">
-      Collecting timing data — ${fl.n} of ${fl.needed} timed answers.
-      Each question card you answer in a review adds one.</div>`;
+    fluencyBody = `<div class="fb-body-sm">Collecting timing data — <b style="color:var(--fb-ink)">${fl.n} of ${fl.needed}</b>
+      timed answers. Each question card you answer in a review adds one.</div>`
+      + fbEvidence("How fast a correct answer comes predicts retention beyond accuracy alone (Benjamin &amp; Bjork, 1996).");
   } else {
-    const q = fl.quads, total = fl.n || 1;
-    const quadRow = (label, n, color, hint) => `
-      <div class="fn-row" title="${hint}">
-        <span class="fn-label">${label}</span>
-        <div class="fn-track"><div class="fn-fill" style="width:${Math.max(2, n / total * 100)}%; background:${color}"></div></div>
-        <span class="fn-n">${n}</span>
-      </div>`;
+    const q = fl.quads;
     fluencyBody = `
-      <div class="stat-num" style="color:${fl.fluent_pct >= 50 ? "#00794F" : "#8A6100"}">${fl.fluent_pct}%</div>
-      <div class="stat-sub">fast AND correct · right answers take ${sec(fl.pass_ms)}${fl.fail_ms != null ? ` · wrong ${sec(fl.fail_ms)}` : ""}</div>
-      <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px">
-        ${quadRow("Fluent", q.fluent, "#009E73", "faster than your median AND correct — strong memories")}
-        ${quadRow("Effortful", q.effortful, "rgba(0,158,115,.55)", "correct but slower than your median — still fragile, keep spacing")}
-        ${quadRow("Hasty miss", q.fast_wrong, "#D55E00", "fast but wrong — check for a misconception")}
-        ${quadRow("Slow miss", q.slow_wrong, "#C9CCD4", "slow and wrong — not there yet")}
-      </div>`;
+      <div class="fb-numeral fb-numeral--sm">${fl.fluent_pct}<small>%</small></div>
+      <div class="fb-body-sm" style="margin-top:10px">fast and correct · right answers take ${sec(fl.pass_ms)}${fl.fail_ms != null ? ` · wrong ${sec(fl.fail_ms)}` : ""}</div>
+      <div style="margin-top:14px">${barRows([
+        { label: "Fluent", value: q.fluent, display: String(q.fluent), hue: "var(--fb-green)", title: "faster than your median AND correct — strong memories" },
+        { label: "Effortful", value: q.effortful, display: String(q.effortful), hue: "var(--fb-yellow)", title: "correct but slower than your median — still fragile, keep spacing" },
+        { label: "Hasty miss", value: q.fast_wrong, display: String(q.fast_wrong), hue: "var(--fb-red)", title: "fast but wrong — check for a misconception" },
+        { label: "Slow miss", value: q.slow_wrong, display: String(q.slow_wrong), hue: "var(--fb-hairline)", title: "slow and wrong — not there yet" },
+      ])}</div>
+      ${fbEvidence("How fast a correct answer comes predicts retention beyond accuracy alone (Benjamin &amp; Bjork, 1996) — slow rights are the ones to keep spacing.")}`;
   }
 
   // sweet spot
   const sw = mx.sweet;
   const sweetBody = sw.rate == null
-    ? `<div style="font-size:12px; color:#8A8F9C; flex:1">Needs 5+ recent answers.</div>`
-    : `<div class="stat-num" style="color:${sw.rate > 95 ? "#005A8E" : sw.rate >= 70 ? "#00794F" : "#D55E00"}">${sw.rate}%</div>
-       <div class="stat-sub">recent recall · optimal ≈ 85%</div>
-       <div class="sweet-track"><div class="sweet-band"></div>
-         <div class="sweet-pin" style="left:${Math.min(98, Math.max(2, sw.rate))}%"></div></div>
-       <div style="font-size:11px; color:#5C616E; margin-top:7px">${
-         sw.rate > 95 ? "Too easy — harden cards or stretch intervals." :
-         sw.rate < 70 ? "Overloaded — smaller sessions or re-read first." :
-         "In the productive-struggle zone."}</div>`;
+    ? `<div class="fb-body-sm">Needs 5+ recent answers.</div>`
+    : `<div class="fb-numeral">${sw.rate}<small>%</small></div>
+       <div class="fb-body-sm" style="margin-top:12px">${
+         sw.rate > 95 ? "Right of the band, so your cards are too easy. Harden them or stretch the intervals." :
+         sw.rate < 70 ? "Left of the band — overloaded. Smaller sessions, or re-read before reviewing." :
+         "Inside the band: the productive-struggle zone."}</div>
+       <div class="fb-sweet-track"><div class="fb-sweet-band"></div>
+         <div class="fb-sweet-pin" style="left:${Math.min(98, Math.max(2, sw.rate))}%"></div></div>
+       <div style="display:flex; justify-content:space-between; margin-top:10px">
+         <span class="fb-data" style="font-size:10px; color:var(--fb-muted)">too hard</span>
+         <span class="fb-data" style="font-size:10px; color:var(--fb-muted)">too easy</span>
+       </div>`;
 
-  // fragments, so the Analytics page can order them by evidence rather than
-  // by whatever order they happened to be written in
+  /* Raw fragments, not finished cards: the Analytics screen owns the bento
+     spans and the panel chrome, so a metric can move between tabs without
+     being rewritten. */
   return {
     latestRetention: latest,
-    knowledge: `
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">KNOWLEDGE IN MEMORY</div>
-        <div class="stat-num">${kn.held} <span style="font-size:14px; color:#8A8F9C; font-weight:500">/ ${kn.total} facts</span></div>
-        <div class="stat-sub">${kn.pct}% of your cards, decay-weighted, held right now</div>
-        ${evidence("Retrievability-weighted total (the FSRS 'knowledge' metric): each card counts as its current recall probability.")}
-      </div>`,
-    sweet: `
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:9px">CHALLENGE SWEET SPOT</div>
-        ${sweetBody}
-        ${evidence("~85% success is the optimal difficulty for learning (Wilson et al., 2019; Bjork's desirable difficulties).")}
-      </div>`,
-    heatmap: `
-      <div class="card" style="padding:16px 20px">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
-          <span class="mono-label">CONSISTENCY · LAST ${mx.weeks} WEEKS</span>
-          <span class="mono" style="font-size:10.5px; color:#8A8F9C">${activeDays} active days</span>
-        </div>
-        <div class="hm-grid">${cols.join("")}</div>
-        ${evidence("Distributed practice: many short sessions beat few long ones (Cepeda et al., 2006).")}
-      </div>`,
-    retention: `
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
-          <span class="mono-label">RETENTION TREND · WEEKLY RECALL</span>
-          ${latest ? `<span class="mono" style="font-size:11px; font-weight:600; color:${latest.rate >= 80 ? "#00794F" : "#8A6100"}">${latest.rate}% now</span>` : ""}
-        </div>
-        <div class="forecast-row">${retCols}</div>
-        ${evidence("The truest signal the system works: recall rate at review time, week over week.")}
-      </div>`,
-    maturity: `
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:14px">CARD MATURITY</div>
-        <div style="display:flex; flex-direction:column; gap:9px">${funnelRows}</div>
-        ${evidence("Stability, not just coverage: mature cards (21d+ intervals) are knowledge that survives exams.")}
-      </div>`,
-    hardest: `
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:12px">HARDEST CARDS · MOST FAILED</div>
-        <div style="display:flex; flex-direction:column; gap:8px">${hardRows}</div>
-        ${evidence("Leeches: a handful of cards eat most of your failures. Blackout them in the reader or rewrite them — don't just keep failing them.")}
-      </div>`,
-    fluency: `
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:9px">RETRIEVAL FLUENCY · 28 DAYS</div>
-        ${fluencyBody}
-        ${evidence("How fast a correct answer comes predicts retention beyond accuracy alone (Benjamin &amp; Bjork, 1996) — slow rights are the ones to keep spacing.")}
-      </div>`,
+    retention: mx.retention,
+    weeks: mx.weeks,
+    kn, funnelRows, hardRows, sweetBody, fluencyBody,
+    heatCols: cols.join(""),
+    activeDays,
   };
 }
 
@@ -1085,38 +1127,36 @@ function renderMetrics(mx) {
 
 function readingBandHTML(st) {
   const rd = st.reading;
-  const courseIdx = {};
-  st.courses.forEach((c, i) => { courseIdx[c.id] = i; });
-  const cColor = (id) => SUBJ[(courseIdx[id] ?? 3) % 4];
-
-  const segTotal = rd.by_course.reduce((a, r) => a + r.minutes, 0) || 1;
-  const segs = rd.by_course.map((r) =>
-    `<div style="flex:${r.minutes}; background:${cColor(r.course_id)}"></div>`).join("");
-  const legend = rd.by_course.map((r) => `
-    <div style="display:flex; align-items:center; gap:8px; font-size:11.5px">
-      <span class="cal-dot" style="background:${cColor(r.course_id)}"></span>
-      <span style="flex:1">${esc(r.name)}</span>
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${fmtMin(r.minutes)} · ${Math.round(r.minutes / segTotal * 100)}%</span>
-    </div>`).join("");
+  const notes = Object.values(rd.notes_by_pdf || {}).reduce((a, n) => a + n, 0);
+  // documents by minutes read, so "where the reading went" is one bar chart
+  const docs = (rd.by_pdf || []).slice().sort((a, b) => b.minutes - a.minutes).slice(0, 8);
+  const docName = (e) => {
+    for (const c of st.libCourses) {
+      const p = c.pdfs.find((x) => x.pdf_id === e.pdf_id);
+      if (p) return p.filename.replace(/\.pdf$/i, "");
+    }
+    return `document ${e.pdf_id}`;
+  };
 
   return `
-    <div class="grid3">
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">TIME READ · ALL TIME</div>
-        <div class="stat-num">${fmtMin(rd.total_minutes)}</div>
-        <div class="stat-sub">${fmtMin(rd.week_minutes)} in the last 7 days · ${rd.block_count} blocks</div>
-      </div>
-      <div class="card" style="padding:16px 20px">
-        <div class="mono-label" style="margin-bottom:9px">READING STREAK</div>
-        <div class="stat-num">${rd.streak_days}<span style="font-size:14px; color:#8A8F9C; font-weight:500"> day${rd.streak_days === 1 ? "" : "s"}</span></div>
-        <div class="stat-sub">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week</div>
-      </div>
-      <div class="card" style="padding:16px 20px; display:flex; flex-direction:column">
-        <div class="mono-label" style="margin-bottom:11px">READING TIME BY COURSE</div>
-        ${rd.by_course.length ? `<div class="seg-track">${segs}</div><div style="display:flex; flex-direction:column; gap:8px">${legend}</div>`
-          : `<div style="font-size:12px; color:#8A8F9C; flex:1">Nothing logged yet.</div>`}
-      </div>
-    </div>`;
+    ${panel(2, "Time in the reader", "all time", `
+      <div class="fb-numeral fb-numeral--sm">${fmtMin(rd.total_minutes)}</div>
+      <div class="fb-body-sm" style="margin-top:10px">${fmtMin(rd.week_minutes)} in the last 7 days ·
+        ${rd.block_count} block${rd.block_count === 1 ? "" : "s"}${notes ? ` · ${notes} annotation${notes === 1 ? "" : "s"}` : ""}</div>
+      ${fbEvidence("Logged from the reader's sidebar timer, attributed to whichever document is open.")}`)}
+
+    ${panel(2, "Reading streak", null, `
+      <div class="fb-numeral fb-numeral--sm">${rd.streak_days}<small> day${rd.streak_days === 1 ? "" : "s"}</small></div>
+      <div class="fb-body-sm" style="margin-top:10px">${rd.week_blocks} block${rd.week_blocks === 1 ? "" : "s"} this week</div>`)}
+
+    ${panel(2, "By course", "minutes", rd.by_course.length
+      ? barRows(rd.by_course.map((r) => ({ label: r.name, value: r.minutes, display: fmtMin(r.minutes) })))
+      : `<div class="fb-body-sm">Nothing logged yet.</div>`)}
+
+    ${panel(6, "Where the reading went", "minutes per document", docs.length
+      ? barRows(docs.map((e) => ({ label: docName(e), value: e.minutes, display: fmtMin(e.minutes) })))
+        + fbEvidence("Flashcard analytics exclude reading on purpose. This tab answers \"am I putting in the hours\"; the others answer \"is retrieval working\". Mastery only ever moves through review.")
+      : `<div class="fb-body-sm">No reading blocks logged yet. Open a topic and start a block in the reader's sidebar.</div>`)}`;
 }
 
 /* course-level numbers, derived from the state payload (no extra endpoint):
