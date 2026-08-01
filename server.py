@@ -18,6 +18,7 @@ from database import (
     get_due_forecast, get_time_by_course, get_topic_time_spent,
     log_focus_session, log_answer, attach_card_to_answer,
     get_calibration, get_topic_accuracy, set_session_accuracy, get_study_log,
+    get_answer_log,
     get_pdf_pages, get_cards, update_card, delete_card, get_topics, insert_card,
     set_exam_date, delete_pdf,
     save_occlusion, get_occlusions, delete_occlusion,
@@ -425,11 +426,36 @@ def _build_session_report(session_id=None):
     lines += ["", "Please coach me on the missed items: 1) explain each underlying concept simply and "
                   "connect them to each other, 2) give me one memorable hook per concept, 3) then quiz "
                   "me with three fresh questions that test the same ideas from different angles."]
+    # RETRIEVAL-WEIGHTED recall, reported alongside `accuracy` rather than
+    # instead of it: accuracy counts cards that passed and is what every other
+    # panel and every stored session already means. Marks count the grades
+    # themselves, so a session of near-misses reads lower than its hit rate.
+    # Both ship with the arithmetic visible ("N of M marks") — one number
+    # quietly changing meaning between screens is how a metric stops being
+    # trusted.
+    marks = sum(r["quality"] for r in rows)
+    minutes = session["minutes"]
+    if minutes is None and session["started_at"] and session["ended_at"]:
+        minutes = (datetime.fromisoformat(session["ended_at"])
+                   - datetime.fromisoformat(session["started_at"])).total_seconds() / 60
+    # this session's own pace, measured — not the planning estimate
+    sec_per_card = round(minutes * 60 / len(rows)) if minutes else None
+    # the personal baseline is only a baseline once it is measured; below six
+    # timed answers seconds_per_card() returns an 84s assumption
+    timed = sum(1 for a in get_answer_log(days=90) if a["latency_ms"] is not None)
     return {
         "session_id": session["id"], "kind": session["kind"],
         "cards": len(rows), "accuracy": acc, "passed_count": len(passed),
+        "marks": marks, "marks_of": 5 * len(rows),
+        "recall_marks": round(marks / (5 * len(rows)) * 100),
+        "minutes": round(minutes) if minutes else None,
+        "sec_per_card": sec_per_card,
+        "baseline_sec": stats_module.seconds_per_card(),
+        "baseline_measured": timed >= 6,
+        "courses": courses,
+        "ended_at": session["ended_at"],
         "missed": [{"card_id": r["card_id"], "question": r["question"], "answer": r["answer"],
-                    "gap": r["gap"], "confidence": r["confidence"],
+                    "gap": r["gap"], "confidence": r["confidence"], "quality": r["quality"],
                     "topic_title": r["topic_title"], "pdf_id": r["pdf_id"],
                     "page_start": r["page_start"], "page_end": r["page_end"]} for r in missed],
         "passed_questions": [r["question"] for r in passed],

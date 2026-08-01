@@ -14,7 +14,8 @@ const S = {
   asstSuggest: [],      // assistant input: current name suggestions
   asstSuggestIdx: -1,   // highlighted suggestion
   docOpen: new Set(),   // expanded documents on the course page
-  reviewView: "decks",  // review screen: "decks" picker | "chat" live session
+  reviewView: "decks",  // review screen: "decks" picker | "chat" live | "report"
+  report: null,         // the ended session's report, once it replaces the chat
   deckOpen: new Set(),  // expanded courses in the deck rail
   editSplit: null,      // pdf_id whose topic-split editor is open
   readSel: new Set(),   // reading library: topics ticked for a merged PDF
@@ -221,34 +222,10 @@ function renderMsg(m) {
       <div style="display:flex; flex-direction:column; gap:6px">${rows}</div>
     </div></div>`;
   }
-  // session gap report: what was missed, where to re-read, what to paste
-  // into an external tutor chat — the token-heavy explaining happens THERE
-  if (m.role === "report" && m.report) {
-    const rep = m.report;
-    window.__reports = window.__reports || {};
-    window.__reports[rep.session_id] = rep.text;
-    const missedRows = rep.missed.map((it, i) => `
-      <div class="gsec g-gap" style="align-items:flex-start">
-        <span class="gsec-label" style="flex:none">${i + 1}</span>
-        <span style="flex:1">
-          <b>${esc(it.question)}</b><br>
-          <span style="color:#5C616E">Expected: ${esc(it.answer)}</span>
-          ${it.gap ? `<br><span style="color:#8A3B00">Gap: ${esc(it.gap)}</span>` : ""}
-        </span>
-        <button class="conf-btn" style="flex:none" title="Open ${esc(it.topic_title)} at these pages in the reader"
-          onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}')">📖 p.${it.page_start}–${it.page_end}</button>
-      </div>`).join("");
-    return `<div class="fb-row-bot"><div class="gcard ${rep.missed.length ? "warn" : "good"}" style="max-width:min(85%, 820px)">
-      <div class="gcard-head ${rep.missed.length ? "warn" : "good"}">
-        <span class="gcard-pill ${rep.missed.length ? "warn" : "good"}">SESSION REPORT</span>
-        <span class="gcard-verdict">${rep.cards} cards · ${rep.accuracy != null ? rep.accuracy + "% recall · " : ""}${rep.missed.length} gap${rep.missed.length === 1 ? "" : "s"}</span>
-        <span style="flex:1"></span>
-        <button class="conf-btn" onclick="copyReport(${rep.session_id}, this)"
-          title="Copy a ready-made coaching prompt — paste it into Claude/ChatGPT and let THEM burn the tokens explaining">⧉ Copy tutor prompt</button>
-      </div>
-      ${rep.missed.length ? missedRows : `<div style="padding:12px 16px; font-size:13px">Clean sweep — nothing to re-study from this session.</div>`}
-    </div></div>`;
-  }
+  // the session report is no longer a chat message — it REPLACES the
+  // transcript (renderSessionReport), because once the last card is graded the
+  // scroll is not what you need in front of you
+  if (m.role === "report") return "";
   // assistant: question marker → styled card (plain bubble for any lead-in text)
   const match = m.text.match(CARD_RE);
   if (match) {
@@ -390,9 +367,12 @@ window.toggleDeck = (courseId) => {
 
 window.backToDecks = () => {
   if (RV.sid) {
+    // endSession lands on the report itself — let it, rather than dropping
+    // the student straight back to the rail with the gaps unseen
     if (!confirm("End the session and go back to your decks?")) return;
-    endSession();
+    return endSession();
   }
+  S.report = null;
   S.reviewView = "decks";
   render();
 };
@@ -423,21 +403,22 @@ function showQuestion(card) {
   $("chatInput").focus();
 }
 
-function reviewIdle(extraHtml) {
+function reviewIdle() {
   RV.sid = RV.kind = RV.card = null;
   S.qShownAt = null;
   $("chatInput").placeholder = "Start a review to begin — cards get dealt here.";
   $("agentName").textContent = "Review";
   $("sessionLabel").textContent = "";
   renderConfRow();
-  if (extraHtml) chatLine(extraHtml);
-  fetchState();
+  fetchState();   // ends in render(), which paints whichever state is now set
 }
 
 window.startReviewSession = async (scope = {}, kind = "review") => {
   if (RV.sid || S.busy) return;
   S.view = "study";
+  S.report = null;         // last session's sheet doesn't outlive this one
   S.reviewView = "chat";   // the chat only appears once a review starts
+  $("chatScroll").innerHTML = "";
   render();
   S.busy = true;
   const res = await fetch("/api/review/start", { method: "POST",
@@ -503,16 +484,165 @@ async function finishSession() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sid }) })
     .then((r) => r.ok ? r.json() : null).catch(() => null);
-  let html = "";
-  if (res) {
-    const s = res.summary;
-    html = renderMsg({ role: "assistant",
-      text: `Session done — ${s.cards} card${s.cards === 1 ? "" : "s"}${s.accuracy != null ? `, ${s.accuracy}% recall` : ""}.` });
-    if (res.report) html += renderMsg({ role: "report", report: res.report });
+  /* The report REPLACES the transcript. Once the last card is graded the
+     scroll is not what you need in front of you — and a session with no
+     graded answers has no report to show, so that one falls back to the
+     decks rather than to an empty sheet. */
+  if (res?.report) {
+    S.report = res.report;
+    S.reviewView = "report";
+    $("chatScroll").innerHTML = "";
+  } else {
+    S.report = null;
+    S.reviewView = "decks";
   }
-  reviewIdle(html);
+  reviewIdle();
 }
 
+
+/* ------------------------------------------------------- the session report */
+
+/* One gap. The left rule is the only colour on the card — red at 2/5 and below,
+   yellow above — and its own corner radius drops to 3px so it reads as a rule
+   rather than a curve. The gap carries the EXPECTED ANSWER, not just the mark:
+   a card you missed and cannot see the right answer to is one you will miss
+   again. */
+function reportGap(it) {
+  const hue = it.quality <= 2 ? "var(--fb-red)" : "var(--fb-yellow)";
+  return `<div style="background:var(--fb-page); border-radius:var(--fb-r-card);
+      border-left:var(--fb-rule-w) solid ${hue}; border-top-left-radius:3px;
+      border-bottom-left-radius:3px; padding:16px 18px">
+    <div style="display:flex; align-items:baseline; gap:10px">
+      <span class="fb-data" style="font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--fb-muted)">${esc(it.topic_title)}</span>
+      <span style="flex:1"></span>
+      <span class="fb-data" style="font-size:11px; color:var(--fb-muted)">${it.quality}/5</span>
+    </div>
+    <div style="font-size:13.5px; font-weight:600; line-height:1.5; margin-top:9px">${esc(it.question)}</div>
+    <div style="font-size:12.5px; color:var(--fb-slate); line-height:1.6; margin-top:8px">
+      ${it.gap ? `${esc(it.gap)} ` : ""}Expected: ${esc(it.answer)}</div>
+    <div style="display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap">
+      <button class="fb-btn fb-btn--ghost" style="padding:6px 11px; font-size:11.5px"
+        title="Open ${esc(it.topic_title)} at these pages in the reader"
+        onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}')">Re-read p.${it.page_start}–${it.page_end}</button>
+      ${it.quality < 3 ? `<span class="fb-data" style="font-size:11px; color:var(--fb-muted)">reset to 1d</span>` : ""}
+    </div>
+  </div>`;
+}
+
+/* The recall count-up — the second of the four earned moments, and the only
+   value on the sheet that animates. Driven by ELAPSED TIME, not tick count: a
+   per-tick increment takes unbounded wall-clock time whenever timers are
+   throttled, and every frame it crawls it is displaying a number that is not
+   the student's score. */
+function countUp(el, target) {
+  if (!el) return;
+  /* The true value goes in FIRST and the animation only ever overwrites it.
+     requestAnimationFrame does not fire in a page that isn't compositing — a
+     background tab, a hidden pane — and an animation that never starts would
+     otherwise leave 0% on screen forever, which is not the student's score. */
+  el.textContent = target;
+  if (!target || document.visibilityState !== "visible"
+      || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 420);
+    el.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function renderSessionReport() {
+  const rep = S.report;
+  const box = $("reviewReport");
+  if (!rep || S.view !== "study" || S.reviewView !== "report") return;
+  const st = S.state || {};
+  const missed = rep.missed || [];
+  /* Two different thresholds live on this sheet and they must not be conflated:
+     the GAP list is quality <= 3, because a partial answer is still worth
+     re-reading, while SCHEDULING extends at quality >= 3. Counting extended
+     intervals off the gap list would under-report them — and reading "1 passed"
+     beside "75% by cards passed" is how a sheet stops being believed. */
+  const reset = missed.filter((m) => m.quality < 3).length;
+  const kept = rep.cards - reset;
+  const spelled = ["no", "one", "two", "three", "four", "five", "six"][missed.length] ?? missed.length;
+  const at = rep.ended_at ? new Date(rep.ended_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
+
+  /* Both the headline and the where-to-next line are composed from the
+     session's own numbers — nothing here is a model call, and nothing claims
+     more than the deal contained. */
+  const headline = missed.length === 0
+    ? `Clean sweep — all ${rep.cards} recalled. Every interval moved out.`
+    : missed.length === rep.cards
+    ? `All ${rep.cards} need another pass. Re-read the pages below before tomorrow.`
+    : `${kept} held, ${missed.length} slipped. The ${spelled} below ${missed.length === 1 ? "is" : "are"} worth re-reading before tomorrow.`;
+  const topics = [...new Set(missed.map((m) => m.topic_title))];
+  const next = missed.length
+    ? `${topics.slice(0, 2).map(esc).join(" and ")}${topics.length > 2 ? ` and ${topics.length - 2} more` : ""} — open the pages, then let a tutor chat do the explaining.`
+    : `Nothing owed from this session. The next cards come back on their own schedule.`;
+
+  const week = st.stats?.week || [];
+  const pace = rep.sec_per_card;
+  const delta = pace != null && rep.baseline_measured ? rep.baseline_sec - pace : null;
+
+  box.innerHTML = `
+    <div class="fb-card fb-anim-report" style="max-width:var(--fb-content); margin:0 auto">
+      <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap">
+        <span class="fb-label">Session complete</span>
+        <span class="fb-data" style="color:var(--fb-muted); white-space:nowrap">${at}${rep.minutes != null ? ` · ${rep.minutes} min` : ""}${rep.courses?.length ? ` · ${esc(rep.courses.join(", "))}` : ""}</span>
+        <span style="flex:1"></span>
+        <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
+          onclick="backToDecks()" title="Back to your decks">‹ Decks</button>
+      </div>
+      <div style="font-size:var(--fb-title); font-weight:700; letter-spacing:-.6px; line-height:1.35; margin-top:12px; max-width:44ch">${headline}</div>
+
+      <div class="fb-band" style="padding-bottom:6px">
+        ${bandMetric("Recall", `<span id="repRecall">${rep.recall_marks || 0}</span>`, "%",
+          `<div class="fb-body-sm" style="margin-top:8px">${rep.marks} of ${rep.marks_of} marks</div>`)}
+        ${bandMetric("Cards", rep.cards, "",
+          `<div class="fb-body-sm" style="margin-top:8px">${missed.length
+            ? `${missed.length} left a gap to re-read` : "no gaps left behind"}</div>`)}
+        ${bandMetric("Per card", pace != null ? pace : "—", pace != null ? "s" : "",
+          `<div class="fb-body-sm" style="margin-top:8px">${pace == null ? "session too short to time"
+            : delta == null ? "no personal baseline yet"
+            : delta > 0 ? `${delta}s faster than your usual`
+            : delta < 0 ? `${-delta}s slower than your usual`
+            : "exactly your usual pace"}</div>`)}
+        ${bandMetric("Streak", st.stats?.streak ?? 0, st.stats?.streak === 1 ? " day" : " days",
+          `<div style="display:flex; gap:5px; margin-top:12px">
+            ${week.map((d) => `<span title="${d.day}" style="width:14px; height:14px; border-radius:3px;
+              background:${d.lit ? "var(--fb-ink)" : "transparent"};
+              border:${d.lit ? "none" : "1.5px solid var(--fb-hairline)"}"></span>`).join("")}
+          </div>`)}
+      </div>
+
+      <div style="display:flex; align-items:baseline; gap:12px; margin-top:24px">
+        <span class="fb-label">The ${spelled} gap${missed.length === 1 ? "" : "s"}</span>
+        ${missed.length ? `<span class="fb-data" style="color:var(--fb-muted)">re-read before tomorrow</span>` : ""}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:14px">
+        ${missed.map(reportGap).join("")}
+        <div style="border-radius:var(--fb-r-card); border:var(--fb-border); padding:16px 18px; display:flex; flex-direction:column">
+          <div class="fb-label">Where to next</div>
+          <div class="fb-body-sm" style="margin-top:9px">${next}</div>
+          <div style="flex:1; min-height:14px"></div>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+            ${missed.length ? `<button class="fb-btn" title="Open ${esc(missed[0].topic_title)} at its pages"
+              onclick="openTopic(${missed[0].pdf_id}, ${missed[0].page_start}, ${missed[0].page_end}, '${encT(missed[0].topic_title)}')">Open the reader</button>` : ""}
+            <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
+              onclick="copyReport(${rep.session_id}, this)"
+              title="Copy a ready-made coaching prompt — paste it into a tutor chat and let THEM burn the tokens explaining">Copy tutor prompt</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="fb-evidence">Recall here is retrieval-weighted across marks, not cards — a 3/5 counts as three,
+        so a session of near-misses reads lower than its hit rate. ${rep.accuracy != null
+          ? `By cards passed it was ${rep.accuracy}%.` : ""}
+        Intervals updated: ${kept} extended, ${reset} reset to 1d.</div>
+    </div>`;
+  countUp($("repRecall"), rep.recall_marks || 0);
+}
 
 function renderConfRow() {
   const active = !!RV.sid;
@@ -1797,12 +1927,15 @@ function render() {
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
   $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
-  // review screen: decks until a session starts, then the chat
+  // review screen: decks until a session starts, the chat while it runs, then
+  // the report — three states, one on screen at a time
   $("reviewHome").style.display = S.reviewView === "decks" ? "flex" : "none";
   $("chatPane").style.display = S.reviewView === "chat" ? "flex" : "none";
+  $("reviewReport").style.display = S.reviewView === "report" ? "block" : "none";
   renderHome();
   renderCoursePage();
   renderReviewHome();
+  renderSessionReport();
   renderConfRow();
 
   renderProgress();
