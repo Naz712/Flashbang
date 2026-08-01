@@ -65,23 +65,35 @@ card, under a hairline. Documents are `fb-card` disclosures whose topics show a
 the merged-PDF export carried over. Reading dropped below the documents. Each screen
 that converts also deletes its legacy CSS block — that is the pattern to keep.
 
+**Phase 3 is done** (`4915b3c`, `c076e0a`, `19a9648`), in three commits: the deck
+state, the session surface, and the report. Notes worth keeping:
+
+- The deck rail lost its course colour dot — colour means mastery here, nothing else.
+- Today's budget sentence is derived from the deal, not written.
+- The grade card marks only the evaluative pair (✓ *You had* / ✗ *The gap*); its
+  next-review footer is one track with the old interval as a ghost tick. This needed a
+  server fix: `/api/review/answer` was `str()`-ing `review_card()`'s dict into a meta
+  string, so the footer would have printed a raw Python dict repr.
+- The report is a third review state, not a chat message; it replaces the transcript.
+  Recall there is retrieval-weighted across **marks** and ships beside `accuracy`
+  (cards passed) with the arithmetic visible — do not collapse the two. The gap list
+  is `quality <= 3` but scheduling extends at `quality >= 3`; conflating those two
+  thresholds is what made the first build contradict itself.
+
 **Phases left, in the handoff's order:**
 
-1. **Review** — deck rail + today's card, then the session surface; question card, grade
-   card (verdict pill, labelled sections, next-review footer), and the **session report
-   that replaces the transcript** rather than appending to it.
-2. **Analytics** — five tabbed sections on a six-column bento grid, with five
+1. **Analytics** — five tabbed sections on a six-column bento grid, with five
    hand-written SVG charts (arc gauge, line-with-target, forgetting curve, stacked area,
    bar rows). Note this reinstates the forgetting-curve panel that was deliberately
    deleted earlier.
-3. **Cards** — two panes, an editor that never moves when you select another card.
-4. **Reader** — a screen, not a modal: **continuous vertical scroll** (Naz overrode the
+2. **Cards** — two panes, an editor that never moves when you select another card.
+3. **Reader** — a screen, not a modal: **continuous vertical scroll** (Naz overrode the
    earlier page-at-a-time decision), two collapsible rails (thumbnails, notes), a
    fullscreen control that collapses the nav and both rails, and blackout/annotation
    boxes **re-measured from text rects** via ResizeObserver instead of stored 0–1
    coordinates. ⚠️ Discuss before starting: text-rect measurement needs a pdf.js text
    layer and cannot work on scanned pages, which is exactly where blackouts matter most.
-5. **The four motion moments**, last: 5/5-only grade reveal, session complete, streak
+4. **The four motion moments**, last: 5/5-only grade reveal, session complete, streak
    dots, ingest topic list.
 
 Deviations already agreed: **no `f` logo tile** (Naz asked for it removed; the design
@@ -92,9 +104,13 @@ reinstates it) and **no dot-grid page texture** (removed at Naz's request).
 - **Launchpad Challenge — deadline Aug 2.** Needs: ship the current build to Zo, a
   `/api/plan.json`-driven Google Calendar automation writing study blocks, and a 2–3
   minute demo recording.
-- **No real review session has been run yet.** Four cards exist on `Functions Intro`
-  (lec03), due now. One real session unlocks the retrieval-fluency and calibration
-  panels and replaces the last estimated numbers in the SPEND band.
+- **One real session exists, and it is not enough.** Session 15 (2026-07-29) graded
+  four cards on `Functions Intro` at marks 1/3/4/3 — that is what the session report
+  was verified against. But `answer_log` holds only **4 timed answers** and the
+  personal baseline needs **6**, so `seconds_per_card()` still returns its 84s
+  assumption and the report says "no personal baseline yet". Retrieval fluency needs
+  6 too, and calibration needs confidence-tagged answers (that session logged none).
+  Two more sessions, answered with the confidence buttons, close all three.
 - Two Python lectures have a "Course Logistics" topic that predates the content/general
   flag and could be reflagged.
 
@@ -103,5 +119,5 @@ reinstates it) and **no dot-grid page texture** (removed at Naz's request).
 Commit per feature with an explanatory message. Verify live in the browser preview
 before claiming anything works, and remove test artifacts from the real database
 afterwards. Never claim numbers that weren't measured. All LLM spend is on Naz's own
-OpenAI key — keep test calls minimal. Offline suites (ten of them) live in `tests/` and
+OpenAI key — keep test calls minimal. Offline suites (nine of them run offline; `check_ingest` needs the API key) live in `tests/` and
 must pass before a commit.
