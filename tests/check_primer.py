@@ -71,4 +71,57 @@ assert db.get_primer(topic_id) is not None
 db.delete_topic(topic_id)
 assert db.get_primer(topic_id) is None, "deleting a topic must not orphan its primer"
 
+# ---- the diagram column is independent of the primer text
+# (the cascade check above deleted the first topic, so this needs its own)
+db.save_topics(pdf_id, [{"title": "Iteration", "page_start": 1, "page_end": 2,
+                         "est_minutes": 10, "kind": "content"}])
+svg_topic = [t for t in db.get_topics(pdf_id=pdf_id) if t["title"] == "Iteration"][0]["id"]
+db.save_primer(svg_topic, primer)
+assert db.get_primer(svg_topic).get("svg") is None, "a primer starts with no drawing"
+db.save_primer_svg(svg_topic, '<svg viewBox="0 0 10 10"></svg>')
+assert db.get_primer(svg_topic)["svg"].startswith("<svg"), "drawing attaches"
+assert db.get_primer(svg_topic)["gist"] == primer["gist"], "attaching a drawing must not touch the text"
+db.save_primer_svg(svg_topic, None)
+assert db.get_primer(svg_topic)["svg"] is None, "drawing clears without losing the primer"
+assert db.get_primer(svg_topic)["gist"] == primer["gist"], "clearing a drawing must not touch the text"
+
+# ---- SVG SANITISER. Model-written markup goes straight into the page, so this
+# is a security boundary, not a formatting nicety. Rebuild-from-allow-list, so
+# anything not explicitly permitted is gone rather than filtered.
+from generation import sanitize_svg
+
+VECTORS = {
+    "script tag": '<svg viewBox="0 0 10 10"><script>alert(1)</script><rect x="1" y="1" width="2" height="2"/></svg>',
+    "event handler": '<svg viewBox="0 0 10 10"><rect x="1" y="1" width="2" height="2" onload="alert(1)"/></svg>',
+    "remote image": '<svg viewBox="0 0 10 10"><image href="https://evil.example/x.png"/></svg>',
+    "javascript: url": '<svg viewBox="0 0 10 10"><rect fill="javascript:alert(1)" x="1" y="1" width="2" height="2"/></svg>',
+    "style tag": '<svg viewBox="0 0 10 10"><style>*{background:url(https://evil)}</style><circle cx="5" cy="5" r="2"/></svg>',
+}
+BANNED = ("script", "onload", "onerror", "foreignobject", "javascript:", "<style", "://")
+for name, raw in VECTORS.items():
+    out = sanitize_svg(raw) or ""
+    low = out.lower()
+    for bad in BANNED:
+        assert bad not in low, f"{name}: sanitiser leaked {bad!r} -> {out}"
+
+assert sanitize_svg('<svg viewBox="0 0 10 10"><foreignObject><b>x</b></foreignObject></svg>') in (None, '<svg viewBox="0 0 10 10" />'), \
+    "foreignObject must not survive"
+assert sanitize_svg('<svg width="10" height="10"><rect/></svg>') is None, "no viewBox = not usable"
+assert sanitize_svg("sorry, I can't draw that") is None, "prose is not an SVG"
+assert sanitize_svg("") is None and sanitize_svg(None) is None
+
+good = sanitize_svg('```svg\n<svg viewBox="0 0 420 300" width="420" height="300">'
+                    '<title>a stack</title><ellipse cx="150" cy="240" rx="72" ry="13" '
+                    'fill="none" stroke="#0A0A0A" stroke-width="1.5"/>'
+                    '<text x="150" y="246" font-size="9" fill="#6B6B6B">main()</text></svg>\n```')
+assert good and good.startswith("<svg"), "a clean SVG survives, fence and all"
+assert 'viewBox="0 0 420 300"' in good, "viewBox is preserved"
+assert "main()" in good, "label text is preserved"
+assert "<title>" in good, "the accessible title is preserved"
+# only on the ROOT tag — stroke-width on a child is legitimate and must survive
+root_tag = good[:good.index(">") + 1]
+assert " width=" not in root_tag and " height=" not in root_tag, \
+    f"root width/height must be stripped so the container sizes it: {root_tag}"
+assert "stroke-width" in good, "stroke-width on children must survive"
+
 print("check_primer: ALL PASSED")

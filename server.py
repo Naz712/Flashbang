@@ -26,13 +26,15 @@ from database import (
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
-    get_topic, get_primer, save_primer, delete_primer, topics_with_primers,
+    get_topic, get_primer, save_primer, save_primer_svg, delete_primer,
+    topics_with_primers,
     start_session, end_session, review_card, undo_review,
     save_topics, save_concepts, create_course, init_db,
     record_course_snapshot, get_course_trend, get_course_week,
 )
 from generation import (parse_flashcards, extract_topic_concepts,
-                        generate_cards_for_topic, generate_primer)
+                        generate_cards_for_topic, generate_primer,
+                        generate_primer_diagram)
 from grading import grade_answer
 import llm_utils
 from llm_utils import complete_text
@@ -806,6 +808,29 @@ def topic_primer_make(topic_id):
     saved = get_primer(topic_id)
     saved["links"] = _primer_links(topic["title"], _course_name_for_topic(topic))
     return jsonify(saved)
+
+
+@app.post("/api/topics/<int:topic_id>/primer/diagram")
+def topic_primer_diagram(topic_id):
+    """Draw the primer's analogy. A SECOND button and a second call — a primer
+    is complete without a picture, so this can never be an implicit cost."""
+    primer = get_primer(topic_id)
+    if primer is None:
+        return jsonify({"error": "write the primer first"}), 404
+    if primer.get("svg") and request.args.get("force") not in ("1", "true"):
+        return jsonify({"svg": primer["svg"]})
+    try:
+        svg = generate_primer_diagram(topic_id, primer)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 422
+    save_primer_svg(topic_id, svg)
+    return jsonify({"svg": svg})
+
+
+@app.delete("/api/topics/<int:topic_id>/primer/diagram")
+def topic_primer_diagram_clear(topic_id):
+    save_primer_svg(topic_id, None)
+    return jsonify({"ok": True})
 
 
 def _course_name_for_topic(topic):

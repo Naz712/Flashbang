@@ -1,4 +1,4 @@
-from llm_utils import call_for_json
+from llm_utils import call_for_json, complete_text
 from database import get_topic, get_pdf, get_courses, get_pdf_pages
 
 
@@ -268,6 +268,135 @@ Respond with ONLY a JSON object. No markdown fences, no preamble:
     primer.pop("detail", None)
     primer.pop("points", None)
     return primer
+
+
+""" ---------------------------------------------------------------- primer diagram """
+
+# Model-written SVG is injected into the page, so it is treated as untrusted
+# input: rebuilt element by element from an allow-list rather than filtered.
+# A blocklist would have to anticipate every vector — <script>, onload=,
+# <foreignObject>, xlink:href to a remote doc — and only has to be wrong once.
+_SVG_TAGS = {"svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline",
+             "polygon", "text", "tspan", "defs", "marker", "title", "desc"}
+_SVG_ATTRS = {"viewbox", "d", "x", "y", "cx", "cy", "r", "rx", "ry", "x1", "y1", "x2", "y2",
+              "width", "height", "points", "fill", "stroke", "stroke-width", "stroke-linecap",
+              "stroke-linejoin", "stroke-dasharray", "fill-opacity", "stroke-opacity", "opacity",
+              "transform", "font-size", "font-family", "font-weight", "text-anchor",
+              "dominant-baseline", "marker-end", "marker-start", "id", "orient",
+              "refx", "refy", "markerwidth", "markerheight", "markerunits",
+              "role", "aria-label", "text-transform", "letter-spacing"}
+# canonical attribute spellings — XML is case-sensitive where SVG cares
+_SVG_CANON = {"viewbox": "viewBox", "refx": "refX", "refy": "refY",
+              "markerwidth": "markerWidth", "markerheight": "markerHeight",
+              "markerunits": "markerUnits"}
+
+
+def sanitize_svg(raw):
+    """Rebuild an SVG from an allow-list of tags and attributes. Returns the
+    cleaned markup, or None if it isn't a usable SVG."""
+    import re
+    import xml.etree.ElementTree as ET
+
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):                     # strip a stray fence
+        text = re.sub(r"^```[a-zA-Z]*\n?|```$", "", text).strip()
+    start = text.find("<svg")
+    if start == -1:
+        return None
+    text = text[start:]
+    end = text.rfind("</svg>")
+    if end == -1:
+        return None
+    text = text[:end + 6]
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+    def strip_ns(tag):
+        return tag.split("}")[-1].lower() if isinstance(tag, str) else ""
+
+    def clean(el):
+        tag = strip_ns(el.tag)
+        if tag not in _SVG_TAGS:
+            return None
+        out = ET.Element(tag)
+        for k, v in el.attrib.items():
+            key = strip_ns(k)
+            if key not in _SVG_ATTRS:
+                continue
+            val = str(v)
+            # url(#id) is fine; anything reaching outside the document is not
+            if "javascript:" in val.lower() or "://" in val:
+                continue
+            out.set(_SVG_CANON.get(key, key), val)
+        if el.text and el.text.strip():
+            out.text = el.text
+        for child in el:
+            kept = clean(child)
+            if kept is not None:
+                out.append(kept)
+            if child.tail and child.tail.strip():
+                (kept if kept is not None else out).tail = child.tail
+        return out
+
+    cleaned = clean(root)
+    if cleaned is None or strip_ns(root.tag) != "svg":
+        return None
+    if cleaned.get("viewBox") is None:
+        return None                                # without one it cannot scale
+    # let the container size it
+    cleaned.attrib.pop("width", None)
+    cleaned.attrib.pop("height", None)
+    return ET.tostring(cleaned, encoding="unicode")
+
+
+def generate_primer_diagram(topic_id, primer):
+    """Draw the primer's analogy as a labelled SVG.
+
+    SVG rather than a generated image on purpose: an image model cannot render
+    correct labels, and an unlabelled picture cannot carry the mapping — which
+    is the part that teaches. SVG also scales, inherits the palette, and costs
+    a fraction of a raster image.
+
+    Second call, second button: a primer is complete without a diagram.
+    """
+    topic = get_topic(topic_id)
+    if topic is None:
+        raise ValueError(f"No topic with id {topic_id}")
+    mapping = primer.get("mapping") or []
+    if not primer.get("analogy"):
+        raise ValueError("This primer has no analogy to draw")
+
+    pairs = "\n".join(f'- "{m.get("this","")}" means "{m.get("is","")}"' for m in mapping)
+    prompt = f"""Draw ONE diagram, as SVG, of the analogy below. The reader has not read the material yet — the picture's job is to make the analogy concrete and to LABEL which part means what.
+
+Topic: "{topic['title']}"
+The analogy: {primer['analogy']}
+What maps to what:
+{pairs or "(no mapping given — label the parts sensibly)"}
+
+Requirements:
+- ONE <svg> element with viewBox="0 0 420 300" and NO width/height attributes.
+- Draw the ANALOGY's objects — the literal thing described — not boxes labelled with abstract words. If the analogy is plates, draw plates.
+- Every mapped part gets a short <text> label saying what it means. Labels are real <text> elements, font-size 9 to 11.5, never below 9.
+- Palette ONLY: #0A0A0A (ink lines and type), #6B6B6B (secondary type), #DCDCDC (hairlines), #1B4FD8 (cobalt — use it for exactly ONE thing: the single most important part). No other colours. No gradients, no shadows, no filters.
+- Flat line art: strokes 1.5-2, fills either none or a colour at low fill-opacity.
+- font-family="'IBM Plex Sans',sans-serif" on prose labels, "'IBM Plex Mono',monospace" on code-like ones.
+- Keep everything inside the 420x300 box with a 20px margin. Nothing may overlap another label.
+- Allowed elements only: svg, g, path, rect, circle, ellipse, line, polyline, polygon, text, tspan, defs, marker, title, desc. No script, no style, no foreignObject, no image, no external references.
+- Include a <title> describing the picture for screen readers.
+
+Respond with ONLY the SVG markup. No prose, no markdown fences."""
+
+    raw, _ = complete_text(prompt, fast=True, max_tokens=2200, purpose="primer diagram")
+    svg = sanitize_svg(raw)
+    if not svg:
+        raise ValueError("The model didn't return a usable SVG")
+    return svg
 
 
 def parse_flashcards(text):

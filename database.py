@@ -229,6 +229,11 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    # the diagram is a SEPARATE, opt-in column: a primer is complete without
+    # one, and drawing is a second button so it can never be an implicit cost
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topic_primers') WHERE name='svg'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE topic_primers ADD COLUMN svg TEXT")
 
     # migrations for pre-existing databases
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
@@ -739,6 +744,17 @@ def save_primer(topic_id, primer, model=None):
           model, now_iso()))
     conn.commit()
     conn.close()
+
+
+def save_primer_svg(topic_id, svg):
+    """Attach (or clear) a primer's diagram without touching its text."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE topic_primers SET svg = ? WHERE topic_id = ?", (svg, topic_id))
+    conn.commit()
+    changed = cursor.rowcount
+    conn.close()
+    return changed
 
 
 def delete_primer(topic_id):

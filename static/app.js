@@ -2471,7 +2471,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) =
    reading cold is decoding sentence by sentence with nothing to attach them to.
 
    Generated once per topic and cached, so re-opening costs nothing. */
-const PR = { topicId: null, data: null, busy: false, open: true };
+const PR = { topicId: null, data: null, busy: false, open: true, drawing: false };
 
 function primerHTML() {
   if (!PR.topicId) return "";
@@ -2504,6 +2504,20 @@ function primerHTML() {
       <div class="fb-primer-analogy">
         <div class="fb-label" style="margin-bottom:8px">Picture it like this</div>
         <div style="font-size:14px; line-height:1.65">${esc(p.analogy)}</div>
+
+        ${p.svg ? `<figure class="fb-primer-svg">${p.svg}
+          <figcaption>
+            <span>Drawn from the analogy above — labels are real text, so they stay sharp at any size.</span>
+            <button class="fb-icon-btn" onclick="drawPrimer(true)" ${PR.drawing ? "disabled" : ""}
+              title="Draw a different one (~$0.0007)">${PR.drawing ? "…" : "↻"}</button>
+            <button class="fb-icon-btn" onclick="clearPrimerSvg()" title="Remove the drawing — the text stays">✕</button>
+          </figcaption>
+        </figure>`
+        : `<button class="fb-btn fb-btn--ghost" style="margin-top:14px; padding:7px 13px; font-size:11.5px"
+             ${PR.drawing ? "disabled" : ""} onclick="drawPrimer()"
+             title="One more fast-model call (~$0.0007) that draws this analogy as a labelled diagram. The text stays exactly as it is.">
+             ${PR.drawing ? "Drawing…" : "◍ Draw it"}</button>`}
+
         ${p.mapping?.length ? `<div class="fb-primer-map">
           ${p.mapping.map((m) => `<div class="fb-primer-map-row">
             <span class="fb-primer-map-this">${esc(m.this)}</span>
@@ -2561,6 +2575,29 @@ window.makePrimer = async (force) => {
 window.regenPrimer = () => {
   if (!confirm("Replace this primer with a fresh one? (~$0.0003)")) return;
   makePrimer(true);
+};
+
+/* The diagram is a SECOND button and a second call. It is added below the
+   analogy and replaces nothing — a primer is complete without a picture, so
+   drawing can never happen as a side effect of opening a topic. */
+window.drawPrimer = async (force) => {
+  if (PR.drawing || !PR.topicId || !PR.data) return;
+  if (force && !confirm("Draw a different diagram? (~$0.0007)")) return;
+  PR.drawing = true;
+  paintPrimer();
+  const res = await fetch(`/api/topics/${PR.topicId}/primer/diagram${force ? "?force=1" : ""}`,
+    { method: "POST" }).then((r) => r.ok ? r.json() : null).catch(() => null);
+  PR.drawing = false;
+  if (res?.svg) PR.data.svg = res.svg;
+  paintPrimer();
+  if (!res) alert("Couldn't draw it — the model didn't return a usable diagram. The primer text is untouched.");
+};
+
+window.clearPrimerSvg = async () => {
+  if (!PR.topicId || !confirm("Remove the drawing? The primer text stays.")) return;
+  await fetch(`/api/topics/${PR.topicId}/primer/diagram`, { method: "DELETE" }).catch(() => {});
+  if (PR.data) PR.data.svg = null;
+  paintPrimer();
 };
 
 /* Cached primers load with the topic; generating is always a button, so
