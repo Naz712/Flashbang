@@ -294,11 +294,16 @@ def split_tutorial(pdf_id, topics):
 RULES FOR SPLITTING:
 - One entry per LEAF question. If Q3 has parts (a), (b), (c), that is THREE entries with labels "3(a)", "3(b)", "3(c)" and group "3" — not one entry for Q3.
 - A question with no parts is one entry: label "5", group "5".
-- "label" is exactly how the paper numbers it. "grp" is the parent number alone.
+- "label" is exactly how the paper numbers it — copy its own scheme, e.g. "1.1", "Problem 2.3", "4(b)". "grp" is the parent number alone.
 - "text" is the question as written, verbatim where possible. Include any code, data or formula the question depends on. If the part depends on a stem shared with its siblings ("Consider the array below..."), repeat the stem in each part so the question stands alone.
 - "page" is the page number the question starts on, from the === PAGE n === markers.
-- Skip anything that is not a question: cover pages, instructions, learning outcomes, "submit by Friday", mark schemes.
+- Skip anything that is not a question: cover pages, contents listings, instructions, learning outcomes, "submit by Friday", mark schemes.
 - Keep the paper's order.
+
+THIS PAPER MAY CONTAIN THE SOLUTIONS INLINE, right after each question — look for "Solution", "Answer", "Ans:", "Model answer" or a worked derivation following the question.
+- If it does, "text" MUST STOP where the solution begins. NEVER include any part of the solution, the final answer, or the working in "text". A student reads "text" to attempt the question; leaking the answer into it destroys the only thing this is for.
+- Set "solution_page" to the page the solution starts on. Omit it if this paper has no solutions.
+- The question and its solution often share a page. That is fine — report the page each starts on.
 
 RULES FOR TAGGING:
 - Choose topic ids ONLY from this list of the student's own note topics. Never invent an id.
@@ -314,7 +319,7 @@ RULES FOR TAGGING:
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON array. No markdown fences, no preamble:
-[{{"label": "3(a)", "grp": "3", "text": "<the question>", "page": 2, "topic_ids": [91]}}]
+[{{"label": "3(a)", "grp": "3", "text": "<the question, WITHOUT its solution>", "page": 2, "solution_page": 3, "topic_ids": [91]}}]
 """
     result = call_for_json(prompt, max_tokens=8000, purpose="tutorial split")
     return result if isinstance(result, list) else result.get("questions", [])

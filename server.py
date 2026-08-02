@@ -846,7 +846,18 @@ def tutorials_create():
     ids = save_tutorial_questions(tutorial_id, questions)
     for qid, q in zip(ids, questions):
         set_question_topics(qid, [t for t in (q.get("topic_ids") or []) if t in valid])
-    return jsonify({"tutorial_id": tutorial_id, "questions": len(ids)})
+
+    # Many modules publish "problems WITH solutions" as one file. When the
+    # splitter found solutions inline, the answer paper IS this paper — the
+    # answer button then opens the same PDF at the solution's page, and no
+    # second upload is needed.
+    inline = {qid: q["solution_page"] for qid, q in zip(ids, questions)
+              if isinstance(q.get("solution_page"), int) and q["solution_page"] > 0}
+    if inline:
+        set_answer_pdf(tutorial_id, pdf_id)
+        set_answer_pages(inline)
+    return jsonify({"tutorial_id": tutorial_id, "questions": len(ids),
+                    "inline_solutions": len(inline)})
 
 
 @app.post("/api/tutorials/<int:tutorial_id>/answers")

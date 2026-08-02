@@ -2991,6 +2991,14 @@ window.toggleFlag = async (qid) => {
 /* The answer is RETRIEVED, never rewritten: this opens the answer paper at the
    page the answer starts on, so worked solutions keep their diagrams and
    working exactly as the module wrote them. */
+/* the stored question text is a PREVIEW — pypdf mangles equations and drops
+   diagrams entirely, so anything mathematical needs the real page */
+window.showQuestionPage = (qid) => {
+  const q = TUT.questions.find((x) => x.id === qid);
+  if (!q?.pdf_id || !q.page) return;
+  openTopic(q.pdf_id, q.page, q.page, encodeURIComponent(`${q.tutorial_title} · ${q.label}`), null);
+};
+
 window.showAnswer = (qid) => {
   const q = TUT.questions.find((x) => x.id === qid);
   if (!q?.answer_pdf_id || !q.answer_page) return;
@@ -3032,9 +3040,14 @@ function renderTutorials() {
           ${!(q.topics || []).length ? `<span class="fb-chip" style="color:var(--fb-muted)">untagged</span>` : ""}
         </span>
       </span>
-      ${q.answer_page ? `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
-          onclick="showAnswer(${q.id})" title="Open the answer paper at p.${q.answer_page}">Answer ›</button>`
-        : `<span class="fb-data" style="font-size:10px; color:var(--fb-muted); flex:none">no answer yet</span>`}
+      <span style="display:flex; gap:6px; flex:none; align-items:center">
+        ${q.page ? `<button class="fb-icon-btn" style="font-size:11px"
+            onclick="showQuestionPage(${q.id})"
+            title="Open p.${q.page} of the paper — the extracted text loses equations and diagrams">p.${q.page}</button>` : ""}
+        ${q.answer_page ? `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px"
+            onclick="showAnswer(${q.id})" title="Open the solution at p.${q.answer_page}">Answer ›</button>`
+          : `<span class="fb-data" style="font-size:10px; color:var(--fb-muted)">no answer yet</span>`}
+      </span>
     </div>`;
 
   const filterBar = all.length ? `
