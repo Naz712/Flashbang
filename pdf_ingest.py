@@ -23,6 +23,12 @@ from database import create_pdf, save_pdf_pages, get_pdf_pages, get_pdf
 SPARSE_THRESHOLD = 200   # chars; below this a page is probably scanned/diagram-only
 VISION_BATCH_SIZE = 8    # pages per vision call
 SEGMENT_CHUNK_CHARS = 100_000  # ~25k tokens of page text per segmentation call
+# ...and a PAGE cap, because the char budget is a proxy that breaks on slides.
+# A lecture deck holds ~500 chars a page, so 100k chars is 200+ pages in one
+# call — and asked to segment 200 pages at once the model returns one lump
+# spanning the lot. Dense prose hits the char budget first; sparse decks hit
+# this one. Whichever comes first closes the chunk.
+SEGMENT_CHUNK_PAGES = 40
 
 
 # ---------------------------------------------------------------- stage 1: pages
@@ -325,7 +331,8 @@ def segment_topics(pdf_id, course_name):
     current, current_len = [], 0
     for page in pages:
         page_block = f"=== PAGE {page['page_number']} ===\n{page['text']}"
-        if current and current_len + len(page_block) > SEGMENT_CHUNK_CHARS:
+        if current and (current_len + len(page_block) > SEGMENT_CHUNK_CHARS
+                        or len(current) >= SEGMENT_CHUNK_PAGES):
             chunks.append(current)
             current, current_len = [], 0
         current.append(page)
@@ -339,7 +346,7 @@ def segment_topics(pdf_id, course_name):
         chunk_text = "\n\n".join(f"=== PAGE {p['page_number']} ===\n{p['text']}" for p in chunk)
         page_range = (chunk[0]["page_number"], chunk[-1]["page_number"])
         prompt = _segmentation_prompt(chunk_text, course_name, page_range, carry_over)
-        result = call_for_json(prompt, max_tokens=4000, purpose="segmentation")
+        result = call_for_json(prompt, max_tokens=6000, purpose="segmentation")
         topics = result["topics"]
 
         # merge a topic continued across the chunk boundary
