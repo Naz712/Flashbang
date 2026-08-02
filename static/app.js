@@ -2975,6 +2975,21 @@ window.setTutFilter = (kind, value) => {
   renderTutorials();
 };
 
+window.retagTutorials = async () => {
+  if (TUT.busy || !S.courseId) return;
+  TUT.busy = "Matching questions to topics…";
+  renderTutorials();
+  const res = await fetch("/api/tutorials/retag", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ course_id: S.courseId, untagged_only: true }) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  TUT.busy = null;
+  await loadTutorials();
+  if (res && res.tagged < res.considered) {
+    alert(`Tagged ${res.tagged} of ${res.considered}. The rest matched nothing in this course's notes — which is the honest answer when a question genuinely isn't covered.`);
+  }
+};
+
 window.toggleFlag = async (qid) => {
   const q = TUT.questions.find((x) => x.id === qid);
   if (!q) return;
@@ -3018,6 +3033,9 @@ function renderTutorials() {
   const f = TUT.filter;
   const all = TUT.questions;
   const flaggedCount = all.filter((q) => q.flagged).length;
+  // questions the tagger couldn't place — usually because the notes hadn't
+  // been ingested yet when the tutorial was split
+  const untagged = all.filter((q) => !(q.topics || []).length).length;
   // every topic that has questions, so "weak on X" has somewhere to go
   const topicCounts = new Map();
   all.forEach((q) => (q.topics || []).forEach((t) => {
@@ -3064,6 +3082,9 @@ function renderTutorials() {
     <div class="fb-section-head" style="margin-bottom:18px">
       <span class="fb-label">Tutorials</span><span class="fb-rule"></span>
       ${TUT.busy ? `<span class="fb-data" style="font-size:11px; color:var(--fb-muted)">${esc(TUT.busy)}</span>` : ""}
+      ${untagged ? `<button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
+        ${TUT.busy ? "disabled" : ""} onclick="retagTutorials()"
+        title="Match the ${untagged} untagged question${untagged === 1 ? "" : "s"} against this course's topics. Cheap — it reuses the stored question text instead of re-reading the papers.">↻ Tag ${untagged}</button>` : ""}
       <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
         ${TUT.busy ? "disabled" : ""} onclick="pickTutorial()"
         title="Upload a tutorial or problem sheet — it splits into questions and tags each with your own note topics">＋ Add tutorial</button>

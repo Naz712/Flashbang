@@ -37,7 +37,7 @@ from database import (
 )
 from generation import (parse_flashcards, extract_topic_concepts,
                         generate_cards_for_topic, generate_primer,
-                        split_tutorial, map_answer_pages)
+                        split_tutorial, map_answer_pages, retag_questions)
 from grading import grade_answer
 import llm_utils
 from llm_utils import complete_text
@@ -906,6 +906,33 @@ def tutorial_questions_list():
         topic_id=request.args.get("topic_id", type=int),
         course_id=request.args.get("course_id", type=int),
         flagged_only=request.args.get("flagged") in ("1", "true"))})
+
+
+@app.post("/api/tutorials/retag")
+def tutorials_retag():
+    """Re-tag a course's tutorial questions against its topics, without
+    re-splitting. For when the notes arrive after the tutorials — the usual
+    order — so the first pass had nothing to match against. Flags untouched."""
+    body = request.get_json(force=True) or {}
+    course_id = body.get("course_id")
+    if not course_id:
+        return jsonify({"error": "course_id required"}), 400
+    topics = [t for t in get_topics(course_id=course_id) if t["kind"] != "general"]
+    questions = get_tutorial_questions(course_id=course_id)
+    if body.get("untagged_only"):
+        questions = [q for q in questions if not q["topics"]]
+    if not topics or not questions:
+        return jsonify({"tagged": 0, "considered": len(questions)})
+    try:
+        mapping = retag_questions(questions, topics)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 422
+    tagged = 0
+    for qid, ids in mapping.items():
+        if ids:
+            set_question_topics(qid, ids)
+            tagged += 1
+    return jsonify({"tagged": tagged, "considered": len(questions)})
 
 
 @app.post("/api/tutorial_questions/<int:question_id>/flag")

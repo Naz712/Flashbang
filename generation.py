@@ -325,6 +325,55 @@ Respond with ONLY a JSON array. No markdown fences, no preamble:
     return result if isinstance(result, list) else result.get("questions", [])
 
 
+def retag_questions(questions, topics):
+    """Re-tag existing questions against the course's topics WITHOUT re-splitting.
+
+    Splitting is the expensive half — it reads the whole paper and writes every
+    question back out. Tagging only needs the question text that is already
+    stored. This exists because the natural order is backwards: tutorials often
+    arrive before the lecture notes they belong to, so the first tagging pass
+    has nothing to match against. Re-tagging afterwards costs a fraction of a
+    cent instead of a full re-split, and never touches flags.
+
+    Returns {question_id: [topic_id]}.
+    """
+    if not questions or not topics:
+        return {}
+    topic_list = "\n".join(f'{t["id"]}: {t["title"]}' for t in topics)
+    # trim: the first couple of lines carry the subject, the working does not
+    listed = "\n".join(
+        f'{q["id"]}: [{q.get("label","")}] {" ".join((q.get("text") or "").split())[:240]}'
+        for q in questions)
+
+    prompt = f"""Tag each tutorial question with the topics it tests.
+
+Choose topic ids ONLY from this list. Never invent an id.
+1 to 3 ids per question, most relevant first. If nothing genuinely fits, use an empty list — a wrong tag is worse than no tag, because it surfaces the question while the student is revising something else.
+
+<topics>
+{topic_list}
+</topics>
+
+<questions>
+{listed}
+</questions>
+
+OUTPUT FORMAT:
+Respond with ONLY a JSON object mapping question id (as a string) to a list of topic ids. No markdown fences, no preamble:
+{{"12": [91, 94], "13": []}}
+"""
+    result = call_for_json(prompt, fast=True, max_tokens=3000, purpose="tutorial retag")
+    out = {}
+    if isinstance(result, dict):
+        valid = {t["id"] for t in topics}
+        for qid, ids in result.items():
+            try:
+                out[int(qid)] = [i for i in ids if i in valid]
+            except (ValueError, TypeError):
+                continue
+    return out
+
+
 def map_answer_pages(answer_pdf_id, labels):
     """Find which page of the ANSWER paper each question's answer starts on.
 
