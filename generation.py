@@ -354,7 +354,7 @@ def sanitize_svg(raw):
     return ET.tostring(cleaned, encoding="unicode")
 
 
-def generate_primer_diagram(topic_id, primer):
+def generate_primer_diagram(topic_id, primer, fast=False):
     """Draw the primer's analogy as a labelled SVG.
 
     SVG rather than a generated image on purpose: an image model cannot render
@@ -392,7 +392,12 @@ Requirements:
 
 Respond with ONLY the SVG markup. No prose, no markdown fences."""
 
-    raw, _ = complete_text(prompt, fast=True, max_tokens=2200, purpose="primer diagram")
+    # Drawing defaults to the MAIN model. The diagram prompt carries only the
+    # analogy and its mapping — not the page text — so the input is tiny and
+    # the main model costs cents, not dollars. Spatial layout is the one thing
+    # the fast tier is measurably bad at, and a wrong picture is worse than no
+    # picture, so this is the wrong place to save a fraction of a cent.
+    raw, _ = complete_text(prompt, fast=fast, max_tokens=2200, purpose="primer diagram")
     svg = sanitize_svg(raw)
     if not svg:
         raise ValueError("The model didn't return a usable SVG")

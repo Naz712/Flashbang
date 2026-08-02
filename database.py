@@ -234,6 +234,12 @@ def init_db():
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topic_primers') WHERE name='svg'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE topic_primers ADD COLUMN svg TEXT")
+    # a real diagram picked from Wikimedia Commons: JSON {url,title,license,
+    # artist,page}. Stored WITH its attribution, because an openly-licensed
+    # image separated from its credit is just an unattributed image
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('topic_primers') WHERE name='image'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE topic_primers ADD COLUMN image TEXT")
 
     # migrations for pre-existing databases
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
@@ -722,6 +728,7 @@ def get_primer(topic_id):
     d = dict(row)
     d["mapping"] = json.loads(d["mapping"] or "[]")
     d["ideas"] = json.loads(d["ideas"] or "[]")
+    d["image"] = json.loads(d["image"]) if d.get("image") else None
     return d
 
 
@@ -755,6 +762,16 @@ def save_primer_svg(topic_id, svg):
     changed = cursor.rowcount
     conn.close()
     return changed
+
+
+def save_primer_image(topic_id, image):
+    """Pin (or clear) a found diagram. `image` is a dict or None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE topic_primers SET image = ? WHERE topic_id = ?",
+                   (json.dumps(image) if image else None, topic_id))
+    conn.commit()
+    conn.close()
 
 
 def delete_primer(topic_id):

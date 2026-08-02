@@ -124,4 +124,16 @@ assert " width=" not in root_tag and " height=" not in root_tag, \
     f"root width/height must be stripped so the container sizes it: {root_tag}"
 assert "stroke-width" in good, "stroke-width on children must survive"
 
+# ---- a found diagram is stored WITH its attribution and is independent too
+db.save_primer_image(svg_topic, {"title": "Call-stack-layout.svg", "thumb": "https://x/y.png",
+                                 "page": "https://commons.wikimedia.org/wiki/File:x",
+                                 "license": "CC BY-SA 2.5", "artist": "Cameron McCormack"})
+img = db.get_primer(svg_topic)["image"]
+assert isinstance(img, dict), "the image comes back parsed"
+assert img["license"] and img["artist"], "attribution is stored, not just the URL"
+assert db.get_primer(svg_topic)["gist"] == primer["gist"], "pinning an image must not touch the text"
+db.save_primer_image(svg_topic, None)
+assert db.get_primer(svg_topic)["image"] is None, "image clears"
+assert db.get_primer(svg_topic)["gist"] == primer["gist"], "clearing must not touch the text"
+
 print("check_primer: ALL PASSED")

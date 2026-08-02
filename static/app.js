@@ -2471,7 +2471,8 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) =
    reading cold is decoding sentence by sentence with nothing to attach them to.
 
    Generated once per topic and cached, so re-opening costs nothing. */
-const PR = { topicId: null, data: null, busy: false, open: true, drawing: false };
+const PR = { topicId: null, data: null, busy: false, open: true,
+             drawing: false, finding: false, found: null };
 
 function primerHTML() {
   if (!PR.topicId) return "";
@@ -2505,18 +2506,51 @@ function primerHTML() {
         <div class="fb-label" style="margin-bottom:8px">Picture it like this</div>
         <div style="font-size:14px; line-height:1.65">${esc(p.analogy)}</div>
 
+        ${p.image ? `<figure class="fb-primer-svg">
+          <img src="${p.image.thumb}" alt="${esc(p.image.title)}" loading="lazy">
+          <figcaption>
+            <span>${esc(p.image.title)} · ${esc(p.image.license)}${p.image.artist ? ` · ${esc(p.image.artist)}` : ""}
+              ${p.image.page ? `· <a href="${p.image.page}" target="_blank" rel="noopener noreferrer">source</a>` : ""}</span>
+            <button class="fb-icon-btn" onclick="clearPrimerImage()" title="Remove this diagram — the text stays">✕</button>
+          </figcaption>
+        </figure>` : ""}
+
         ${p.svg ? `<figure class="fb-primer-svg">${p.svg}
           <figcaption>
             <span>Drawn from the analogy above — labels are real text, so they stay sharp at any size.</span>
             <button class="fb-icon-btn" onclick="drawPrimer(true)" ${PR.drawing ? "disabled" : ""}
-              title="Draw a different one (~$0.0007)">${PR.drawing ? "…" : "↻"}</button>
+              title="Draw a different one (~$0.012)">${PR.drawing ? "…" : "↻"}</button>
             <button class="fb-icon-btn" onclick="clearPrimerSvg()" title="Remove the drawing — the text stays">✕</button>
           </figcaption>
-        </figure>`
-        : `<button class="fb-btn fb-btn--ghost" style="margin-top:14px; padding:7px 13px; font-size:11.5px"
-             ${PR.drawing ? "disabled" : ""} onclick="drawPrimer()"
-             title="One more fast-model call (~$0.0007) that draws this analogy as a labelled diagram. The text stays exactly as it is.">
-             ${PR.drawing ? "Drawing…" : "◍ Draw it"}</button>`}
+        </figure>` : ""}
+
+        ${PR.found ? `<div class="fb-primer-found">
+          <div class="fb-label" style="margin-bottom:10px">Real diagrams · Wikimedia Commons ·
+            searched ${PR.found.queries.map((q) => `"${esc(q)}"`).join(", ")}</div>
+          ${PR.found.results.length ? `<div class="fb-primer-strip">
+            ${PR.found.results.map((r, i) => `<button class="fb-primer-hit" onclick="pinPrimerImage(${i})"
+                title="${esc(r.title)} · ${esc(r.license)}">
+              <img src="${r.thumb}" alt="${esc(r.title)}" loading="lazy">
+              <span>${esc(r.license)}</span>
+            </button>`).join("")}
+          </div>
+          <div class="fb-body-sm" style="margin-top:10px; font-size:11.5px">Everything on Commons is openly
+            licensed, so these can actually be shown with credit. Click one to pin it.</div>`
+          : `<div class="fb-body-sm">Nothing usable came back — this topic is probably too specific to your
+              course. The drawn version doesn't have that problem.</div>`}
+          <button class="fb-icon-btn" style="margin-top:8px" onclick="closePrimerFind()">Close</button>
+        </div>` : ""}
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px">
+          ${p.svg ? "" : `<button class="fb-btn fb-btn--ghost" style="padding:7px 13px; font-size:11.5px"
+            ${PR.drawing ? "disabled" : ""} onclick="drawPrimer()"
+            title="Draws THIS analogy as a labelled diagram (~$0.012). Always available, but the model's spatial sense is hit and miss.">
+            ${PR.drawing ? "Drawing…" : "◍ Draw the analogy"}</button>`}
+          ${p.image ? "" : `<button class="fb-btn fb-btn--ghost" style="padding:7px 13px; font-size:11.5px"
+            ${PR.finding ? "disabled" : ""} onclick="findPrimerImage()"
+            title="Searches Wikimedia Commons for a real, openly-licensed diagram. Free, instant — but only finds textbook concepts.">
+            ${PR.finding ? "Searching…" : "🔍 Find a real one"}</button>`}
+        </div>
 
         ${p.mapping?.length ? `<div class="fb-primer-map">
           ${p.mapping.map((m) => `<div class="fb-primer-map-row">
@@ -2597,6 +2631,42 @@ window.clearPrimerSvg = async () => {
   if (!PR.topicId || !confirm("Remove the drawing? The primer text stays.")) return;
   await fetch(`/api/topics/${PR.topicId}/primer/diagram`, { method: "DELETE" }).catch(() => {});
   if (PR.data) PR.data.svg = null;
+  paintPrimer();
+};
+
+/* Finding a REAL diagram — Wikimedia Commons, no model call, no cost.
+   Everything there is openly licensed, so it can be shown with credit; results
+   from a general image search are mostly all-rights-reserved. The query is the
+   whole trick: the primer's `ideas` are canonical concept names and find the
+   textbook diagrams, where the raw topic title finds unrelated papers. */
+window.findPrimerImage = async () => {
+  if (PR.finding || !PR.topicId) return;
+  PR.finding = true;
+  paintPrimer();
+  PR.found = await fetch(`/api/topics/${PR.topicId}/primer/find`)
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  PR.finding = false;
+  if (!PR.found) PR.found = { results: [], queries: [] };
+  paintPrimer();
+};
+
+window.closePrimerFind = () => { PR.found = null; paintPrimer(); };
+
+window.pinPrimerImage = async (i) => {
+  const hit = PR.found?.results?.[i];
+  if (!hit || !PR.topicId) return;
+  const res = await fetch(`/api/topics/${PR.topicId}/primer/image`, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(hit) })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  if (res) { PR.data.image = res.image; PR.found = null; }
+  paintPrimer();
+};
+
+window.clearPrimerImage = async () => {
+  if (!PR.topicId || !confirm("Remove this diagram? The primer text stays.")) return;
+  await fetch(`/api/topics/${PR.topicId}/primer/image`, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).catch(() => {});
+  if (PR.data) PR.data.image = null;
   paintPrimer();
 };
 
