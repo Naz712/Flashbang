@@ -2044,6 +2044,7 @@ function render() {
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
   $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
+  $("readerScreen").style.display = S.view === "reader" ? "flex" : "none";
   // review screen: decks until a session starts, the chat while it runs, then
   // the report — three states, one on screen at a time
   $("reviewHome").style.display = S.reviewView === "decks" ? "flex" : "none";
@@ -2156,61 +2157,71 @@ window.toggleFocus = async (kind) => {
    FOCUS SESSION card (one clock, one log), presented as a countdown */
 window.renderReadSide = () => {
   const side = $("viewerSide");
-  if (!side || $("viewer").style.display === "none") return;
+  if (!side || S.view !== "reader") return;
   AN.pendingText = $("annInput")?.value ?? AN.pendingText;   // survive re-renders
   const running = !!S.focusStart;
   const remain = running ? Math.max(0, S.sessionLen * 60 - Math.floor((Date.now() - S.focusStart) / 1000)) : S.sessionLen * 60;
   const timer = `
-    <div class="mono-label">READING BLOCK</div>
+    <div class="fb-label">Reading block</div>
     ${running ? `
-      <div class="read-timer" id="readRemain">${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}</div>
-      <div style="font-size:11px; color:#8A8F9C">of a ${S.sessionLen}-min block</div>
-      <div style="height:6px; border-radius:3px; background:#ECECE8; overflow:hidden">
-        <div id="readBar" style="height:100%; width:${Math.min(100, (1 - remain / (S.sessionLen * 60)) * 100)}%; border-radius:3px; background:#1C1E26; transition:width 1s linear"></div>
+      <div class="fb-read-timer" id="readRemain">${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}</div>
+      <div class="fb-body-sm">of a ${S.sessionLen}-min block</div>
+      <div class="fb-bar-track">
+        <div id="readBar" class="fb-bar-fill" style="width:${Math.min(100, (1 - remain / (S.sessionLen * 60)) * 100)}%; background:var(--fb-ink); transition:width 1s linear"></div>
       </div>
-      <button class="btn-block ghost" style="margin-top:2px" onclick="toggleFocus()">End early</button>
+      <button class="fb-btn fb-btn--ghost fb-btn--block" onclick="toggleFocus()">End early</button>
     ` : `
-      ${S.blockDone ? `<div style="font-size:12px; color:#00794F; font-weight:600">Block logged ✓</div>
-        <div style="font-size:11px; color:#8A8F9C; margin-top:-6px">It lands in your Reading hub, separate from flashcard time.</div>` : ""}
-      <div class="dur-row">
-        ${[15, 25, 45].map((m) => `<button class="dur-btn ${S.sessionLen === m ? "on" : ""}" onclick="pickLen(${m})">${m}m</button>`).join("")}
+      ${S.blockDone ? `<div class="fb-body-sm" style="color:var(--fb-ink); font-weight:600">Block logged ✓</div>
+        <div class="fb-body-sm">It lands in your Reading hub, separate from flashcard time.</div>` : ""}
+      <div class="fb-dur-row">
+        ${[15, 25, 45].map((m) => `<button class="fb-dur-btn${S.sessionLen === m ? " fb-dur-btn--on" : ""}" onclick="pickLen(${m})">${m}m</button>`).join("")}
       </div>
-      <button class="btn-block" style="margin-top:2px" onclick="toggleFocus('reading')">Start ${S.sessionLen}-min block</button>
+      <button class="fb-btn fb-btn--block" onclick="toggleFocus('reading')">Start ${S.sessionLen}-min block</button>
     `}`;
 
   const pageNotes = AN.items.filter((a) => a.page === RD.page);
   const notes = `
-    <div class="mono-label" style="margin-top:12px">NOTES · PAGE ${RD.page ?? "–"}</div>
+    <div class="fb-label" style="margin-top:8px">Notes · page ${RD.page ?? "–"}</div>
     ${AN.pending ? `
-      <div class="note-item">
-        <textarea id="annInput" rows="3" placeholder="Your comment for the boxed area…">${esc(AN.pendingText)}</textarea>
-        <div style="display:flex; gap:6px">
-          <button class="btn-block" style="margin:0; padding:7px" onclick="saveAnnotation()">Save note</button>
-          <button class="btn-block ghost" style="margin:0; padding:7px; flex:none; width:44px" onclick="cancelAnnotation()">✕</button>
+      <div class="fb-note-item">
+        <textarea id="annInput" rows="3" placeholder="Your comment for the boxed area…"
+          style="width:100%; border:var(--fb-border); border-radius:var(--fb-r-button); padding:8px 10px;
+          font-family:var(--fb-sans); font-size:12.5px; line-height:1.6; resize:vertical">${esc(AN.pendingText)}</textarea>
+        <div style="display:flex; gap:6px; margin-top:8px">
+          <button class="fb-btn" style="flex:1; padding:7px; font-size:11.5px" onclick="saveAnnotation()">Save note</button>
+          <button class="fb-btn fb-btn--ghost" style="padding:7px 12px; font-size:11.5px" onclick="cancelAnnotation()">✕</button>
         </div>
       </div>` : ""}
     ${pageNotes.map((a, i) => `
-      <div class="note-item" id="note-${a.id}" onclick="flashAnnBox(${a.id})" title="Click to locate the box">
-        <div style="display:flex; align-items:baseline; gap:7px">
-          <span class="note-num">${i + 1}</span>
+      <div class="fb-note-item" id="note-${a.id}" onclick="flashAnnBox(${a.id})" title="Click to locate the box">
+        <div style="display:flex; align-items:baseline; gap:8px">
+          <span class="fb-note-num">${i + 1}</span>
           <span style="flex:1; font-size:12px; line-height:1.55">${esc(a.comment)}</span>
-          <button class="icon-btn" style="font-size:11px; flex:none" title="Delete this note"
+          <button class="fb-icon-btn" style="font-size:11px; flex:none" title="Delete this note"
             onclick="event.stopPropagation(); deleteAnnotation(${a.id})">✕</button>
         </div>
       </div>`).join("")}
-    ${!pageNotes.length && !AN.pending ? `<div style="font-size:11.5px; color:#8A8F9C; line-height:1.6">
+    ${!pageNotes.length && !AN.pending ? `<div class="fb-body-sm">
       No notes on this page yet. Hit <b>✎ Note</b> and drag a box over anything worth a comment.</div>` : ""}`;
 
   const exporter = RD.mode ? `
-    <div class="mono-label" style="margin-top:12px">TAKE p.${RD.start}–${RD.end} ELSEWHERE</div>
+    <div class="fb-label" style="margin-top:8px">Take p.${RD.start}–${RD.end} elsewhere</div>
     <div style="display:flex; gap:6px">
-      <button class="btn-block ghost" style="margin:0; padding:7px; font-size:11.5px" id="copyTopicBtn" onclick="copyTopicText()">⧉ Copy text</button>
-      <a class="btn-block ghost" style="margin:0; padding:7px; font-size:11.5px; text-align:center; text-decoration:none; color:inherit; box-sizing:border-box"
+      <button class="fb-btn fb-btn--ghost" style="flex:1; padding:7px; font-size:11.5px" id="copyTopicBtn" onclick="copyTopicText()">⧉ Copy text</button>
+      <a class="fb-btn fb-btn--ghost" style="flex:1; padding:7px; font-size:11.5px; text-align:center; text-decoration:none"
          href="/api/pdf/${RD.pdfId}/slice?start=${RD.start}&end=${RD.end}" download>⬇ PDF pages</a>
     </div>
-    <div style="font-size:10.5px; color:#8A8F9C; line-height:1.5">For NotebookLM &amp; friends — and bring its flashcards home via Cards → Import.</div>` : "";
+    <div class="fb-body-sm" style="font-size:11px">For NotebookLM &amp; friends — and bring its flashcards home via Cards → Import.</div>` : "";
 
   side.innerHTML = timer + notes + exporter;
+
+  // the header chip mirrors the block timer, so the rail can collapse without
+  // hiding the fact that a block is running
+  const chip = $("rdTimer");
+  if (chip) {
+    chip.style.display = running ? "inline-flex" : "none";
+    if (running) chip.textContent = `${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}`;
+  }
 };
 
 window.copyTopicText = async () => {
@@ -2230,10 +2241,11 @@ window.copyTopicText = async () => {
 };
 
 window.flashAnnBox = (annId) => {
-  const el = document.querySelector(`.ann-box[data-ann="${annId}"]`);
+  const el = document.querySelector(`.fb-ann[data-ann="${annId}"]`);
   if (!el) return;
-  el.classList.add("flash");
-  setTimeout(() => el.classList.remove("flash"), 1200);
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  el.classList.add("fb-ann--flash");
+  setTimeout(() => el.classList.remove("fb-ann--flash"), 1200);
 };
 
 /* ---------------------------------------------------------------- topic page viewer */
@@ -2246,53 +2258,58 @@ const BO = { pdfId: null, boxes: [], edit: false, revealAll: false };
 /* annotations: comments anchored to outlined "window boxes" on a page */
 const AN = { items: [], mode: false, pending: null, pendingText: "" };
 /* reader: one page at a time */
+/* reader: continuous scroll, two independently collapsible rails */
 const RD = { pdfId: null, title: "", start: null, end: null, page: null,
-             mode: null, textPages: null, seq: 0 };
+             mode: null, textPages: null, seq: 0,
+             railL: true, railR: true, full: false, backView: "course",
+             io: null, spy: null, tio: null };
 
 function syncModes() {
-  $("blackoutToggle").classList.toggle("bo-on", BO.edit);
-  $("blackoutReveal").classList.toggle("bo-on", BO.revealAll);
-  $("annToggle").classList.toggle("bo-on", AN.mode);
-  $("viewerBody").classList.toggle("bo-edit", BO.edit);
-  $("viewerBody").classList.toggle("ann-edit", AN.mode);
+  $("blackoutToggle").classList.toggle("fb-icon-btn--on", BO.edit);
+  $("blackoutReveal").classList.toggle("fb-icon-btn--on", BO.revealAll);
+  $("annToggle").classList.toggle("fb-icon-btn--on", AN.mode);
+  document.querySelectorAll("#rdPages .fb-page-wrap").forEach((w) => {
+    w.dataset.mode = BO.edit ? "blackout" : AN.mode ? "note" : "";
+  });
 }
 
 function renderBox(wrap, b) {
   const el = document.createElement("div");
-  el.className = "blackout-box";
+  el.className = "fb-blackout";
   el.title = "Recall what's under here, then click to peek (blackout mode: click deletes)";
   Object.assign(el.style, { left: `${b.x * 100}%`, top: `${b.y * 100}%`,
     width: `${b.w * 100}%`, height: `${b.h * 100}%` });
-  if (BO.revealAll) el.classList.add("peek");
+  if (BO.revealAll) el.classList.add("fb-blackout--peek");
   el.onclick = async (e) => {
     e.stopPropagation();
     if (BO.edit) {
       const res = await fetch(`/api/occlusions/${b.id}`, { method: "DELETE" });
       if (res.ok) { BO.boxes = BO.boxes.filter((x) => x.id !== b.id); el.remove(); }
     } else {
-      el.classList.toggle("peek");
+      el.classList.toggle("fb-blackout--peek");
     }
   };
   wrap.appendChild(el);
 }
 
-function renderAnnBoxes(wrap) {
-  wrap.querySelectorAll(".ann-box:not(.pending)").forEach((el) => el.remove());
-  AN.items.filter((a) => a.page === RD.page).forEach((a, i) => {
+function renderAnnBoxes(wrap, page) {
+  const n = page ?? +wrap.dataset.page;
+  wrap.querySelectorAll(".fb-ann:not(.fb-ann--pending)").forEach((el) => el.remove());
+  AN.items.filter((a) => a.page === n).forEach((a, i) => {
     const el = document.createElement("div");
-    el.className = "ann-box";
+    el.className = "fb-ann";
     el.dataset.ann = a.id;
     el.title = a.comment;
     Object.assign(el.style, { left: `${a.x * 100}%`, top: `${a.y * 100}%`,
       width: `${a.w * 100}%`, height: `${a.h * 100}%` });
-    el.innerHTML = `<span class="ann-num">${i + 1}</span>`;
+    el.innerHTML = `<span class="fb-ann-num">${i + 1}</span>`;
     el.onclick = (e) => {
       e.stopPropagation();
       const item = document.getElementById(`note-${a.id}`);
       if (item) {
         item.scrollIntoView({ block: "nearest" });
-        item.classList.add("flash");
-        setTimeout(() => item.classList.remove("flash"), 1200);
+        item.classList.add("fb-note-item--flash");
+        setTimeout(() => item.classList.remove("fb-note-item--flash"), 1200);
       }
     };
     wrap.appendChild(el);
@@ -2300,9 +2317,11 @@ function renderAnnBoxes(wrap) {
 }
 
 function wireDrawing(wrap) {
+  if (wrap.dataset.wired) return;
+  wrap.dataset.wired = "1";
   wrap.addEventListener("mousedown", (e) => {
     const mode = BO.edit ? "blackout" : AN.mode ? "note" : null;
-    if (!mode || e.target.closest(".blackout-box") || e.target.closest(".ann-box")) return;
+    if (!mode || e.target.closest(".fb-blackout") || e.target.closest(".fb-ann")) return;
     if (mode === "note" && AN.pending) return;   // finish the open note first
     e.preventDefault();
     const rect = wrap.getBoundingClientRect();
@@ -2312,7 +2331,7 @@ function wireDrawing(wrap) {
     });
     const p0 = norm(e);
     const ghost = document.createElement("div");
-    ghost.className = mode === "blackout" ? "blackout-box drawing" : "ann-box drawing";
+    ghost.className = mode === "blackout" ? "fb-blackout fb-blackout--drawing" : "fb-ann fb-ann--pending";
     wrap.appendChild(ghost);
     let box = null;
     const update = (ev) => {
@@ -2339,8 +2358,6 @@ function wireDrawing(wrap) {
         renderBox(wrap, saved);
       } else {
         // the box stays as a dashed outline until the comment is saved
-        ghost.classList.remove("drawing");
-        ghost.classList.add("pending");
         AN.pending = { page: +wrap.dataset.page, box, ghost };
         renderReadSide();
         $("annInput")?.focus();
@@ -2365,8 +2382,8 @@ window.saveAnnotation = async () => {
   AN.pending = null;
   AN.pendingText = "";
   ghost.remove();
-  const wrap = document.querySelector("#viewerBody .page-wrap");
-  if (wrap) renderAnnBoxes(wrap);
+  const wrap = document.querySelector(`#rdPages .fb-page-wrap[data-page="${page}"]`);
+  if (wrap) renderAnnBoxes(wrap, page);
   renderReadSide();
 };
 
@@ -2381,8 +2398,7 @@ window.deleteAnnotation = async (annId) => {
   const res = await fetch(`/api/annotations/${annId}`, { method: "DELETE" });
   if (!res.ok) return;
   AN.items = AN.items.filter((a) => a.id !== annId);
-  const wrap = document.querySelector("#viewerBody .page-wrap");
-  if (wrap) renderAnnBoxes(wrap);
+  document.querySelectorAll("#rdPages .fb-page-wrap").forEach((w) => renderAnnBoxes(w));
   renderReadSide();
 };
 
@@ -2394,10 +2410,17 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   RD.page = pageStart;
   RD.mode = null;
   RD.textPages = null;
-  $("viewerTitle").textContent = RD.title;
-  $("viewerSub").textContent = `p.${pageStart} of ${pageEnd}`;
-  $("viewerBody").innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">Loading pages…</div>`;
-  $("viewer").style.display = "flex";
+  RD.backView = S.view === "reader" ? RD.backView : S.view;   // where ‹ returns to
+  S.view = "reader";
+  render();
+
+  const doc = S.state?.libCourses.flatMap((c) => c.pdfs.map((p) => ({ ...p, course: c.name })))
+    .find((p) => p.pdf_id === pdfId);
+  $("rdFile").textContent = doc ? doc.filename : RD.title;
+  $("rdFile").title = RD.title;
+  $("rdCourse").textContent = doc ? doc.course : "Course";
+  $("rdPages").innerHTML = `<div class="fb-body-sm" style="padding:40px">Loading pages…</div>`;
+  $("rdThumbs").innerHTML = "";
   BO.pdfId = pdfId;
   BO.edit = false;
   BO.revealAll = false;
@@ -2431,88 +2454,252 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
       RD.mode = "text";
       RD.textPages = pages;
     } catch {
-      $("viewerBody").innerHTML = `<div style="padding:30px; color:#8A8F9C; font-size:12.5px">
+      $("rdPages").innerHTML = `<div class="fb-body-sm" style="padding:40px">
         Couldn't load these pages — the original file may have moved.</div>`;
       renderReadSide();
       return;
     }
   }
-  await renderReaderPage();
+  await buildReaderPages();
 };
 
-window.renderReaderPage = async () => {
+/* Continuous vertical scroll. Every page in the range gets its wrapper up
+   front so scroll height is correct and the boxes have somewhere to live, but
+   canvases PAINT LAZILY through an IntersectionObserver — a 100-page document
+   would otherwise render a hundred canvases before showing anything. */
+async function buildReaderPages() {
+  const host = $("rdPages");
   const seq = ++RD.seq;
-  const body = $("viewerBody");
-  $("viewerSub").textContent = `p.${RD.page} of ${RD.end}`;
-  $("readerPrev").disabled = RD.page <= RD.start;
-  $("readerNext").disabled = RD.page >= RD.end;
+  host.innerHTML = "";
+  host.onscroll = null;
+  RD.io?.disconnect();
 
-  const wrap = document.createElement("div");
-  wrap.dataset.page = RD.page;
+  const nums = [];
+  for (let p = RD.start; p <= RD.end; p++) nums.push(p);
+  $("rdOf").textContent = ` of ${RD.end}`;
+  $("rdJump").min = RD.start;
+  $("rdJump").max = RD.end;
+  $("rdJump").value = RD.page;
+
+  /* Reserve each page's height BEFORE anything paints, from the first page's
+     aspect ratio. Without it an unpainted page is 0px tall: the scrollbar lies,
+     the position jumps as pages arrive, and a jump target computed now lands
+     somewhere else a second later. Corrected per page when its canvas lands. */
+  RD.pageW = Math.min(920, host.clientWidth - 48);
+  let reserve = 0;
   if (RD.mode === "pdf") {
-    wrap.className = "page-wrap";
-    const doc = pdfDocCache[RD.pdfId];
-    const page = await doc.getPage(RD.page);
-    if (seq !== RD.seq) return;   // user paged on before this fetch finished
-    const width = Math.min(920, body.clientWidth - 40);
-    const base = page.getViewport({ scale: 1 });
-    const scale = width / base.width;
-    const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${Math.round(viewport.height / (window.devicePixelRatio || 1))}px`;
-    canvas.style.display = "block";
-    canvas.className = "viewer-page";
-    wrap.appendChild(canvas);
-    // paint in the background — the page (and its boxes/notes) is usable
-    // immediately, and a throttled tab can't leave the reader blank
-    page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.catch(() => {});
-  } else {
-    wrap.className = "page-wrap page-wrap-stretch";
-    const p = RD.textPages.find((x) => x.page === RD.page);
-    const div = document.createElement("div");
-    div.className = "viewer-text";
-    div.innerHTML = md(p ? p.text : "(no text stored for this page)");
-    wrap.appendChild(div);
+    try {
+      const first = await pdfDocCache[RD.pdfId].getPage(RD.start);
+      const v = first.getViewport({ scale: 1 });
+      reserve = Math.round(RD.pageW * (v.height / v.width));
+    } catch { reserve = 0; }
   }
-  body.innerHTML = "";
-  body.appendChild(wrap);
-  BO.boxes.filter((b) => b.page === RD.page).forEach((b) => renderBox(wrap, b));
-  renderAnnBoxes(wrap);
-  wireDrawing(wrap);
+  if (seq !== RD.seq) return;
+
+  for (const n of nums) {
+    const wrap = document.createElement("div");
+    wrap.className = "fb-page-wrap";
+    wrap.dataset.page = n;
+    if (reserve) { wrap.style.minHeight = `${reserve}px`; wrap.style.width = `${RD.pageW}px`; }
+    const label = document.createElement("div");
+    label.className = "fb-page-label";
+    label.textContent = `page ${n}`;
+    host.appendChild(label);
+    host.appendChild(wrap);
+    if (RD.mode === "text") {
+      wrap.classList.add("fb-page-wrap--stretch");
+      const p = RD.textPages.find((x) => x.page === n);
+      const div = document.createElement("div");
+      div.className = "fb-viewer-text";
+      div.innerHTML = md(p ? p.text : "(no text stored for this page)");
+      wrap.appendChild(div);
+      decorate(wrap, n);
+    }
+  }
+  if (seq !== RD.seq) return;
+
+  if (RD.mode === "pdf") {
+    // paint on approach, one page at a time, and only once
+    RD.io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && !e.target.dataset.painted) paintPage(e.target);
+      });
+    }, { root: host, rootMargin: "600px 0px" });
+    host.querySelectorAll(".fb-page-wrap").forEach((w) => RD.io.observe(w));
+    /* the first page paints EAGERLY. An observer only fires once the page is
+       laid out and compositing; in a background tab that can be never, and a
+       reader that opens blank looks broken rather than lazy. */
+    const first = host.querySelector(".fb-page-wrap");
+    if (first && !first.dataset.painted) await paintPage(first);
+  }
+
+  /* The header follows the page in view: whichever wrapper's top is nearest
+     the top of the scroller. A scroll listener rather than an observer —
+     thresholds only fire at page boundaries, so scrolling inside a page taller
+     than the viewport would leave the header, the thumbnail and the notes rail
+     all pointing at the wrong page. */
+  host.onscroll = () => {
+    const top = host.getBoundingClientRect().top;
+    let best = null, bestD = Infinity;
+    host.querySelectorAll(".fb-page-wrap").forEach((w) => {
+      const d = Math.abs(w.getBoundingClientRect().top - top);
+      if (d < bestD) { bestD = d; best = w; }
+    });
+    const n = best ? +best.dataset.page : RD.page;
+    if (n === RD.page) return;
+    RD.page = n;
+    if (document.activeElement !== $("rdJump")) $("rdJump").value = n;
+    markThumb();
+    renderReadSide();
+  };
+
+  buildThumbs();
   renderReadSide();
+}
+
+async function paintPage(wrap) {
+  wrap.dataset.painted = "1";
+  const n = +wrap.dataset.page;
+  const doc = pdfDocCache[RD.pdfId];
+  if (!doc) return;
+  const page = await doc.getPage(n);
+  const width = RD.pageW || Math.min(920, $("rdPages").clientWidth - 48);
+  const base = page.getViewport({ scale: 1 });
+  const scale = width / base.width;
+  const dpr = window.devicePixelRatio || 1;
+  const viewport = page.getViewport({ scale: scale * dpr });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
+  canvas.style.display = "block";
+  canvas.className = "fb-viewer-page";
+  wrap.prepend(canvas);
+  wrap.style.minHeight = "";   // the canvas is the real height now
+  page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.catch(() => {});
+  decorate(wrap, n);
+}
+
+/* boxes and notes for one page */
+function decorate(wrap, n) {
+  BO.boxes.filter((b) => b.page === n).forEach((b) => renderBox(wrap, b));
+  renderAnnBoxes(wrap, n);
+  wireDrawing(wrap);
+}
+
+/* the left rail: one thumbnail per page, painted lazily like the pages */
+function buildThumbs() {
+  const rail = $("rdThumbs");
+  rail.innerHTML = "";
+  RD.tio?.disconnect();
+  for (let n = RD.start; n <= RD.end; n++) {
+    const b = document.createElement("button");
+    b.className = "fb-thumb";
+    b.dataset.page = n;
+    b.title = `Go to page ${n}`;
+    b.innerHTML = `<span class="fb-thumb-box"></span><span class="fb-thumb-n">${n}</span>`;
+    b.onclick = () => scrollToPage(n);
+    rail.appendChild(b);
+  }
+  markThumb();
+  if (RD.mode !== "pdf") return;
+  RD.tio = new IntersectionObserver((entries) => {
+    entries.forEach(async (e) => {
+      if (!e.isIntersecting || e.target.dataset.painted) return;
+      e.target.dataset.painted = "1";
+      const doc = pdfDocCache[RD.pdfId];
+      if (!doc) return;
+      const page = await doc.getPage(+e.target.dataset.page);
+      const base = page.getViewport({ scale: 1 });
+      const w = 108, scale = w / base.width;
+      const vp = page.getViewport({ scale });
+      const c = document.createElement("canvas");
+      c.width = vp.width; c.height = vp.height;
+      c.style.width = `${w}px`; c.style.height = `${Math.round(vp.height)}px`;
+      e.target.querySelector(".fb-thumb-box").replaceWith(c);
+      page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise.catch(() => {});
+    });
+  }, { root: rail, rootMargin: "300px 0px" });
+  rail.querySelectorAll(".fb-thumb").forEach((t) => RD.tio.observe(t));
+}
+
+function markThumb() {
+  document.querySelectorAll("#rdThumbs .fb-thumb").forEach((t) =>
+    t.classList.toggle("fb-thumb--on", +t.dataset.page === RD.page));
+}
+
+window.scrollToPage = (n) => {
+  const wrap = document.querySelector(`#rdPages .fb-page-wrap[data-page="${n}"]`);
+  if (!wrap) return;
+  const host = $("rdPages");
+  // the page LABEL sits above the wrapper, so scroll to it and not past it
+  const label = wrap.previousElementSibling;
+  host.scrollTo({ top: (label || wrap).offsetTop - 12, behavior: "smooth" });
 };
 
-window.readerNav = (delta) => {
-  if (RD.mode === null) return;
-  const target = Math.min(RD.end, Math.max(RD.start, RD.page + delta));
-  if (target === RD.page) return;
-  if (AN.pending) cancelAnnotation();   // an unsaved note doesn't survive a page turn
-  RD.page = target;
-  renderReaderPage();
+/* Fullscreen is ONE control: it collapses the nav and both rails, and restores
+   whatever was open before. That is what actually buys reading width. */
+window.toggleReaderFull = () => {
+  RD.full = !RD.full;
+  if (RD.full) {
+    RD.wasNav = S.navOpen;
+    RD.wasL = RD.railL;
+    RD.wasR = RD.railR;
+    if (S.navOpen) toggleNav();
+    setRail("L", false);
+    setRail("R", false);
+  } else {
+    if (RD.wasNav && !S.navOpen) toggleNav();
+    setRail("L", RD.wasL);
+    setRail("R", RD.wasR);
+  }
+  $("rdFull").textContent = RD.full ? "⤡ Exit fullscreen" : "⤢ Fullscreen";
+  $("rdFull").classList.toggle("fb-icon-btn--on", RD.full);
 };
 
-$("readerPrev").onclick = () => readerNav(-1);
-$("readerNext").onclick = () => readerNav(1);
+function setRail(side, open) {
+  const key = side === "L" ? "railL" : "railR";
+  RD[key] = open;
+  $(side === "L" ? "rdRailL" : "rdRailR").style.display = open ? "flex" : "none";
+  $(side === "L" ? "rdSpineL" : "rdSpineR").style.display = open ? "none" : "flex";
+}
+
+window.toggleRail = (side) => {
+  setRail(side, !(side === "L" ? RD.railL : RD.railR));
+};
+
 $("blackoutToggle").onclick = () => { BO.edit = !BO.edit; if (BO.edit) AN.mode = false; syncModes(); };
 $("annToggle").onclick = () => { AN.mode = !AN.mode; if (AN.mode) BO.edit = false; syncModes(); };
 $("blackoutReveal").onclick = () => {
   BO.revealAll = !BO.revealAll;
-  document.querySelectorAll(".blackout-box").forEach((b) => b.classList.toggle("peek", BO.revealAll));
+  document.querySelectorAll(".fb-blackout").forEach((b) => b.classList.toggle("fb-blackout--peek", BO.revealAll));
   syncModes();
 };
+$("rdFull").onclick = () => toggleReaderFull();
+$("rdBack").onclick = () => closeViewer();
+$("rdJump").onchange = (e) => {
+  const n = Math.min(RD.end, Math.max(RD.start, +e.target.value || RD.start));
+  e.target.value = n;
+  scrollToPage(n);
+};
 
-window.closeViewer = () => { $("viewer").style.display = "none"; };
-$("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
+window.closeViewer = () => {
+  if (RD.full) toggleReaderFull();      // never strand the nav collapsed
+  RD.io?.disconnect(); RD.tio?.disconnect();
+  $("rdPages").onscroll = null;
+  S.view = RD.backView === "reader" ? "course" : (RD.backView || "course");
+  render();
+};
+
 document.addEventListener("keydown", (e) => {
-  if ($("viewer").style.display === "none") return;
+  if (S.view !== "reader") return;
   const typing = /TEXTAREA|INPUT/.test(e.target.tagName);
   if (e.key === "Escape") { typing ? e.target.blur() : closeViewer(); return; }
   if (typing) return;
-  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); readerNav(1); }
-  else if (e.key === "ArrowLeft") { e.preventDefault(); readerNav(-1); }
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); scrollToPage(Math.min(RD.end, RD.page + 1)); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); scrollToPage(Math.max(RD.start, RD.page - 1)); }
+  else if (e.key === "f") { e.preventDefault(); toggleReaderFull(); }
 });
 
 /* ---- static listeners ---- */

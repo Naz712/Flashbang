@@ -482,6 +482,52 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-bubble-bot .md-head, .fb-gcard-body .md-head { font-weight: 700; margin: 8px 0 4px; color: var(--fb-ink); }
 .fb-bubble-bot .md-gap, .fb-gcard-body .md-gap { height: 7px; }
 
+/* ---------------- reader: a screen, not a modal ----------------
+   The nav stays and the reader fills the content area. Continuous vertical
+   scroll, with two rails that collapse independently to a 36px spine — the
+   affordance never disappears entirely, it just gets narrow. */
+.fb-reader { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.fb-reader-head { flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; border-bottom: 1.5px solid var(--fb-hairline); background: var(--fb-canvas); }
+.fb-reader-main { flex: 1; min-height: 0; display: flex; }
+.fb-reader-pages { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 60px;
+  display: flex; flex-direction: column; align-items: center; background: var(--fb-page); }
+
+.fb-page-jump { display: inline-flex; align-items: center; gap: 2px; flex: none;
+  font-family: var(--fb-mono); font-size: 11px; color: var(--fb-muted);
+  border: var(--fb-border); border-radius: var(--fb-r-chip); padding: 3px 8px; }
+.fb-page-jump input { width: 40px; border: none; background: none; outline: none;
+  font-family: var(--fb-mono); font-size: 11px; color: var(--fb-ink); text-align: right;
+  -moz-appearance: textfield; }
+.fb-page-jump input::-webkit-outer-spin-button,
+.fb-page-jump input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.fb-rail { flex: none; width: var(--fb-notes); display: flex; flex-direction: column;
+  background: var(--fb-canvas); min-height: 0; }
+.fb-rail--left { width: 148px; border-right: 1.5px solid var(--fb-hairline); }
+.fb-rail--right { border-left: 1.5px solid var(--fb-hairline); }
+.fb-rail-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+  border-bottom: 1.5px solid var(--fb-hairline); }
+.fb-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px;
+  display: flex; flex-direction: column; gap: 12px; }
+/* collapsed: a 36px spine with a vertical label and a reopen chevron */
+.fb-rail-spine { flex: none; width: 36px; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-start; gap: 10px; padding: 14px 0;
+  background: var(--fb-canvas); border: none; border-left: 1.5px solid var(--fb-hairline);
+  border-right: 1.5px solid var(--fb-hairline); cursor: pointer; color: var(--fb-muted);
+  font-family: var(--fb-mono); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; }
+.fb-rail-spine:hover { color: var(--fb-ink); }
+.fb-rail-spine > span:first-child { writing-mode: vertical-rl; }
+.fb-spine-chev { font-size: 12px; letter-spacing: 0; }
+
+.fb-thumb { display: flex; flex-direction: column; align-items: center; gap: 5px;
+  background: none; border: none; padding: 4px; cursor: pointer; border-radius: var(--fb-r-button); }
+.fb-thumb canvas, .fb-thumb-box { display: block; width: 108px; height: 140px;
+  background: var(--fb-page); border: 1.5px solid var(--fb-hairline); border-radius: 3px; }
+.fb-thumb-n { font-family: var(--fb-mono); font-size: 10px; color: var(--fb-muted); }
+.fb-thumb--on canvas, .fb-thumb--on .fb-thumb-box { border-color: var(--fb-accent); }
+.fb-thumb--on .fb-thumb-n { color: var(--fb-ink); font-weight: 600; }
+
 /* cards, list pane: a row is a mastery square, the question clamped to two
    lines, and its schedule. Selected takes the 2px cobalt left rule and the page
    tint — the same selected-state language the nav rail uses. */
@@ -730,56 +776,3 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 /* upload progress */
 .up-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.25); overflow: hidden; }
 .up-fill { height: 100%; width: 0%; border-radius: 3px; background: #fff; transition: width .15s linear; }
-/* topic page viewer */
-.viewer-overlay { position: fixed; inset: 0; background: rgba(16,18,24,.45); display: flex;
-  align-items: center; justify-content: center; z-index: 50; }
-.viewer-box { width: min(1240px, 96vw); height: 94vh; background: #F2F2EF;
-  border-radius: 14px; box-shadow: 0 18px 60px rgba(16,18,24,.35); display: flex;
-  flex-direction: column; overflow: hidden; }
-.viewer-main { flex: 1; display: flex; overflow: hidden; }
-.viewer-side { flex: none; width: 224px; border-left: 1px solid #E3E3DE; background: #fff;
-  padding: 16px 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-.read-timer { font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 600;
-  letter-spacing: -1px; line-height: 1; }
-.viewer-head { flex: none; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 14px 20px; background: #fff; border-bottom: 1px solid #E3E3DE; }
-.viewer-body { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column;
-  align-items: center; gap: 6px; }
-.viewer-page { border-radius: 6px; box-shadow: 0 1px 4px rgba(16,18,24,.12); background: #fff; }
-.viewer-page-label { align-self: flex-start; font-family: 'IBM Plex Mono', monospace;
-  font-size: 9.5px; color: #8A8F9C; margin: 8px 0 2px; }
-.viewer-text { align-self: stretch; background: #fff; border: 1px solid #E3E3DE; border-radius: 8px;
-  padding: 18px 24px; font-size: 14px; line-height: 1.75; }
-/* blackout (image occlusion) */
-.page-wrap { position: relative; }
-.page-wrap-stretch { align-self: stretch; }
-.viewer-body.bo-edit .page-wrap { cursor: crosshair; }
-.blackout-box { position: absolute; background: #1C1E26; border: 1px solid #1C1E26;
-  border-radius: 3px; cursor: pointer; }
-.blackout-box.peek { background: rgba(28, 30, 38, .05); border: 1.5px dashed #8A8F9C; }
-.blackout-box.drawing { background: rgba(28, 30, 38, .55); pointer-events: none; }
-.viewer-body.bo-edit .blackout-box:hover { border-color: #D55E00; background: #43302B; }
-.icon-btn.bo-on { color: #1C1E26; background: #F0F0EC; }
-/* annotations: "window box" notes anchored to page areas */
-.viewer-body.ann-edit .page-wrap { cursor: crosshair; }
-.ann-box { position: absolute; border: 2px solid #0072B2; border-radius: 4px;
-  background: rgba(0, 114, 178, .05); cursor: pointer; }
-.ann-box:hover { background: rgba(0, 114, 178, .12); }
-.ann-box.drawing { pointer-events: none; background: rgba(0, 114, 178, .12); }
-.ann-box.pending { border-style: dashed; pointer-events: none; }
-.ann-box.flash { box-shadow: 0 0 0 3px rgba(230, 159, 0, .6); }
-.ann-num { position: absolute; top: -9px; right: -9px; min-width: 17px; height: 17px;
-  padding: 0 4px; border-radius: 999px; background: #0072B2; color: #fff;
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center; }
-.reader-nav { font-size: 17px; font-weight: 600; padding: 2px 9px; }
-.reader-nav:disabled { opacity: .3; cursor: default; }
-.note-item { background: #F7F7F4; border: 1px solid #E3E3DE; border-radius: 8px;
-  padding: 8px 10px; cursor: pointer; }
-.note-item:hover { border-color: #C9CCD4; }
-.note-item.flash { border-color: #E69F00; box-shadow: 0 0 0 2px rgba(230, 159, 0, .35); }
-.note-num { flex: none; min-width: 16px; height: 16px; border-radius: 999px; background: #0072B2;
-  color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700;
-  display: inline-flex; align-items: center; justify-content: center; }
-.note-item textarea { width: 100%; border: 1px solid #C9CCD4; border-radius: 6px; padding: 6px 8px;
-  font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; resize: vertical; margin-bottom: 6px; }

@@ -101,6 +101,47 @@
   <div id="cardsScreen" class="fb-screen" style="display:none">
     <div id="cardsInner" class="fb-col" style="gap:20px"></div>
   </div>
+
+  <!-- reader: a screen, not a modal. Continuous scroll, two collapsible rails. -->
+  <div id="readerScreen" class="fb-reader" style="display:none">
+    <div class="fb-reader-head">
+      <button class="fb-crumb" id="rdBack" title="Back to the course">‹ <span id="rdCourse">Course</span></button>
+      <span class="fb-crumb-sep">›</span>
+      <span id="rdFile" class="fb-doc-name" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></span>
+      <span class="fb-page-jump" title="Jump to a page">
+        p.<input id="rdJump" type="number" min="1" inputmode="numeric"><span id="rdOf"></span>
+      </span>
+      <span style="flex:1"></span>
+      <span id="rdTimer" class="fb-chip" style="display:none"></span>
+      <button id="annToggle" class="fb-icon-btn" title="Note mode: drag a box over an area and attach a comment">✎ Note</button>
+      <button id="blackoutToggle" class="fb-icon-btn" title="Blackout mode: drag to draw boxes over key facts; click a box to delete it">▮ Blackout</button>
+      <button id="blackoutReveal" class="fb-icon-btn" title="Reveal / re-hide every box">Reveal all</button>
+      <button id="rdFull" class="fb-icon-btn" title="Fullscreen — collapses the nav and both rails">⤢ Fullscreen</button>
+    </div>
+    <div class="fb-reader-main">
+      <div id="rdRailL" class="fb-rail fb-rail--left">
+        <div class="fb-rail-head">
+          <span class="fb-label">Pages</span>
+          <button class="fb-icon-btn" onclick="toggleRail('L')" title="Collapse the page rail">‹</button>
+        </div>
+        <div id="rdThumbs" class="fb-rail-body"></div>
+      </div>
+      <button id="rdSpineL" class="fb-rail-spine" style="display:none" onclick="toggleRail('L')"
+        title="Show page thumbnails"><span>Pages</span><span class="fb-spine-chev">›</span></button>
+
+      <div id="rdPages" class="fb-reader-pages"></div>
+
+      <button id="rdSpineR" class="fb-rail-spine" style="display:none" onclick="toggleRail('R')"
+        title="Show notes"><span>Notes</span><span class="fb-spine-chev">‹</span></button>
+      <div id="rdRailR" class="fb-rail fb-rail--right">
+        <div class="fb-rail-head">
+          <button class="fb-icon-btn" onclick="toggleRail('R')" title="Collapse the notes rail">›</button>
+          <span class="fb-label">Notes</span>
+        </div>
+        <div id="viewerSide" class="fb-rail-body"></div>
+      </div>
+    </div>
+  </div>
   </main>
 </div>
 
@@ -122,27 +163,7 @@
 <button id="asstBubble" class="fb-asst-bubble" title="Assistant — ask about your notes, edit the library, get stats">✦</button>
 <input type="file" id="fileInput" accept=".pdf" multiple style="display:none">
 
-<!-- topic page viewer -->
-<div id="viewer" class="viewer-overlay" style="display:none">
-  <div class="viewer-box">
-    <div class="viewer-head">
-      <div style="min-width:0">
-        <div id="viewerTitle" style="font-size:13.5px; font-weight:700"></div>
-        <div id="viewerSub" class="doc-meta"></div>
-      </div>
-      <button id="readerPrev" class="icon-btn reader-nav" title="Previous page (←)">‹</button>
-      <button id="readerNext" class="icon-btn reader-nav" title="Next page (→ or space)">›</button>
-      <button id="annToggle" class="icon-btn" title="Note mode: drag a box over an area and attach a comment">✎ Note</button>
-      <button id="blackoutToggle" class="icon-btn" title="Blackout mode: drag to draw boxes over key facts; click a box to delete it">▮ Blackout</button>
-      <button id="blackoutReveal" class="icon-btn" title="Reveal / re-hide every box">Reveal all</button>
-      <button class="icon-btn" style="font-size:15px" onclick="closeViewer()">✕</button>
-    </div>
-    <div class="viewer-main">
-      <div id="viewerBody" class="viewer-body"></div>
-      <div id="viewerSide" class="viewer-side"></div>
-    </div>
-  </div>
-</div>
+<!-- reader: a screen, not a modal — reading is a sit-down task -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="/static/app.js"></script>
