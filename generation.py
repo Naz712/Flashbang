@@ -411,6 +411,81 @@ Respond with ONLY a JSON object mapping label to page number. No markdown fences
     return result if isinstance(result, dict) else {}
 
 
+def build_study_prompt(course_name, topics):
+    """The paste-into-NotebookLM prompt. Deterministic and free — the whole
+    point is that the token-heavy quizzing happens THERE, on their compute,
+    and only a small structured report comes back.
+
+    Topic ids are embedded so the reply joins back exactly — the same trick as
+    tutorial tagging: a name can be fuzzy-matched wrongly, an echoed id cannot."""
+    listing = "\n".join(f"- id {t['id']}: {t['title']}" for t in topics)
+    return f"""I have been studying "{course_name}" using the sources loaded in this notebook. Act as my examiner.
+
+1. QUIZ ME on the material I have been reading, using ONLY the topics listed below. Ask 6-10 short retrieval questions across the topics that appear in this notebook's sources — one at a time, waiting for my answer before the next.
+2. GRADE my answers honestly as we go. Partial credit is fine; do not inflate.
+3. When the quiz is done, output a REPORT in exactly this format so my study app can read it:
+
+First a short paragraph of feedback in plain language.
+
+Then a fenced code block containing ONLY this JSON — copy the topic ids exactly from the list below, and only include topics you actually quizzed me on:
+
+```json
+{{"topics": [
+  {{"id": <topic id from the list>, "recall": <0-100, how well I actually recalled it>,
+   "quizzed": <number of questions you asked on it>, "gap": "<one sentence: what I was missing, or null>"}}
+]}}
+```
+
+Rules for the report:
+- "recall" reflects my graded answers only — not how much I read, not effort, not confidence.
+- If I clearly failed a topic, give it the low score it earned. My app schedules revision from these numbers; flattery costs me marks later.
+- Do not invent topics or ids not on this list.
+
+MY TOPICS:
+{listing}"""
+
+
+def parse_study_report(text):
+    """Extract the JSON report from whatever the student pasted back —
+    NotebookLM wraps it in prose and a code fence. Local and instant, no model
+    call: the prompt mandates strict JSON, so parsing is mechanical. Returns
+    [{"id", "recall", "quizzed", "gap"}] or raises ValueError."""
+    import json as json_mod
+    import re
+    if not text or not text.strip():
+        raise ValueError("Nothing pasted")
+    candidates = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if not candidates:
+        # no fence — try the outermost braces
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise ValueError("No JSON found — paste NotebookLM's whole reply, including the code block")
+        candidates = [text[start:end + 1]]
+    last_err = None
+    for cand in candidates:
+        try:
+            data = json_mod.loads(cand)
+        except json_mod.JSONDecodeError as e:
+            last_err = e
+            continue
+        rows = data.get("topics") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            continue
+        out = []
+        for r in rows:
+            try:
+                out.append({"id": int(r["id"]),
+                            "recall": max(0.0, min(float(r["recall"]), 100.0)),
+                            "quizzed": int(r.get("quizzed") or 0) or None,
+                            "gap": (str(r["gap"]).strip() or None) if r.get("gap") else None})
+            except (KeyError, TypeError, ValueError):
+                continue
+        if out:
+            return out
+    raise ValueError(f"Couldn't read the report ({last_err or 'no topics array'}) — "
+                     "make sure the JSON code block came through in the paste")
+
+
 def parse_flashcards(text):
     """Parse pasted flashcards (NotebookLM output, Anki exports, hand-typed
     lists) into [{'question','answer'}]. Deterministic formats first:

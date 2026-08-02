@@ -27,6 +27,7 @@ from database import (
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
     get_topic, get_primer, save_primer, delete_primer,
+    add_external_review, latest_external_reviews,
     create_tutorial, save_tutorial_questions, set_question_topics,
     set_answer_pdf, set_answer_pages, flag_question, get_tutorials,
     get_tutorial_questions, delete_tutorial,
@@ -37,7 +38,8 @@ from database import (
 )
 from generation import (parse_flashcards, extract_topic_concepts,
                         generate_cards_for_topic, generate_primer,
-                        split_tutorial, map_answer_pages, retag_questions)
+                        split_tutorial, map_answer_pages, retag_questions,
+                        build_study_prompt, parse_study_report)
 from grading import grade_answer
 import llm_utils
 from llm_utils import complete_text
@@ -91,6 +93,11 @@ def _pdf_payload(pdf_id, spent_by_topic, now=None):
     report_then = mastery.build_pdf_report(pdf, topics, cards_then, then)
     delta = round(report["completion_pct"] - report_then["completion_pct"])
 
+    # external retrieval evidence (NotebookLM reports): decays like a first
+    # recall, and only ever RAISES the display — the stronger evidence wins.
+    # Cards, FSRS state and the exam projection are untouched.
+    external = latest_external_reviews(pdf_id=pdf_id)
+
     total_spent = 0
     for t in report["topics"]:
         topic_cards = by_topic.get(t["id"], [])
@@ -98,6 +105,14 @@ def _pdf_payload(pdf_id, spent_by_topic, now=None):
         t["iv"] = round(sum(c["interval_days"] for c in due_cards) / len(due_cards), 1) if due_cards else 0
         t["spent"] = spent_by_topic.get(t["id"], 0)
         total_spent += t["spent"]
+        ext = external.get(t["id"])
+        if ext:
+            ext_pct = round(100 * mastery.external_retention(ext["recall_pct"], ext["at"], now_dt), 1)
+            if ext_pct > t["mastery_pct"]:
+                t["mastery_pct"] = ext_pct
+                t["ext"] = True
+                if t["status"] == "not_started":
+                    t["status"] = "in_progress"
 
     report["delta"] = delta
     report["due"] = sum(t["cards_due"] for t in report["topics"])
@@ -946,6 +961,43 @@ def tutorial_question_flag(question_id):
 def tutorial_delete(tutorial_id):
     delete_tutorial(tutorial_id)
     return jsonify({"ok": True})
+
+
+@app.get("/api/courses/<int:course_id>/study_prompt")
+def study_prompt(course_id):
+    """The copy-into-NotebookLM examiner prompt. Free and deterministic —
+    the token-heavy quizzing happens THERE; only a small report comes back."""
+    course = next((c for c in get_courses() if c["id"] == course_id), None)
+    if course is None:
+        return jsonify({"error": "no such course"}), 404
+    topics = [t for t in get_topics(course_id=course_id) if t["kind"] != "general"]
+    if not topics:
+        return jsonify({"error": "no topics in this course yet"}), 422
+    return jsonify({"text": build_study_prompt(course["name"], topics)})
+
+
+@app.post("/api/courses/<int:course_id>/study_report")
+def study_report(course_id):
+    """Paste NotebookLM's reply back. Parsed locally — no model call — and
+    stored as EXTERNAL retrieval evidence: it overlays topic mastery with
+    decay, never touches cards or FSRS, and the exam-day projection stays
+    card-measured."""
+    body = request.get_json(force=True) or {}
+    try:
+        rows = parse_study_report(body.get("text") or "")
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 422
+    valid = {t["id"] for t in get_topics(course_id=course_id)}
+    applied, ignored = [], []
+    for r in rows:
+        if r["id"] in valid:
+            add_external_review(r["id"], r["recall"], r["quizzed"], r["gap"])
+            applied.append(r)
+        else:
+            ignored.append(r["id"])
+    return jsonify({"applied": len(applied), "ignored_ids": ignored,
+                    "topics": [{"id": r["id"], "recall": r["recall"], "gap": r["gap"]}
+                               for r in applied]})
 
 
 @app.get("/api/pdf/<int:pdf_id>")

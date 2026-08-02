@@ -34,6 +34,8 @@ const S = {
   importPreview: null,  // {cards, source} from the dry-run parse
   cards: [],            // cards screen data
   cardSel: null,        // cards screen: which card the editor is showing
+  nblmText: "",         // course page: pasted NotebookLM report (survives re-renders)
+  nblmMsg: null,        // last apply result line
   cardTopics: [],       // topics for the move-to select
 };
 
@@ -1446,7 +1448,7 @@ function renderCoursePage() {
             <span class="fb-dot" style="background:${general ? "var(--fb-hairline)" : MASTERY_HUE(t.mastery_pct)}"></span>
             <span style="flex:1; min-width:0">
               <span class="fb-topic-title" style="display:block; font-weight:500">${esc(t.title)}</span>
-              <span class="fb-doc-meta">p.${t.pages} · ~${fmtMin(t.est_minutes)}${general ? "" : ` · ${t.mastery_pct.toFixed(0)}%`}</span>
+              <span class="fb-doc-meta">p.${t.pages} · ~${fmtMin(t.est_minutes)}${general ? "" : ` · ${t.mastery_pct.toFixed(0)}%`}${t.ext ? ` · <span title="This number comes from an external quiz report (NotebookLM), decaying like a first recall. Card reviews replace it as soon as they're stronger evidence.">ext</span>` : ""}</span>
             </span>
             ${t.cards_due ? `<span class="fb-chip fb-chip--due">${t.cards_due} due</span>` : ""}
             ${general ? `<span class="fb-chip" style="color:var(--fb-muted); font-size:10px; letter-spacing:.8px; text-transform:uppercase">info</span>`
@@ -1540,7 +1542,29 @@ function renderCoursePage() {
             Flashbang will read, split and file them for you.</div></div>`}
     </div>
     ${reading}
-    <div id="tutorialsInner"></div>`;
+    <div id="tutorialsInner"></div>
+
+    <div class="fb-card">
+      <div class="fb-section-head" style="margin-bottom:14px">
+        <span class="fb-label">Studied elsewhere · NotebookLM</span><span class="fb-rule"></span>
+        <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px" id="nblmCopy"
+          onclick="copyStudyPrompt()" title="Copies an examiner prompt carrying this course's topic list. Paste it into the notebook where your sources are loaded; it quizzes you there and writes a report this app can read.">⧉ Copy study prompt</button>
+      </div>
+      <div class="fb-body-sm" style="margin-bottom:12px">Study in NotebookLM, paste the prompt there, sit its
+        quiz — then paste its whole reply below. The report's graded scores land on the matching topics.</div>
+      <textarea id="nblmText" rows="4" placeholder="Paste NotebookLM's reply here — the whole thing, including the JSON code block."
+        style="width:100%; border:var(--fb-border); border-radius:var(--fb-r-button); padding:10px 12px;
+        font-family:var(--fb-sans); font-size:12.5px; line-height:1.6; resize:vertical"
+        oninput="S.nblmText=this.value">${esc(S.nblmText)}</textarea>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap">
+        <button class="fb-btn" style="padding:8px 16px; font-size:12px" onclick="applyStudyReport()">Apply report</button>
+        ${S.nblmMsg ? `<span class="fb-body-sm">${S.nblmMsg}</span>` : ""}
+      </div>
+      <div class="fb-evidence">A NotebookLM quiz is real retrieval — questions answered and graded — so it
+        moves topic mastery. But it is one recall with no schedule behind it, so it decays like a card after
+        its first successful review, and card evidence replaces it the moment it is stronger. The exam-day
+        projection stays measured from cards only.</div>
+    </div>`;
 
   renderTutorials();
 }
@@ -2963,6 +2987,36 @@ async function loadTutorials() {
   TUT.questions = qs?.questions || [];
   renderTutorials();
 }
+
+window.copyStudyPrompt = async () => {
+  const btn = $("nblmCopy");
+  const res = await fetch(`/api/courses/${S.courseId}/study_prompt`)
+    .then((r) => r.ok ? r.json() : r.json().then((e) => ({ error: e.error })))
+    .catch(() => null);
+  if (!res || res.error) { alert(res?.error || "Couldn't build the prompt."); return; }
+  try {
+    await navigator.clipboard.writeText(res.text);
+    btn.textContent = "Copied ✓";
+    setTimeout(() => { if (btn.isConnected) btn.textContent = "⧉ Copy study prompt"; }, 1800);
+  } catch { alert("Clipboard blocked — click the page once, then try again."); }
+};
+
+window.applyStudyReport = async () => {
+  const text = ($("nblmText")?.value || "").trim();
+  if (!text) { $("nblmText")?.focus(); return; }
+  const res = await fetch(`/api/courses/${S.courseId}/study_report`, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) })
+    .then((r) => r.json()).catch(() => null);
+  if (!res || res.error) {
+    S.nblmMsg = `<span style="color:var(--fb-red)">${esc(res?.error || "Couldn't apply the report.")}</span>`;
+  } else {
+    S.nblmText = "";
+    S.nblmMsg = `Applied to ${res.applied} topic${res.applied === 1 ? "" : "s"}` +
+      (res.ignored_ids?.length ? ` · ${res.ignored_ids.length} unknown id${res.ignored_ids.length === 1 ? "" : "s"} ignored` : "") +
+      ` — the bars above just moved.`;
+  }
+  fetchState();   // re-renders the course page with the overlay applied
+};
 
 window.toggleTutorial = (id) => {
   TUT.open.has(id) ? TUT.open.delete(id) : TUT.open.add(id);

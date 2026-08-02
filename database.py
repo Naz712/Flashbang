@@ -270,6 +270,22 @@ def init_db():
         )
     """)
 
+    # EXTERNAL REVIEWS — retrieval evidence from OUTSIDE the app: a NotebookLM
+    # quiz graded there and pasted back. One row per report per topic; the
+    # newest wins. Never touches cards or FSRS — it only overlays the topic
+    # mastery display, and it decays.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS external_reviews (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id   INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+            recall_pct REAL NOT NULL,
+            quizzed    INTEGER,
+            gaps       TEXT,
+            source     TEXT NOT NULL DEFAULT 'notebooklm',
+            at         TEXT NOT NULL
+        )
+    """)
+
     # migrations for pre-existing databases
     # what a pdf IS: lecture notes, a tutorial paper, or its answers. Notes are
     # the default so every existing row keeps behaving exactly as before.
@@ -755,6 +771,38 @@ def get_topic(topic_id):
     row = cursor.fetchone()
     conn.close()
     return row
+
+
+def add_external_review(topic_id, recall_pct, quizzed=None, gaps=None, source="notebooklm"):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""INSERT INTO external_reviews (topic_id, recall_pct, quizzed, gaps, source, at)
+                      VALUES (?,?,?,?,?,?)""",
+                   (topic_id, max(0.0, min(float(recall_pct), 100.0)), quizzed, gaps, source, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def latest_external_reviews(pdf_id=None, course_id=None):
+    """Newest external review per topic, as {topic_id: row}."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    where, params = "", []
+    if pdf_id:
+        where, params = "WHERE topics.pdf_id = ?", [pdf_id]
+    elif course_id:
+        where, params = "WHERE topics.course_id = ?", [course_id]
+    cursor.execute(f"""
+        SELECT er.* FROM external_reviews er
+        JOIN topics ON topics.id = er.topic_id
+        {where}
+        ORDER BY er.at ASC
+    """, params)
+    out = {}
+    for r in cursor.fetchall():
+        out[r["topic_id"]] = dict(r)   # later rows overwrite: newest wins
+    conn.close()
+    return out
 
 
 """ ---------------------------------------------------------------- tutorials """

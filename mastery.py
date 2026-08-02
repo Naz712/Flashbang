@@ -54,6 +54,22 @@ def topic_mastery(cards, now=None):
     return total / len(cards)
 
 
+def external_retention(recall_pct, at, now=None, assumed_interval_days=3):
+    """Retention now implied by ONE externally-graded quiz (e.g. a NotebookLM
+    study session pasted back in). It is real retrieval evidence — questions
+    were answered and marked — but it is a single recall with no schedule
+    behind it, so it decays like a card after its FIRST successful recall
+    (a ~3-day interval on the legacy curve), not like settled knowledge.
+    Pure function; the caller supplies the timestamp."""
+    if now is None:
+        now = datetime.now()
+    elapsed_days = (now - datetime.fromisoformat(at)).total_seconds() / 86400
+    if elapsed_days < 0:
+        elapsed_days = 0
+    stability = assumed_interval_days * _STABILITY_SCALE
+    return (max(0.0, min(recall_pct, 100.0)) / 100.0) * math.exp(-elapsed_days / stability)
+
+
 def _reps(card):
     # tolerate inputs without a repetitions field (older callers/tests)
     try:
