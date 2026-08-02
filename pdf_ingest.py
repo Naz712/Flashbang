@@ -27,6 +27,40 @@ SEGMENT_CHUNK_CHARS = 100_000  # ~25k tokens of page text per segmentation call
 
 # ---------------------------------------------------------------- stage 1: pages
 
+def strip_boilerplate(pages, threshold=0.6, min_pages=8):
+    """Drop lines that repeat on most pages — slide-deck nav strips, running
+    headers, copyright footers.
+
+    Lecture decks often stamp a full section index onto every single slide
+    ("RB2302 | Part 1 | Introduction | Math | Regression | Descent | ..."). On
+    one real 242-page deck that was a fifth of all extracted text. It costs
+    tokens on every downstream call, and worse, it makes every page look like
+    it covers every topic — which is exactly the signal segmentation reads.
+
+    Deterministic, no model call. A line has to appear on `threshold` of pages
+    to go, so a heading that genuinely recurs a few times survives.
+    """
+    if len(pages) < min_pages:
+        return pages
+    from collections import Counter
+    counts = Counter()
+    for p in pages:
+        # count each distinct line ONCE per page, or a line repeated within a
+        # single page could reach the threshold on its own
+        for line in {ln.strip() for ln in (p["text"] or "").splitlines() if ln.strip()}:
+            counts[line] += 1
+    cutoff = len(pages) * threshold
+    junk = {line for line, n in counts.items()
+            # short lines only: a repeated paragraph is more likely real content
+            if n >= cutoff and len(line) < 400}
+    if not junk:
+        return pages
+    for p in pages:
+        p["text"] = "\n".join(ln for ln in (p["text"] or "").splitlines()
+                              if ln.strip() not in junk).strip()
+    return pages
+
+
 def extract_pages(pdf_path):
     """pypdf first pass. Returns [{'page_number', 'text', 'extractor'}], 1-based."""
     reader = PdfReader(pdf_path)
@@ -34,7 +68,7 @@ def extract_pages(pdf_path):
     for i, page in enumerate(reader.pages, start=1):
         text = (page.extract_text() or "").strip()
         pages.append({"page_number": i, "text": text, "extractor": "pypdf"})
-    return pages
+    return strip_boilerplate(pages)
 
 
 def _build_sub_pdf(pdf_path, page_numbers):
