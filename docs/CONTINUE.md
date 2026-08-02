@@ -6,8 +6,7 @@ the remote disagrees.
 
 ## Where the code is
 
-- **Primary: `C:\Users\Nazzoom\Desktop\Flashbang-frameworks`** (branch `frameworks`,
-  port 5002). Run: `.\flashbang\Scripts\python.exe server.py`
+- **Primary: `C:\Users\Nazzoom\Desktop\Flashbang-main`** (branch `frameworks`, port 5002) — **this is the main copy now; standalone repo, no longer a worktree**. Run: `.\flashbang\Scripts\python.exe server.py`
 - **Frozen reference: `C:\Users\Nazzoom\Desktop\Flashbang`** (branch `master`, port
   5001) — the original hand-rolled build, kept for the A/B story. Do not develop here.
 - **Remote:** private repo `github.com/Naz712/Flashbang` (push regularly — sessions
