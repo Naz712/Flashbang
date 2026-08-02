@@ -270,6 +270,93 @@ Respond with ONLY a JSON object. No markdown fences, no preamble:
     return primer
 
 
+def split_tutorial(pdf_id, topics):
+    """Split a tutorial paper into individual questions and tag each with the
+    student's OWN note topics.
+
+    Splitting and tagging in ONE call, not two: the model has to read the
+    question to split it, and asking again later would pay for that reading
+    twice. Tags are chosen from a supplied list rather than invented, because
+    the whole point is to join back to the topics in their notes — a free-text
+    tag that reads "recursion basics" cannot be matched to topic 91.
+
+    Each LEAF part is its own question: 3(a) and 3(b) are separate rows sharing
+    a group, so a flag can say which part actually confused you.
+    """
+    pages = get_pdf_pages(pdf_id)
+    if not pages:
+        raise ValueError("No stored page text for this tutorial")
+    body = "\n\n".join(f"=== PAGE {p['page_number']} ===\n{p['text']}" for p in pages)[:60_000]
+    topic_list = "\n".join(f'{t["id"]}: {t["title"]}' for t in topics) or "(none available)"
+
+    prompt = f"""Split this tutorial/problem sheet into its individual questions, and tag each one with the topics it tests.
+
+RULES FOR SPLITTING:
+- One entry per LEAF question. If Q3 has parts (a), (b), (c), that is THREE entries with labels "3(a)", "3(b)", "3(c)" and group "3" — not one entry for Q3.
+- A question with no parts is one entry: label "5", group "5".
+- "label" is exactly how the paper numbers it. "grp" is the parent number alone.
+- "text" is the question as written, verbatim where possible. Include any code, data or formula the question depends on. If the part depends on a stem shared with its siblings ("Consider the array below..."), repeat the stem in each part so the question stands alone.
+- "page" is the page number the question starts on, from the === PAGE n === markers.
+- Skip anything that is not a question: cover pages, instructions, learning outcomes, "submit by Friday", mark schemes.
+- Keep the paper's order.
+
+RULES FOR TAGGING:
+- Choose topic ids ONLY from this list of the student's own note topics. Never invent an id.
+- 1 to 3 ids per question, most relevant first. If nothing genuinely fits, use an empty list — a wrong tag is worse than no tag, because it will surface this question when they are revising something else.
+
+<topics>
+{topic_list}
+</topics>
+
+<tutorial>
+{body}
+</tutorial>
+
+OUTPUT FORMAT:
+Respond with ONLY a JSON array. No markdown fences, no preamble:
+[{{"label": "3(a)", "grp": "3", "text": "<the question>", "page": 2, "topic_ids": [91]}}]
+"""
+    result = call_for_json(prompt, max_tokens=8000, purpose="tutorial split")
+    return result if isinstance(result, list) else result.get("questions", [])
+
+
+def map_answer_pages(answer_pdf_id, labels):
+    """Find which page of the ANSWER paper each question's answer starts on.
+
+    Deliberately a LOOK-UP, not an extraction: the answers are shown by opening
+    the answer PDF at the right page, so worked solutions keep their diagrams,
+    equations and handwriting. Nothing is rewritten, so nothing can be
+    rewritten wrongly. Returns {label: page}.
+    """
+    pages = get_pdf_pages(answer_pdf_id)
+    if not pages:
+        raise ValueError("No stored page text for the answer paper")
+    # first ~600 chars of each page is plenty to spot "Question 3(a)" headings
+    index = "\n".join(f"=== PAGE {p['page_number']} ===\n{(p['text'] or '')[:600]}"
+                      for p in pages)[:40_000]
+
+    prompt = f"""Below is a page-by-page index of an ANSWER paper. For each question label listed, say which page its answer STARTS on.
+
+Question labels to locate:
+{", ".join(labels)}
+
+Rules:
+- Use the === PAGE n === markers for the page number.
+- Match the paper's own numbering, allowing for formatting differences: "3(a)", "3a", "Q3 (a)" and "Question 3, part a" are the same label.
+- If a label's answer genuinely cannot be found, omit it. Do not guess a page.
+
+<answer_paper_index>
+{index}
+</answer_paper_index>
+
+OUTPUT FORMAT:
+Respond with ONLY a JSON object mapping label to page number. No markdown fences, no preamble:
+{{"3(a)": 2, "3(b)": 3}}
+"""
+    result = call_for_json(prompt, fast=True, max_tokens=2000, purpose="answer page map")
+    return result if isinstance(result, dict) else {}
+
+
 def parse_flashcards(text):
     """Parse pasted flashcards (NotebookLM output, Anki exports, hand-typed
     lists) into [{'question','answer'}]. Deterministic formats first:

@@ -27,13 +27,17 @@ from database import (
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
     get_topic, get_primer, save_primer, delete_primer,
+    create_tutorial, save_tutorial_questions, set_question_topics,
+    set_answer_pdf, set_answer_pages, flag_question, get_tutorials,
+    get_tutorial_questions, delete_tutorial,
     topics_with_primers,
     start_session, end_session, review_card, undo_review,
     save_topics, save_concepts, create_course, init_db,
     record_course_snapshot, get_course_trend, get_course_week,
 )
 from generation import (parse_flashcards, extract_topic_concepts,
-                        generate_cards_for_topic, generate_primer)
+                        generate_cards_for_topic, generate_primer,
+                        split_tutorial, map_answer_pages)
 from grading import grade_answer
 import llm_utils
 from llm_utils import complete_text
@@ -812,6 +816,98 @@ def topic_primer_make(topic_id):
 def _course_name_for_topic(topic):
     course = next((c for c in get_courses() if c["id"] == topic["course_id"]), None)
     return course["name"] if course else ""
+
+
+""" ---------------------------------------------------------------- tutorials """
+
+
+@app.post("/api/tutorials")
+def tutorials_create():
+    """Upload a tutorial paper: read its pages, split into questions, tag each
+    with the course's own note topics. No topic segmentation — a problem sheet
+    is not lecture material and has no reading time to estimate."""
+    body = request.get_json(force=True)
+    path, course_id = body.get("path"), body.get("course_id")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "file not found"}), 400
+    if not course_id:
+        return jsonify({"error": "course_id required"}), 400
+    result = read_pdf(path, course_id, kind="tutorial")
+    pdf_id = result["pdf_id"]
+    title = (body.get("title") or os.path.basename(path)).replace(".pdf", "")
+    tutorial_id = create_tutorial(course_id, title, pdf_id)
+
+    topics = [t for t in get_topics(course_id=course_id) if t["kind"] != "general"]
+    try:
+        questions = split_tutorial(pdf_id, topics)
+    except Exception as e:
+        return jsonify({"tutorial_id": tutorial_id, "questions": 0, "error": str(e)}), 200
+    valid = {t["id"] for t in topics}
+    ids = save_tutorial_questions(tutorial_id, questions)
+    for qid, q in zip(ids, questions):
+        set_question_topics(qid, [t for t in (q.get("topic_ids") or []) if t in valid])
+    return jsonify({"tutorial_id": tutorial_id, "questions": len(ids)})
+
+
+@app.post("/api/tutorials/<int:tutorial_id>/answers")
+def tutorial_answers(tutorial_id):
+    """Attach the answer paper — usually released weeks after the questions.
+    Only the PAGE MAP is derived; the answers themselves are never extracted or
+    rewritten, so worked solutions keep their diagrams and working."""
+    body = request.get_json(force=True)
+    path = body.get("path")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "file not found"}), 400
+    tutorial = next((t for t in get_tutorials() if t["id"] == tutorial_id), None)
+    if tutorial is None:
+        return jsonify({"error": "no such tutorial"}), 404
+    result = read_pdf(path, tutorial["course_id"], kind="answers")
+    set_answer_pdf(tutorial_id, result["pdf_id"])
+
+    questions = get_tutorial_questions(tutorial_id=tutorial_id)
+    if not questions:
+        return jsonify({"answer_pdf_id": result["pdf_id"], "mapped": 0})
+    try:
+        by_label = map_answer_pages(result["pdf_id"], [q["label"] for q in questions])
+    except Exception as e:
+        return jsonify({"answer_pdf_id": result["pdf_id"], "mapped": 0, "error": str(e)}), 200
+    pages = {}
+    for q in questions:
+        page = by_label.get(q["label"])
+        if isinstance(page, int) and page > 0:
+            pages[q["id"]] = page
+    set_answer_pages(pages)
+    return jsonify({"answer_pdf_id": result["pdf_id"], "mapped": len(pages),
+                    "total": len(questions)})
+
+
+@app.get("/api/tutorials")
+def tutorials_list():
+    return jsonify({"tutorials": get_tutorials(request.args.get("course_id", type=int))})
+
+
+@app.get("/api/tutorial_questions")
+def tutorial_questions_list():
+    """The practice pool. Filter by tutorial, by topic (the 'I'm weak on X'
+    path) or by flag."""
+    return jsonify({"questions": get_tutorial_questions(
+        tutorial_id=request.args.get("tutorial_id", type=int),
+        topic_id=request.args.get("topic_id", type=int),
+        course_id=request.args.get("course_id", type=int),
+        flagged_only=request.args.get("flagged") in ("1", "true"))})
+
+
+@app.post("/api/tutorial_questions/<int:question_id>/flag")
+def tutorial_question_flag(question_id):
+    body = request.get_json(force=True) or {}
+    flag_question(question_id, bool(body.get("flagged")), (body.get("note") or "").strip() or None)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/tutorials/<int:tutorial_id>")
+def tutorial_delete(tutorial_id):
+    delete_tutorial(tutorial_id)
+    return jsonify({"ok": True})
 
 
 @app.get("/api/pdf/<int:pdf_id>")

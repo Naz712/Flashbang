@@ -37,6 +37,11 @@ const S = {
   cardTopics: [],       // topics for the move-to select
 };
 
+/* tutorials: a practice pool per course — questions, their flags, and which
+   topic or flag is currently filtering the list */
+const TUT = { list: [], questions: [], open: new Set(), filter: { kind: null, value: null },
+              busy: null, answersFor: null };
+
 const $ = (id) => document.getElementById(id);
 // for titles inside inline onclick='...' strings: encodeURIComponent leaves
 // apostrophes alone, which breaks the attribute for titles like "'self'"
@@ -1321,7 +1326,9 @@ window.openCourse = (courseId) => {
   S.docOpen = new Set();
   S.readSel = new Set();
   S.editSplit = null;
+  TUT.filter = { kind: null, value: null };
   render();
+  loadTutorials();
 };
 
 /* ---------------------------------------------------------------- one course */
@@ -1532,7 +1539,10 @@ function renderCoursePage() {
         : `<div class="fb-card"><div class="fb-body-sm">Nothing in this course yet. Hit ＋ Add PDFs and
             Flashbang will read, split and file them for you.</div></div>`}
     </div>
-    ${reading}`;
+    ${reading}
+    <div id="tutorialsInner"></div>`;
+
+  renderTutorials();
 }
 
 /* ---- assistant bubble: a scoped agent, only when you open it ---- */
@@ -2414,11 +2424,15 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) =
   S.view = "reader";
   render();
 
+  /* Answer papers are deliberately absent from libCourses — they aren't notes.
+     So a missing doc isn't an error here, it just means the caller's title is
+     the better header ("Answer · 2(b)"). */
   const doc = S.state?.libCourses.flatMap((c) => c.pdfs.map((p) => ({ ...p, course: c.name })))
     .find((p) => p.pdf_id === pdfId);
+  const course = S.state?.courses?.find((c) => c.id === S.courseId);
   $("rdFile").textContent = doc ? doc.filename : RD.title;
   $("rdFile").title = RD.title;
-  $("rdCourse").textContent = doc ? doc.course : "Course";
+  $("rdCourse").textContent = doc ? doc.course : (course?.name || "Back");
   $("rdPages").innerHTML = `<div class="fb-body-sm" style="padding:40px">Loading pages…</div>`;
   $("rdThumbs").innerHTML = "";
   loadPrimer(topicId);   // cached only — generating stays a button
@@ -2897,6 +2911,181 @@ async function uploadPdfs(files) {
 
 $("fileInput").addEventListener("change", (e) => uploadPdfs(e.target.files));
 window.pickPdfs = () => $("fileInput").click();
+
+/* ---------------------------------------------------------------- tutorials
+   A practice POOL, not a schedule. Questions never fall due and never move
+   mastery — you pull them up when a topic is weak, or when you flagged one.
+   Notes and tutorials are two separate sections of a course: the same module,
+   two different kinds of material. */
+
+$("tutInput").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file || !S.courseId) return;
+  const target = TUT.answersFor;      // set when the ＋ Answers button opened it
+  TUT.answersFor = null;
+  TUT.busy = target ? `Reading the answers to ${target.title}…` : `Splitting ${file.name}…`;
+  renderTutorials();
+
+  const form = new FormData();
+  form.append("file", file);
+  const up = await fetch("/api/upload", { method: "POST", body: form })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  if (!up) { TUT.busy = null; renderTutorials(); return alert("Upload failed."); }
+
+  const res = target
+    ? await fetch(`/api/tutorials/${target.id}/answers`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: up.path }) }).then((r) => r.json()).catch(() => null)
+    : await fetch("/api/tutorials", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: up.path, course_id: S.courseId,
+                               title: up.filename.replace(/\.pdf$/i, "") }) })
+        .then((r) => r.json()).catch(() => null);
+
+  TUT.busy = null;
+  if (!res) alert("Couldn't read that file.");
+  else if (res.error) alert(`Saved, but the split failed: ${res.error}`);
+  else if (target) alert(`Answers attached — located ${res.mapped} of ${res.total} questions.`);
+  await loadTutorials();
+});
+
+window.pickTutorial = () => { TUT.answersFor = null; $("tutInput").click(); };
+window.pickAnswers = (id, title) => { TUT.answersFor = { id, title }; $("tutInput").click(); };
+
+async function loadTutorials() {
+  if (!S.courseId) return;
+  const [tuts, qs] = await Promise.all([
+    fetch(`/api/tutorials?course_id=${S.courseId}`).then((r) => r.json()).catch(() => null),
+    fetch(`/api/tutorial_questions?course_id=${S.courseId}`).then((r) => r.json()).catch(() => null),
+  ]);
+  TUT.list = tuts?.tutorials || [];
+  TUT.questions = qs?.questions || [];
+  renderTutorials();
+}
+
+window.toggleTutorial = (id) => {
+  TUT.open.has(id) ? TUT.open.delete(id) : TUT.open.add(id);
+  renderTutorials();
+};
+
+window.setTutFilter = (kind, value) => {
+  TUT.filter = (TUT.filter.kind === kind && TUT.filter.value === value)
+    ? { kind: null, value: null } : { kind, value };
+  renderTutorials();
+};
+
+window.toggleFlag = async (qid) => {
+  const q = TUT.questions.find((x) => x.id === qid);
+  if (!q) return;
+  q.flagged = q.flagged ? 0 : 1;
+  renderTutorials();
+  await fetch(`/api/tutorial_questions/${qid}/flag`, { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ flagged: !!q.flagged, note: q.flag_note }) }).catch(() => {});
+  const t = TUT.list.find((x) => x.id === q.tutorial_id);
+  if (t) t.n_flagged = TUT.questions.filter((x) => x.tutorial_id === t.id && x.flagged).length;
+  renderTutorials();
+};
+
+/* The answer is RETRIEVED, never rewritten: this opens the answer paper at the
+   page the answer starts on, so worked solutions keep their diagrams and
+   working exactly as the module wrote them. */
+window.showAnswer = (qid) => {
+  const q = TUT.questions.find((x) => x.id === qid);
+  if (!q?.answer_pdf_id || !q.answer_page) return;
+  openTopic(q.answer_pdf_id, q.answer_page, q.answer_page,
+            encodeURIComponent(`Answer · ${q.label}`), null);
+};
+
+window.deleteTutorial = async (id, title) => {
+  if (!confirm(`Delete the tutorial "${decodeURIComponent(title)}" and its questions?\nThe uploaded files stay in your library.`)) return;
+  await fetch(`/api/tutorials/${id}`, { method: "DELETE" }).catch(() => {});
+  loadTutorials();
+};
+
+function renderTutorials() {
+  const box = $("tutorialsInner");
+  if (!box || S.view !== "course") return;
+  const f = TUT.filter;
+  const all = TUT.questions;
+  const flaggedCount = all.filter((q) => q.flagged).length;
+  // every topic that has questions, so "weak on X" has somewhere to go
+  const topicCounts = new Map();
+  all.forEach((q) => (q.topics || []).forEach((t) => {
+    topicCounts.set(t.id, { ...t, n: (topicCounts.get(t.id)?.n || 0) + 1 });
+  }));
+
+  const match = (q) => f.kind === "flag" ? q.flagged
+    : f.kind === "topic" ? (q.topics || []).some((t) => t.id === f.value) : true;
+
+  const questionRow = (q) => `
+    <div class="fb-q-row${q.flagged ? " fb-q-row--flagged" : ""}">
+      <button class="fb-q-flag${q.flagged ? " fb-q-flag--on" : ""}" onclick="toggleFlag(${q.id})"
+        title="${q.flagged ? "Unflag" : "Flag this to come back to"}">${q.flagged ? "★" : "☆"}</button>
+      <span class="fb-data fb-q-label">${esc(q.label)}</span>
+      <span style="flex:1; min-width:0">
+        <span class="fb-q-text">${esc(q.text)}</span>
+        <span style="display:flex; gap:6px; flex-wrap:wrap; margin-top:7px">
+          ${(q.topics || []).map((t) => `<button class="fb-chip fb-chip--tap"
+            onclick="setTutFilter('topic', ${t.id})" title="Show every question on ${esc(t.title)}">${esc(t.title)}</button>`).join("")}
+          ${!(q.topics || []).length ? `<span class="fb-chip" style="color:var(--fb-muted)">untagged</span>` : ""}
+        </span>
+      </span>
+      ${q.answer_page ? `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
+          onclick="showAnswer(${q.id})" title="Open the answer paper at p.${q.answer_page}">Answer ›</button>`
+        : `<span class="fb-data" style="font-size:10px; color:var(--fb-muted); flex:none">no answer yet</span>`}
+    </div>`;
+
+  const filterBar = all.length ? `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px">
+      <button class="fb-chip fb-chip--tap${f.kind === "flag" ? " fb-chip--on" : ""}"
+        onclick="setTutFilter('flag', 1)">★ Flagged${flaggedCount ? ` · ${flaggedCount}` : ""}</button>
+      ${[...topicCounts.values()].sort((a, b) => b.n - a.n).slice(0, 8).map((t) => `
+        <button class="fb-chip fb-chip--tap${f.kind === "topic" && f.value === t.id ? " fb-chip--on" : ""}"
+          onclick="setTutFilter('topic', ${t.id})">${esc(t.title)} · ${t.n}</button>`).join("")}
+      ${f.kind ? `<button class="fb-icon-btn" onclick="setTutFilter(null,null)">clear</button>` : ""}
+    </div>` : "";
+
+  box.innerHTML = `
+    <div class="fb-section-head" style="margin-bottom:18px">
+      <span class="fb-label">Tutorials</span><span class="fb-rule"></span>
+      ${TUT.busy ? `<span class="fb-data" style="font-size:11px; color:var(--fb-muted)">${esc(TUT.busy)}</span>` : ""}
+      <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
+        ${TUT.busy ? "disabled" : ""} onclick="pickTutorial()"
+        title="Upload a tutorial or problem sheet — it splits into questions and tags each with your own note topics">＋ Add tutorial</button>
+    </div>
+    ${filterBar}
+    ${TUT.list.length ? TUT.list.map((t) => {
+      const qs = all.filter((q) => q.tutorial_id === t.id).filter(match);
+      const open = TUT.open.has(t.id);
+      const hidden = all.filter((q) => q.tutorial_id === t.id).length - qs.length;
+      return `<div class="fb-card fb-card--sm" style="margin-bottom:12px">
+        <div style="display:flex; align-items:center; gap:12px; cursor:pointer" onclick="toggleTutorial(${t.id})">
+          <span style="flex:none; width:14px; color:var(--fb-muted); font-family:var(--fb-mono); font-size:11px">${open ? "▾" : "▸"}</span>
+          <span style="flex:1; min-width:0">
+            <span class="fb-doc-name" style="display:block">${esc(t.title)}</span>
+            <span class="fb-doc-meta" style="display:block">${t.n_questions} question${t.n_questions === 1 ? "" : "s"}${
+              t.n_flagged ? ` · ${t.n_flagged} flagged` : ""} · ${t.answer_filename
+                ? `answers: ${esc(t.answer_filename)}` : "no answers yet"}</span>
+          </span>
+          ${t.answer_pdf_id ? "" : `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
+            onclick="event.stopPropagation(); pickAnswers(${t.id}, '${encT(t.title)}')"
+            title="Upload the answer paper when your module releases it">＋ Answers</button>`}
+          <button class="fb-icon-btn" title="Delete this tutorial"
+            onclick="event.stopPropagation(); deleteTutorial(${t.id}, '${encT(t.title)}')">✕</button>
+        </div>
+        ${open ? `<div style="margin-top:12px">
+          ${qs.length ? qs.map(questionRow).join("")
+            : `<div class="fb-body-sm">${t.n_questions ? "No questions match this filter." : "No questions were found in this file."}</div>`}
+          ${hidden > 0 ? `<div class="fb-data" style="font-size:10.5px; color:var(--fb-muted); padding-top:10px">${hidden} hidden by the filter</div>` : ""}
+        </div>` : ""}
+      </div>`;
+    }).join("")
+    : `<div class="fb-card"><div class="fb-body-sm">No tutorials yet. Add a problem sheet and it splits into
+        individual questions, each tagged with the topics from your own notes — so when a topic goes weak you
+        can pull up the questions that test it.</div></div>`}`;
+}
 
 $("sendBtn").onclick = () => submitAnswer($("chatInput").value);
 $("chatInput").addEventListener("keydown", (e) => {

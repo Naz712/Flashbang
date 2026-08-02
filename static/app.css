@@ -549,6 +549,28 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-primer-map-this { font-size: 12.5px; font-weight: 600; color: var(--fb-ink); }
 .fb-primer-map-arrow { font-family: var(--fb-mono); font-size: 11px; color: var(--fb-muted); flex: none; }
 .fb-primer-map-is { font-size: 12.5px; color: var(--fb-slate); flex: 1; min-width: 140px; }
+/* TUTORIALS — a practice pool. A question row is a flag, its label, the
+   question, its topic tags, and the way to its answer. */
+.fb-q-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0;
+  border-bottom: 1.5px solid var(--fb-hairline); }
+.fb-q-row:last-child { border-bottom: none; }
+/* a flagged question keeps a mark down its edge so it is findable while
+   scrolling, not only when filtered */
+.fb-q-row--flagged { border-left: 2px solid var(--fb-ink); padding-left: 12px; margin-left: -14px; }
+.fb-q-flag { flex: none; background: none; border: none; cursor: pointer; padding: 0 2px;
+  font-size: 15px; line-height: 1.2; color: var(--fb-hairline); }
+.fb-q-flag:hover { color: var(--fb-muted); }
+.fb-q-flag--on { color: var(--fb-ink); }
+.fb-q-label { flex: none; min-width: 34px; font-weight: 600; color: var(--fb-ink); font-size: 11.5px;
+  padding-top: 2px; }
+.fb-q-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden; font-size: 13px; line-height: 1.55; color: var(--fb-slate); }
+/* a chip you can press — topic tags double as the filter */
+.fb-chip--tap { cursor: pointer; font-family: var(--fb-sans); }
+.fb-chip--tap:hover { border-color: var(--fb-accent); color: var(--fb-accent); }
+.fb-chip--on { background: var(--fb-ink); border-color: var(--fb-ink); color: #fff; }
+.fb-chip--on:hover { color: #fff; border-color: var(--fb-ink); }
+
 /* the limits of the analogy, marked so they cannot be skimmed past */
 .fb-primer-breaks { margin-top: 14px; padding-top: 12px; border-top: 1.5px solid var(--fb-hairline);
   font-size: 12.5px; line-height: 1.6; color: var(--fb-slate); }

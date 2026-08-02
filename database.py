@@ -229,7 +229,53 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    # TUTORIALS — practice questions, kept apart from notes. A tutorial is a
+    # question paper plus (usually later, when the module releases it) a
+    # separate answer paper. Questions never enter the review schedule: this is
+    # a pool you pull from when a topic is weak, not another thing falling due.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tutorials (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id     INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            title         TEXT NOT NULL,
+            pdf_id        INTEGER REFERENCES pdfs(id) ON DELETE CASCADE,
+            answer_pdf_id INTEGER REFERENCES pdfs(id) ON DELETE SET NULL,
+            created_at    TEXT NOT NULL
+        )
+    """)
+    # One row per LEAF question: 3(a) and 3(b) are separate, grouped by `grp`,
+    # so a flag can say which part actually confused you.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tutorial_questions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tutorial_id INTEGER NOT NULL REFERENCES tutorials(id) ON DELETE CASCADE,
+            seq         INTEGER NOT NULL,
+            label       TEXT NOT NULL,      -- "3(b)"
+            grp         TEXT,               -- "3"
+            text        TEXT NOT NULL,
+            page        INTEGER,            -- where it sits in the question paper
+            answer_page INTEGER,            -- where its answer sits in the ANSWER paper
+            flagged     INTEGER NOT NULL DEFAULT 0,
+            flag_note   TEXT,
+            created_at  TEXT NOT NULL
+        )
+    """)
+    # which of the student's OWN note topics each question tests — this is the
+    # join that turns "topic X is weak" into "here are questions on X"
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tutorial_question_topics (
+            question_id INTEGER NOT NULL REFERENCES tutorial_questions(id) ON DELETE CASCADE,
+            topic_id    INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+            PRIMARY KEY (question_id, topic_id)
+        )
+    """)
+
     # migrations for pre-existing databases
+    # what a pdf IS: lecture notes, a tutorial paper, or its answers. Notes are
+    # the default so every existing row keeps behaving exactly as before.
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('pdfs') WHERE name='kind'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE pdfs ADD COLUMN kind TEXT NOT NULL DEFAULT 'notes'")
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
     if cursor.fetchone()["n"] == 0:
         cursor.execute("ALTER TABLE cards ADD COLUMN prev_state TEXT")
@@ -343,13 +389,15 @@ def delete_course(course_id):
 
 # ---------------------------------------------------------------- pdfs & pages
 
-def create_pdf(course_id, filename, file_path=None, source_type="pdf", total_pages=0):
+def create_pdf(course_id, filename, file_path=None, source_type="pdf", total_pages=0,
+               kind="notes"):
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO pdfs (course_id, filename, file_path, source_type, total_pages, ingested_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (course_id, filename, file_path, source_type, total_pages, now_iso()))
+        INSERT INTO pdfs (course_id, filename, file_path, source_type, total_pages,
+                          ingested_at, kind)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (course_id, filename, file_path, source_type, total_pages, now_iso(), kind))
     pdf_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -386,13 +434,18 @@ def get_pdf_pages(pdf_id, page_start=None, page_end=None):
     return rows
 
 
-def get_pdfs(course_id=None):
+def get_pdfs(course_id=None, kind="notes"):
+    """Notes by default: every existing caller means lecture material, and a
+    tutorial paper appearing in the documents list would be a regression."""
     conn = get_conn()
     cursor = conn.cursor()
+    where, params = [], []
     if course_id:
-        cursor.execute("SELECT * FROM pdfs WHERE course_id = ? ORDER BY ingested_at DESC", (course_id,))
-    else:
-        cursor.execute("SELECT * FROM pdfs ORDER BY ingested_at DESC")
+        where.append("course_id = ?"); params.append(course_id)
+    if kind is not None:
+        where.append("kind = ?"); params.append(kind)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    cursor.execute(f"SELECT * FROM pdfs {clause} ORDER BY ingested_at DESC", params)
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -702,6 +755,158 @@ def get_topic(topic_id):
     row = cursor.fetchone()
     conn.close()
     return row
+
+
+""" ---------------------------------------------------------------- tutorials """
+
+
+def create_tutorial(course_id, title, pdf_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""INSERT INTO tutorials (course_id, title, pdf_id, created_at)
+                      VALUES (?,?,?,?)""", (course_id, title, pdf_id, now_iso()))
+    tid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return tid
+
+
+def save_tutorial_questions(tutorial_id, questions):
+    """Replace a tutorial's questions. Re-splitting starts clean rather than
+    accumulating, but FLAGS SURVIVE: a flag is the student's own work, and
+    losing it because the split was re-run would be the worst kind of data
+    loss. Matched back by label."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""SELECT label, flagged, flag_note FROM tutorial_questions
+                      WHERE tutorial_id = ?""", (tutorial_id,))
+    kept = {r["label"]: (r["flagged"], r["flag_note"]) for r in cursor.fetchall()}
+    cursor.execute("DELETE FROM tutorial_questions WHERE tutorial_id = ?", (tutorial_id,))
+    ids = []
+    for seq, q in enumerate(questions):
+        flagged, note = kept.get(q.get("label"), (0, None))
+        cursor.execute("""
+            INSERT INTO tutorial_questions
+                (tutorial_id, seq, label, grp, text, page, flagged, flag_note, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (tutorial_id, seq, q.get("label") or str(seq + 1), q.get("grp"),
+              q.get("text", ""), q.get("page"), flagged, note, now_iso()))
+        ids.append(cursor.lastrowid)
+    conn.commit()
+    conn.close()
+    return ids
+
+
+def set_question_topics(question_id, topic_ids):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tutorial_question_topics WHERE question_id = ?", (question_id,))
+    for tid in topic_ids:
+        cursor.execute("""INSERT OR IGNORE INTO tutorial_question_topics (question_id, topic_id)
+                          VALUES (?,?)""", (question_id, tid))
+    conn.commit()
+    conn.close()
+
+
+def set_answer_pdf(tutorial_id, answer_pdf_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE tutorials SET answer_pdf_id = ? WHERE id = ?",
+                   (answer_pdf_id, tutorial_id))
+    conn.commit()
+    conn.close()
+
+
+def set_answer_pages(pages_by_label):
+    """{question_id: page} — where each answer lives in the answer paper."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    for qid, page in pages_by_label.items():
+        cursor.execute("UPDATE tutorial_questions SET answer_page = ? WHERE id = ?", (page, qid))
+    conn.commit()
+    conn.close()
+
+
+def flag_question(question_id, flagged, note=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""UPDATE tutorial_questions SET flagged = ?, flag_note = ?
+                      WHERE id = ?""", (1 if flagged else 0, note, question_id))
+    conn.commit()
+    conn.close()
+
+
+def get_tutorials(course_id=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    clause = "WHERE t.course_id = ?" if course_id else ""
+    cursor.execute(f"""
+        SELECT t.*, p.filename AS pdf_filename, p.total_pages,
+               a.filename AS answer_filename,
+               (SELECT COUNT(*) FROM tutorial_questions q WHERE q.tutorial_id = t.id) AS n_questions,
+               (SELECT COUNT(*) FROM tutorial_questions q
+                 WHERE q.tutorial_id = t.id AND q.flagged = 1) AS n_flagged
+        FROM tutorials t
+        LEFT JOIN pdfs p ON p.id = t.pdf_id
+        LEFT JOIN pdfs a ON a.id = t.answer_pdf_id
+        {clause}
+        ORDER BY t.id ASC
+    """, (course_id,) if course_id else ())
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_tutorial_questions(tutorial_id=None, topic_id=None, flagged_only=False, course_id=None):
+    """Questions with their topic tags. Filterable by tutorial, by topic (the
+    'I'm weak on X, show me questions on X' path) or by flag."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    where, params = [], []
+    if tutorial_id:
+        where.append("q.tutorial_id = ?"); params.append(tutorial_id)
+    if course_id:
+        where.append("t.course_id = ?"); params.append(course_id)
+    if flagged_only:
+        where.append("q.flagged = 1")
+    if topic_id:
+        where.append("""q.id IN (SELECT question_id FROM tutorial_question_topics
+                                 WHERE topic_id = ?)""")
+        params.append(topic_id)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    cursor.execute(f"""
+        SELECT q.*, t.title AS tutorial_title, t.answer_pdf_id, t.pdf_id
+        FROM tutorial_questions q
+        JOIN tutorials t ON t.id = q.tutorial_id
+        {clause}
+        ORDER BY q.tutorial_id ASC, q.seq ASC
+    """, params)
+    questions = [dict(r) for r in cursor.fetchall()]
+    if questions:
+        marks = ",".join("?" * len(questions))
+        cursor.execute(f"""
+            SELECT qt.question_id, topics.id, topics.title
+            FROM tutorial_question_topics qt
+            JOIN topics ON topics.id = qt.topic_id
+            WHERE qt.question_id IN ({marks})
+        """, [q["id"] for q in questions])
+        by_q = {}
+        for r in cursor.fetchall():
+            by_q.setdefault(r["question_id"], []).append({"id": r["id"], "title": r["title"]})
+        for q in questions:
+            q["topics"] = by_q.get(q["id"], [])
+    conn.close()
+    return questions
+
+
+def delete_tutorial(tutorial_id):
+    """Removes the tutorial, its questions and its tags. The PDFs themselves
+    are left alone — deleting uploaded files is delete_pdf's job."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tutorials WHERE id = ?", (tutorial_id,))
+    conn.commit()
+    conn.close()
 
 
 def get_primer(topic_id):

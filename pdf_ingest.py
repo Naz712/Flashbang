@@ -163,15 +163,20 @@ def pages_needing_vision(pages, force_vision=False):
     return [p["page_number"] for p in pages if len(p["text"]) < SPARSE_THRESHOLD]
 
 
-def read_pdf(pdf_path, course_id, force_vision=False):
-    """Agent entry point: register the pdf, extract every page (pypdf + vision
-    fallback for sparse pages), persist to pdf_pages. Returns ingestion stats."""
+def read_pdf(pdf_path, course_id, force_vision=False, kind="notes"):
+    """Register the pdf, extract every page (pypdf + vision fallback for sparse
+    pages), persist to pdf_pages. Returns ingestion stats.
+
+    `kind` marks what the file IS — lecture notes, a tutorial paper, or its
+    answers. Only notes get segmented into topics afterwards; a problem sheet
+    is split into questions instead."""
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     pages = extract_pages(pdf_path)
     pdf_id = create_pdf(course_id, os.path.basename(pdf_path),
-                        file_path=os.path.abspath(pdf_path), total_pages=len(pages))
+                        file_path=os.path.abspath(pdf_path), total_pages=len(pages),
+                        kind=kind)
 
     sparse = pages_needing_vision(pages, force_vision)
     if sparse:
