@@ -2499,7 +2499,7 @@ function primerHTML() {
       <button class="fb-icon-btn" onclick="togglePrimer()" title="Collapse">${PR.open ? "▾" : "▸"}</button>
     </div>
     ${PR.open ? `
-      <div class="fb-primer-gist">${esc(p.gist)}</div>
+      <div class="fb-primer-gist">${md(p.gist)}</div>
 
       <div class="fb-primer-analogy">
         <div class="fb-label" style="margin-bottom:8px">Picture it like this</div>
@@ -2535,7 +2535,7 @@ function primerHTML() {
         (Ausubel's advance organizers; Mayer's pre-training principle). The analogy carries its own limits
         on purpose — an unbounded analogy is how a misconception gets installed. The links are SEARCHES
         built from the topic title, not addresses the model invented, so none of them can be dead.</div>
-    ` : `<div class="fb-body-sm" style="margin-top:10px">${esc(p.gist)}</div>`}
+    ` : `<div class="fb-body-sm" style="margin-top:10px">${esc(p.gist.split("\n")[0])}</div>`}
   </div>`;
 }
 

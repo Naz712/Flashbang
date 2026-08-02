@@ -215,7 +215,13 @@ The primer is read BEFORE the material. Its whole job is to give the student som
 
 Write:
 
-1. "gist" — 2-3 sentences. What is this topic actually about, and what does it let you DO once you have it? Plain language, no jargon that the material itself hasn't earned yet. Do not say "this topic covers"; say what the idea IS.
+1. "gist" — ONE short paragraph, 2-3 sentences, giving the single central idea. What is this topic actually about, and what does it let you DO once you have it? Plain language, no jargon the material hasn't earned yet. Do not say "this topic covers"; say what the idea IS.
+
+2. THEN exactly one of these two, never both — pick whichever the material actually is:
+   - "detail": a second short paragraph (2-3 sentences) when the topic is ONE CONTINUOUS IDEA that needs a little more room. Set "points" to [].
+   - "points": 2-4 one-line bullets when the topic is a SET OF DISTINCT parts, steps, cases or contrasts. Each bullet is a complete thought, under 18 words. Set "detail" to null.
+   Do not force bullets onto an idea that isn't a list, and do not pad a list into prose.
+   You may bold a key term with **double asterisks**, three at most across the whole overview.
 
 2. "analogy" — ONE concrete, everyday analogy that paints a picture. 2-3 sentences. It must be something an ordinary person has physically seen or done — a kitchen, a post office, a queue, a set of drawers, a recipe. NOT another technical domain. Make it specific and visual: a named object doing a named thing, not "it's like a system that processes data".
 
@@ -235,14 +241,33 @@ Ground everything in the excerpt. If the excerpt is thin, write a shorter primer
 
 OUTPUT FORMAT:
 Respond with ONLY a JSON object. No markdown fences, no preamble:
-{{"gist": "<string>",
+{{"gist": "<string, one paragraph>",
+ "detail": "<string, a second paragraph — or null if you used points>",
+ "points": ["<string>"],
  "analogy": "<string>",
  "mapping": [{{"this": "<part of the analogy>", "is": "<what it maps to>"}}],
  "breaks": "<string>",
  "ideas": ["<string>"],
  "prereq": "<string>"}}
 """
-    return call_for_json(prompt, fast=True, max_tokens=1200, purpose="topic primer")
+    primer = call_for_json(prompt, fast=True, max_tokens=1200, purpose="topic primer")
+
+    # The overview's SHAPE comes from the schema, not from formatting rules
+    # inside a string: asking for paragraph breaks and "- " bullets inside a
+    # JSON field gets ignored about half the time, whereas separate fields get
+    # filled reliably. Compose them into the markdown the reader renders,
+    # taking at most one of detail/points if the model returns both.
+    blocks = [(primer.get("gist") or "").strip()]
+    detail = (primer.get("detail") or "").strip()
+    points = [p.strip() for p in (primer.get("points") or []) if str(p).strip()]
+    if points:
+        blocks.append("\n".join(f"- {p}" for p in points[:4]))
+    elif detail:
+        blocks.append(detail)
+    primer["gist"] = "\n\n".join(b for b in blocks if b)
+    primer.pop("detail", None)
+    primer.pop("points", None)
+    return primer
 
 
 def parse_flashcards(text):

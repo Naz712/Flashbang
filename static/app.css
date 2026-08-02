@@ -533,7 +533,15 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-primer-slot { align-self: stretch; max-width: 920px; width: 100%; margin: 0 auto 8px; }
 .fb-primer { width: 100%; }
 .fb-primer-head { display: flex; align-items: center; gap: 10px; }
-.fb-primer-gist { font-size: 15px; line-height: 1.6; color: var(--fb-ink); margin-top: 14px; }
+/* the overview is prose, so it gets paragraph rhythm and real bullets rather
+   than one undifferentiated block */
+.fb-primer-gist { font-size: 15px; line-height: 1.65; color: var(--fb-ink); margin-top: 14px; }
+.fb-primer-gist .md-gap { height: 12px; }
+.fb-primer-gist ul, .fb-primer-gist ol { margin: 4px 0; padding-left: 22px; }
+.fb-primer-gist li { margin: 5px 0; font-size: 14px; color: var(--fb-slate); }
+.fb-primer-gist li::marker { color: var(--fb-muted); }
+.fb-primer-gist strong { font-weight: 600; color: var(--fb-ink); }
+.fb-primer-gist .md-head { font-weight: 600; margin: 10px 0 4px; }
 .fb-primer-analogy { margin-top: 18px; padding: 16px 18px; border-radius: var(--fb-r-card);
   background: var(--fb-page); }
 .fb-primer-map { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
