@@ -7,9 +7,7 @@ left is the fast-tier grader. Run: python server.py  →  http://localhost:5002
 import json
 import os
 import random
-import re
 import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
@@ -28,15 +26,14 @@ from database import (
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
-    get_topic, get_primer, save_primer, save_primer_svg, save_primer_image, delete_primer,
+    get_topic, get_primer, save_primer, delete_primer,
     topics_with_primers,
     start_session, end_session, review_card, undo_review,
     save_topics, save_concepts, create_course, init_db,
     record_course_snapshot, get_course_trend, get_course_week,
 )
 from generation import (parse_flashcards, extract_topic_concepts,
-                        generate_cards_for_topic, generate_primer,
-                        generate_primer_diagram)
+                        generate_cards_for_topic, generate_primer)
 from grading import grade_answer
 import llm_utils
 from llm_utils import complete_text
@@ -810,117 +807,6 @@ def topic_primer_make(topic_id):
     saved = get_primer(topic_id)
     saved["links"] = _primer_links(topic["title"], _course_name_for_topic(topic))
     return jsonify(saved)
-
-
-@app.post("/api/topics/<int:topic_id>/primer/diagram")
-def topic_primer_diagram(topic_id):
-    """Draw the primer's analogy. A SECOND button and a second call — a primer
-    is complete without a picture, so this can never be an implicit cost."""
-    primer = get_primer(topic_id)
-    if primer is None:
-        return jsonify({"error": "write the primer first"}), 404
-    if primer.get("svg") and request.args.get("force") not in ("1", "true"):
-        return jsonify({"svg": primer["svg"]})
-    try:
-        svg = generate_primer_diagram(topic_id, primer)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 422
-    save_primer_svg(topic_id, svg)
-    return jsonify({"svg": svg})
-
-
-@app.delete("/api/topics/<int:topic_id>/primer/diagram")
-def topic_primer_diagram_clear(topic_id):
-    save_primer_svg(topic_id, None)
-    return jsonify({"ok": True})
-
-
-# Wikimedia Commons, not a general image search. Everything on Commons is
-# openly licensed, so a study app can actually SHOW it with credit; results
-# from a normal image search are mostly all-rights-reserved and hotlinking
-# them would be both a copyright problem and a broken-image problem.
-COMMONS_API = "https://commons.wikimedia.org/w/api.php"
-_IMAGE_MIMES = ("image/svg+xml", "image/png", "image/jpeg", "image/gif", "image/webp")
-
-
-def _commons_search(query, limit=6):
-    params = {
-        "action": "query", "format": "json", "generator": "search",
-        "gsrnamespace": "6",                    # File: namespace only
-        "gsrlimit": str(limit), "gsrsearch": query,
-        "prop": "imageinfo", "iiprop": "url|extmetadata|mime", "iiurlwidth": "560",
-    }
-    url = f"{COMMONS_API}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, headers={
-        # Commons asks for a descriptive agent; an anonymous one gets throttled
-        "User-Agent": "Flashbang/1.0 (personal study app; primer diagrams)"})
-    with urllib.request.urlopen(req, timeout=12) as r:
-        data = json.load(r)
-
-    out = []
-    for page in (data.get("query", {}).get("pages", {}) or {}).values():
-        info = (page.get("imageinfo") or [{}])[0]
-        if info.get("mime") not in _IMAGE_MIMES:
-            continue                             # Commons also returns PDFs and audio
-        meta = info.get("extmetadata", {}) or {}
-        def field(name):
-            return re.sub(r"<[^>]+>", "", (meta.get(name, {}) or {}).get("value", "") or "").strip()
-        title = page.get("title", "").replace("File:", "")
-        out.append({
-            "title": title,
-            "thumb": info.get("thumburl"),
-            "page": info.get("descriptionurl"),
-            "license": field("LicenseShortName") or "see file page",
-            "artist": field("Artist")[:80],
-            "mime": info.get("mime"),
-        })
-    return [o for o in out if o["thumb"]]
-
-
-@app.get("/api/topics/<int:topic_id>/primer/find")
-def topic_primer_find(topic_id):
-    """Search Commons for a real diagram of this topic.
-
-    The QUERY is what makes this work. A raw topic title ("Function Calls &
-    Stack") returns unrelated papers; the primer's `ideas` are canonical
-    concept names ("call stack") and return the textbook diagrams. So the
-    ideas are tried first, the title only as a fallback. Zero model calls.
-    """
-    primer = get_primer(topic_id)
-    topic = get_topic(topic_id)
-    if topic is None:
-        return jsonify({"error": "no such topic"}), 404
-    manual = (request.args.get("q") or "").strip()
-    queries = ([manual] if manual
-               else (primer.get("ideas") if primer else []) + [topic["title"]])
-    seen, results = set(), []
-    for q in [q for q in queries if q][:3]:
-        try:
-            hits = _commons_search(q, limit=6)
-        except Exception:
-            continue                             # one bad query shouldn't kill the lot
-        for h in hits:
-            if h["title"] in seen:
-                continue
-            seen.add(h["title"])
-            h["query"] = q
-            results.append(h)
-        if len(results) >= 8:
-            break
-    return jsonify({"results": results[:8], "queries": [q for q in queries if q][:3]})
-
-
-@app.post("/api/topics/<int:topic_id>/primer/image")
-def topic_primer_image(topic_id):
-    """Pin a found diagram to the primer, WITH its attribution."""
-    if get_primer(topic_id) is None:
-        return jsonify({"error": "write the primer first"}), 404
-    body = request.get_json(force=True) or {}
-    image = None
-    if body.get("thumb"):
-        image = {k: body.get(k) for k in ("title", "thumb", "page", "license", "artist")}
-    save_primer_image(topic_id, image)
-    return jsonify({"image": image})
 
 
 def _course_name_for_topic(topic):

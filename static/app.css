@@ -549,29 +549,6 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-primer-map-this { font-size: 12.5px; font-weight: 600; color: var(--fb-ink); }
 .fb-primer-map-arrow { font-family: var(--fb-mono); font-size: 11px; color: var(--fb-muted); flex: none; }
 .fb-primer-map-is { font-size: 12.5px; color: var(--fb-slate); flex: 1; min-width: 140px; }
-/* the drawing sits UNDER the analogy and replaces nothing */
-.fb-primer-svg { margin: 16px 0 0; padding: 0; }
-.fb-primer-svg svg { display: block; width: 100%; max-width: 460px; height: auto;
-  margin: 0 auto; background: var(--fb-canvas); border-radius: var(--fb-r-button); padding: 10px; }
-.fb-primer-svg figcaption { display: flex; align-items: center; gap: 8px; margin-top: 10px;
-  font-size: 11px; line-height: 1.5; color: var(--fb-muted); }
-.fb-primer-svg figcaption span { flex: 1; }
-.fb-primer-svg img { display: block; width: 100%; max-width: 460px; height: auto; margin: 0 auto;
-  background: var(--fb-canvas); border-radius: var(--fb-r-button); padding: 10px; }
-
-/* candidate strip from Commons — thumbnails you pick from, with the licence
-   visible on each before you commit to one */
-.fb-primer-found { margin-top: 16px; padding: 14px 16px; border-radius: var(--fb-r-card);
-  border: var(--fb-border); background: var(--fb-canvas); }
-.fb-primer-strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
-.fb-primer-hit { flex: none; width: 132px; background: none; border: 1.5px solid var(--fb-hairline);
-  border-radius: var(--fb-r-button); padding: 6px; cursor: pointer; display: flex;
-  flex-direction: column; gap: 6px; font-family: var(--fb-sans); }
-.fb-primer-hit:hover { border-color: var(--fb-accent); }
-.fb-primer-hit img { width: 100%; height: 84px; object-fit: contain; background: #fff; }
-.fb-primer-hit span { font-family: var(--fb-mono); font-size: 9px; color: var(--fb-muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 /* the limits of the analogy, marked so they cannot be skimmed past */
 .fb-primer-breaks { margin-top: 14px; padding-top: 12px; border-top: 1.5px solid var(--fb-hairline);
   font-size: 12.5px; line-height: 1.6; color: var(--fb-slate); }
