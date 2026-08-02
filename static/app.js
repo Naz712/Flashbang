@@ -1234,7 +1234,11 @@ function renderHome() {
   const cards = st.libCourses.map((c) => {
     const s = courseStats(c, st);
     const pct = c.completion != null ? c.completion : s.completion;
-    const untouched = !s.cards;
+    /* The em dash guards RETRIEVAL, not card existence: a course whose cards
+       have never been reviewed has had no retrieval either, and 0% would claim
+       one. Completion is retrieval-weighted, so exactly 0 with cards present
+       means nothing was ever recalled (decay never reaches true zero). */
+    const untouched = !s.cards || pct <= 0;
     return `<div class="fb-card" style="padding:0; overflow:hidden; cursor:pointer" role="button" tabindex="0"
         onclick="openCourse(${c.id})" onkeydown="if(event.key==='Enter')openCourse(${c.id})">
       <div style="background:var(--fb-ink); padding:16px 22px; display:flex; align-items:center; gap:12px">
@@ -1261,7 +1265,8 @@ function renderHome() {
         ${c.week ? `<div style="margin-bottom:18px">${weekStrip(c.week)}</div>` : ""}
         <div class="fb-data" style="color:var(--fb-muted); line-height:1.8">
           ${c.pdfCount} document${c.pdfCount === 1 ? "" : "s"} · ${s.topicsTotal} topics · ${s.cards} cards<br>
-          ${untouched ? "no cards generated yet"
+          ${!s.cards ? "no cards generated yet"
+            : untouched ? `${s.cards} cards waiting for their first review`
             : `${s.covered} covered · ${s.started} in progress · ${fmtMin(s.readMin)} read`}
         </div>
         ${s.exam ? `<div style="margin-top:18px"><span class="fb-chip">Exam in ${s.exam.days_left}d${s.exam.today != null ? ` · ${s.exam.today}% if you stop now` : ""}</span></div>` : ""}
@@ -1360,7 +1365,7 @@ function renderCoursePage() {
      full width. The evidence line sits under a hairline INSIDE the card — the
      band doesn't get an exemption from the rule that a derived number carries
      its reasoning. */
-  const untouched = !s.cards;
+  const untouched = !s.cards || s.completion <= 0;   // same rule as the home tile
   const band = `<div class="fb-card fb-card--key" style="padding:0">
     <div class="fb-band">
       ${bandMetric("Completion", untouched ? "—" : s.completion.toFixed(0), untouched ? "" : "%", `
@@ -1368,7 +1373,8 @@ function renderCoursePage() {
           <div class="fb-bar-track">${untouched ? "" : `<div class="fb-bar-fill" style="width:${s.completion}%; background:${MASTERY_HUE(s.completion)}"></div>`}</div>
           <span class="fb-bar-pct"${untouched ? ` style="color:var(--fb-muted)"` : ""}>${untouched ? "—" : `${s.completion.toFixed(0)}%`}</span>
         </div>
-        <div class="fb-body-sm" style="margin-top:10px">${untouched ? "no cards generated yet"
+        <div class="fb-body-sm" style="margin-top:10px">${!s.cards ? "no cards generated yet"
+          : untouched ? `${s.cards} cards waiting for their first review`
           : `${s.covered} of ${s.topicsTotal} covered · ${s.started} in progress`}</div>`)}
 
       ${bandMetric("Due now", s.due, "", `
