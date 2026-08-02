@@ -7,6 +7,7 @@ left is the fast-tier grader. Run: python server.py  →  http://localhost:5002
 import json
 import os
 import random
+import urllib.parse
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
@@ -25,12 +26,15 @@ from database import (
     save_annotation, get_annotations, update_annotation, delete_annotation,
     get_setting, set_setting, spread_backlog, get_due_cards,
     update_topic, split_topic, delete_topic, get_session_report_data,
+    get_topic, get_primer, save_primer, delete_primer, topics_with_primers,
     start_session, end_session, review_card, undo_review,
     save_topics, save_concepts, create_course, init_db,
     record_course_snapshot, get_course_trend, get_course_week,
 )
-from generation import parse_flashcards, extract_topic_concepts, generate_cards_for_topic
+from generation import (parse_flashcards, extract_topic_concepts,
+                        generate_cards_for_topic, generate_primer)
 from grading import grade_answer
+import llm_utils
 from llm_utils import complete_text
 from pdf_ingest import read_pdf, propose_topics
 
@@ -456,7 +460,7 @@ def _build_session_report(session_id=None):
         "ended_at": session["ended_at"],
         "missed": [{"card_id": r["card_id"], "question": r["question"], "answer": r["answer"],
                     "gap": r["gap"], "confidence": r["confidence"], "quality": r["quality"],
-                    "topic_title": r["topic_title"], "pdf_id": r["pdf_id"],
+                    "topic_title": r["topic_title"], "topic_id": r["topic_id"], "pdf_id": r["pdf_id"],
                     "page_start": r["page_start"], "page_end": r["page_end"]} for r in missed],
         "passed_questions": [r["question"] for r in passed],
         "text": "\n".join(lines),
@@ -746,6 +750,67 @@ def topics_generate_cards(topic_id):
                        answer=c["answer"], note_id=c.get("note_id")) for c in cards]
     return jsonify({"inserted": len(ids), "concepts": len(concepts),
                     "cards": [{"question": c["question"], "answer": c["answer"]} for c in cards]})
+
+
+def _primer_links(title, course_name):
+    """Where to go if the primer isn't enough.
+
+    These are SEARCH URLS built from the topic title, not links the model
+    produced. A language model cannot be trusted to emit a real URL — it will
+    produce plausible, dead ones, and a dead link in a study tool is worse than
+    no link because it costs a click to discover. A search always resolves, and
+    the student can see exactly what was searched for."""
+    q = f"{title} {course_name}".strip()
+    enc = urllib.parse.quote_plus
+    return [
+        {"label": "Wikipedia", "url": f"https://en.wikipedia.org/w/index.php?search={enc(title)}",
+         "note": "the written overview"},
+        {"label": "YouTube", "url": f"https://www.youtube.com/results?search_query={enc(q + ' explained')}",
+         "note": "someone drawing it"},
+        {"label": "Google", "url": f"https://www.google.com/search?q={enc(q + ' tutorial')}",
+         "note": "worked examples"},
+    ]
+
+
+@app.get("/api/topics/<int:topic_id>/primer")
+def topic_primer_get(topic_id):
+    """The cached primer, or 404. Never generates — generating is a POST, so a
+    page render can't quietly spend money."""
+    topic = get_topic(topic_id)
+    if topic is None:
+        return jsonify({"error": "no such topic"}), 404
+    primer = get_primer(topic_id)
+    if primer is None:
+        return jsonify({"error": "no primer yet"}), 404
+    primer["links"] = _primer_links(topic["title"], _course_name_for_topic(topic))
+    return jsonify(primer)
+
+
+@app.post("/api/topics/<int:topic_id>/primer")
+def topic_primer_make(topic_id):
+    """Generate (or regenerate with ?force=1) a topic's primer. One fast-tier
+    call, cached — opening the same topic again is free."""
+    topic = get_topic(topic_id)
+    if topic is None:
+        return jsonify({"error": "no such topic"}), 404
+    force = request.args.get("force") in ("1", "true")
+    existing = get_primer(topic_id)
+    if existing and not force:
+        existing["links"] = _primer_links(topic["title"], _course_name_for_topic(topic))
+        return jsonify(existing)
+    try:
+        primer = generate_primer(topic_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 422
+    save_primer(topic_id, primer, model=llm_utils.FAST_MODEL)
+    saved = get_primer(topic_id)
+    saved["links"] = _primer_links(topic["title"], _course_name_for_topic(topic))
+    return jsonify(saved)
+
+
+def _course_name_for_topic(topic):
+    course = next((c for c in get_courses() if c["id"] == topic["course_id"]), None)
+    return course["name"] if course else ""
 
 
 @app.get("/api/pdf/<int:pdf_id>")

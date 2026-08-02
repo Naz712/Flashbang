@@ -212,6 +212,24 @@ def init_db():
         )
     """)
 
+    # TOPIC PRIMER — the "don't go in blind" card: a gist, a concrete analogy
+    # with its mapping AND where it breaks, the ideas you'll meet, and what you
+    # want to already know. One row per topic, generated once and cached, so
+    # opening a topic twice costs nothing.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS topic_primers (
+            topic_id   INTEGER PRIMARY KEY REFERENCES topics(id) ON DELETE CASCADE,
+            gist       TEXT NOT NULL,
+            analogy    TEXT NOT NULL,
+            mapping    TEXT NOT NULL,   -- JSON [{"this": ..., "is": ...}]
+            breaks     TEXT,            -- where the analogy stops being true
+            ideas      TEXT NOT NULL,   -- JSON [str]
+            prereq     TEXT,
+            model      TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     # migrations for pre-existing databases
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('cards') WHERE name='prev_state'")
     if cursor.fetchone()["n"] == 0:
@@ -685,6 +703,61 @@ def get_topic(topic_id):
     row = cursor.fetchone()
     conn.close()
     return row
+
+
+def get_primer(topic_id):
+    """The cached primer for a topic, or None. JSON columns come back parsed."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM topic_primers WHERE topic_id = ?", (topic_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    d = dict(row)
+    d["mapping"] = json.loads(d["mapping"] or "[]")
+    d["ideas"] = json.loads(d["ideas"] or "[]")
+    return d
+
+
+def save_primer(topic_id, primer, model=None):
+    """Write (or replace) a topic's primer. Replacing is how 'regenerate' works,
+    so a primer never accumulates duplicates."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO topic_primers (topic_id, gist, analogy, mapping, breaks, ideas,
+                                   prereq, model, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(topic_id) DO UPDATE SET
+            gist=excluded.gist, analogy=excluded.analogy, mapping=excluded.mapping,
+            breaks=excluded.breaks, ideas=excluded.ideas, prereq=excluded.prereq,
+            model=excluded.model, created_at=excluded.created_at
+    """, (topic_id, primer.get("gist", ""), primer.get("analogy", ""),
+          json.dumps(primer.get("mapping", [])), primer.get("breaks"),
+          json.dumps(primer.get("ideas", [])), primer.get("prereq"),
+          model, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def delete_primer(topic_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM topic_primers WHERE topic_id = ?", (topic_id,))
+    conn.commit()
+    conn.close()
+
+
+def topics_with_primers(topic_ids=None):
+    """Which topics already have a primer — so the UI can mark them without
+    fetching every primer body."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT topic_id FROM topic_primers")
+    ids = {r["topic_id"] for r in cursor.fetchall()}
+    conn.close()
+    return ids if topic_ids is None else ids & set(topic_ids)
 
 
 def update_topic(topic_id, title=None, summary=None, est_minutes=None,
@@ -1263,7 +1336,7 @@ def get_session_report_data(session_id=None):
     cursor.execute("""
         SELECT answer_log.quality, answer_log.confidence, answer_log.gap,
                cards.id AS card_id, cards.question, cards.answer,
-               topics.title AS topic_title,
+               topics.title AS topic_title, topics.id AS topic_id,
                COALESCE(notes.page_start, topics.page_start) AS page_start,
                COALESCE(notes.page_end, topics.page_end) AS page_end,
                cards.pdf_id, pdfs.filename, courses.name AS course_name

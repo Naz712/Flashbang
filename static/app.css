@@ -528,6 +528,23 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-thumb--on canvas, .fb-thumb--on .fb-thumb-box { border-color: var(--fb-accent); }
 .fb-thumb--on .fb-thumb-n { color: var(--fb-ink); font-weight: 600; }
 
+/* THE PRIMER — pinned above page 1. The analogy is the centre of gravity, so
+   it gets the page tint and the room; everything else supports it. */
+.fb-primer-slot { align-self: stretch; max-width: 920px; width: 100%; margin: 0 auto 8px; }
+.fb-primer { width: 100%; }
+.fb-primer-head { display: flex; align-items: center; gap: 10px; }
+.fb-primer-gist { font-size: 15px; line-height: 1.6; color: var(--fb-ink); margin-top: 14px; }
+.fb-primer-analogy { margin-top: 18px; padding: 16px 18px; border-radius: var(--fb-r-card);
+  background: var(--fb-page); }
+.fb-primer-map { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.fb-primer-map-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fb-primer-map-this { font-size: 12.5px; font-weight: 600; color: var(--fb-ink); }
+.fb-primer-map-arrow { font-family: var(--fb-mono); font-size: 11px; color: var(--fb-muted); flex: none; }
+.fb-primer-map-is { font-size: 12.5px; color: var(--fb-slate); flex: 1; min-width: 140px; }
+/* the limits of the analogy, marked so they cannot be skimmed past */
+.fb-primer-breaks { margin-top: 14px; padding-top: 12px; border-top: 1.5px solid var(--fb-hairline);
+  font-size: 12.5px; line-height: 1.6; color: var(--fb-slate); }
+
 /* cards, list pane: a row is a mastery square, the question clamped to two
    lines, and its schedule. Selected takes the 2px cobalt left rule and the page
    tint — the same selected-state language the nav rail uses. */

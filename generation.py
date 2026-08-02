@@ -186,6 +186,65 @@ Respond with ONLY a JSON array. No markdown fences, no preamble:
     return call_for_json(prompt, max_tokens=2000, purpose="pretest")
 
 
+def generate_primer(topic_id):
+    """The 'don't go in blind' card for a topic: a gist, ONE concrete analogy
+    with its mapping and its limits, the ideas you'll meet, and the assumed
+    prior knowledge.
+
+    Why this exists: comprehension depends on having somewhere to put new
+    information (Ausubel's advance organizers; Mayer's pre-training principle).
+    Reading cold means decoding sentence by sentence with nothing to attach
+    them to.
+
+    Why the analogy carries a MAPPING and a BREAKS field: an unbounded analogy
+    is how misconceptions get installed. A student who is told 'an electron is
+    a planet' and never told where that stops will defend the orbit later. The
+    mapping makes the correspondence explicit and `breaks` marks the edge.
+
+    One fast-tier call, cached in topic_primers — opening a topic twice is free.
+    """
+    text, topic = get_topic_text(topic_id)
+    course_name = _course_name(topic["course_id"])
+    if not text.strip():
+        raise ValueError("No stored page text for this topic")
+    excerpt = text[:18_000]
+
+    prompt = f"""Write a PRIMER for a student who is about to read this material for the first time and currently knows nothing about it. Topic: "{topic['title']}" (course: {course_name}).
+
+The primer is read BEFORE the material. Its whole job is to give the student somewhere to put what they are about to read.
+
+Write:
+
+1. "gist" — 2-3 sentences. What is this topic actually about, and what does it let you DO once you have it? Plain language, no jargon that the material itself hasn't earned yet. Do not say "this topic covers"; say what the idea IS.
+
+2. "analogy" — ONE concrete, everyday analogy that paints a picture. 2-3 sentences. It must be something an ordinary person has physically seen or done — a kitchen, a post office, a queue, a set of drawers, a recipe. NOT another technical domain. Make it specific and visual: a named object doing a named thing, not "it's like a system that processes data".
+
+3. "mapping" — 3-4 pairs tying the analogy to the real thing, so the picture actually teaches instead of just decorating. Each pair: "this" = the part of the analogy, "is" = what it corresponds to in the material.
+
+4. "breaks" — one sentence naming where the analogy stops being true. This is required. An analogy nobody bounded is how a misconception gets installed.
+
+5. "ideas" — 3-5 short names of the specific things the student will meet in the reading (terms, mechanisms, distinctions). Two to five words each. These are hooks, not definitions.
+
+6. "prereq" — one sentence: what the student is assumed to already know walking in. If genuinely nothing, say so plainly.
+
+Ground everything in the excerpt. If the excerpt is thin, write a shorter primer rather than inventing material.
+
+<excerpt>
+{excerpt}
+</excerpt>
+
+OUTPUT FORMAT:
+Respond with ONLY a JSON object. No markdown fences, no preamble:
+{{"gist": "<string>",
+ "analogy": "<string>",
+ "mapping": [{{"this": "<part of the analogy>", "is": "<what it maps to>"}}],
+ "breaks": "<string>",
+ "ideas": ["<string>"],
+ "prereq": "<string>"}}
+"""
+    return call_for_json(prompt, fast=True, max_tokens=1200, purpose="topic primer")
+
+
 def parse_flashcards(text):
     """Parse pasted flashcards (NotebookLM output, Anki exports, hand-typed
     lists) into [{'question','answer'}]. Deterministic formats first:

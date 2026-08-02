@@ -525,7 +525,7 @@ function reportGap(it) {
     <div style="display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap">
       <button class="fb-btn fb-btn--ghost" style="padding:6px 11px; font-size:11.5px"
         title="Open ${esc(it.topic_title)} at these pages in the reader"
-        onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}')">Re-read p.${it.page_start}–${it.page_end}</button>
+        onclick="openTopic(${it.pdf_id}, ${it.page_start}, ${it.page_end}, '${encT(it.topic_title)}', ${it.topic_id ?? "null"})">Re-read p.${it.page_start}–${it.page_end}</button>
       ${it.quality < 3 ? `<span class="fb-data" style="font-size:11px; color:var(--fb-muted)">reset to 1d</span>` : ""}
     </div>
   </div>`;
@@ -630,7 +630,7 @@ function renderSessionReport() {
           <div style="flex:1; min-height:14px"></div>
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
             ${missed.length ? `<button class="fb-btn" title="Open ${esc(missed[0].topic_title)} at its pages"
-              onclick="openTopic(${missed[0].pdf_id}, ${missed[0].page_start}, ${missed[0].page_end}, '${encT(missed[0].topic_title)}')">Open the reader</button>` : ""}
+              onclick="openTopic(${missed[0].pdf_id}, ${missed[0].page_start}, ${missed[0].page_end}, '${encT(missed[0].topic_title)}', ${missed[0].topic_id ?? "null"})">Open the reader</button>` : ""}
             <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px"
               onclick="copyReport(${rep.session_id}, this)"
               title="Copy a ready-made coaching prompt — paste it into a tutor chat and let THEM burn the tokens explaining">Copy tutor prompt</button>
@@ -1433,7 +1433,7 @@ function renderCoursePage() {
         + p.topics.map((t) => {
           const general = t.kind === "general";
           return `<div class="fb-topic-row" style="cursor:pointer" title="Open p.${t.pages} in the reader"
-              onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}')">
+              onclick="openTopic(${p.pdf_id}, ${t.pages.split("-")[0]}, ${t.pages.split("-")[1]}, '${encT(t.title)}', ${t.id})">
             <input type="checkbox" class="fb-topic-check" title="Tick topics, then download them together as one PDF"
               onclick="event.stopPropagation(); toggleReadSel(${t.id})" ${S.readSel.has(t.id) ? "checked" : ""}>
             <span class="fb-dot" style="background:${general ? "var(--fb-hairline)" : MASTERY_HUE(t.mastery_pct)}"></span>
@@ -2402,7 +2402,7 @@ window.deleteAnnotation = async (annId) => {
   renderReadSide();
 };
 
-window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
+window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) => {
   RD.pdfId = pdfId;
   RD.title = decodeURIComponent(encTitle);
   RD.start = pageStart;
@@ -2421,6 +2421,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   $("rdCourse").textContent = doc ? doc.course : "Course";
   $("rdPages").innerHTML = `<div class="fb-body-sm" style="padding:40px">Loading pages…</div>`;
   $("rdThumbs").innerHTML = "";
+  loadPrimer(topicId);   // cached only — generating stays a button
   BO.pdfId = pdfId;
   BO.edit = false;
   BO.revealAll = false;
@@ -2463,6 +2464,118 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle) => {
   await buildReaderPages();
 };
 
+/* ---------------------------------------------------------------- the primer
+   The "don't go in blind" card, pinned above page 1 — the moment before you
+   read is the only moment it helps. Comprehension needs somewhere to PUT new
+   information (Ausubel's advance organizers, Mayer's pre-training principle);
+   reading cold is decoding sentence by sentence with nothing to attach them to.
+
+   Generated once per topic and cached, so re-opening costs nothing. */
+const PR = { topicId: null, data: null, busy: false, open: true };
+
+function primerHTML() {
+  if (!PR.topicId) return "";
+  const p = PR.data;
+  if (!p) {
+    return `<div class="fb-card fb-card--key fb-primer" id="rdPrimer">
+      <div class="fb-primer-head">
+        <span class="fb-label">Before you read</span>
+        <span style="flex:1"></span>
+        <button class="fb-btn" style="padding:7px 14px; font-size:12px" ${PR.busy ? "disabled" : ""}
+          onclick="makePrimer()" title="One fast-model call over this topic's pages. Measured at $0.0003 — cached after that, so re-opening is free.">
+          ${PR.busy ? "Painting the picture…" : "◎ Paint me a picture"}</button>
+      </div>
+      <div class="fb-body-sm" style="margin-top:12px">Going in cold means every new fact arrives with
+        nowhere to attach. This writes you the gist, one concrete analogy with its limits, and the ideas
+        you're about to meet — one measured $0.0003 of model call, then free forever.</div>
+    </div>`;
+  }
+  return `<div class="fb-card fb-card--key fb-primer" id="rdPrimer">
+    <div class="fb-primer-head">
+      <span class="fb-label">Before you read</span>
+      <span style="flex:1"></span>
+      <button class="fb-icon-btn" onclick="regenPrimer()" ${PR.busy ? "disabled" : ""}
+        title="Write a different primer — replaces this one (~$0.0003)">${PR.busy ? "…" : "↻ Redo"}</button>
+      <button class="fb-icon-btn" onclick="togglePrimer()" title="Collapse">${PR.open ? "▾" : "▸"}</button>
+    </div>
+    ${PR.open ? `
+      <div class="fb-primer-gist">${esc(p.gist)}</div>
+
+      <div class="fb-primer-analogy">
+        <div class="fb-label" style="margin-bottom:8px">Picture it like this</div>
+        <div style="font-size:14px; line-height:1.65">${esc(p.analogy)}</div>
+        ${p.mapping?.length ? `<div class="fb-primer-map">
+          ${p.mapping.map((m) => `<div class="fb-primer-map-row">
+            <span class="fb-primer-map-this">${esc(m.this)}</span>
+            <span class="fb-primer-map-arrow">→</span>
+            <span class="fb-primer-map-is">${esc(m.is)}</span>
+          </div>`).join("")}
+        </div>` : ""}
+        ${p.breaks ? `<div class="fb-primer-breaks"><b>Where it breaks:</b> ${esc(p.breaks)}</div>` : ""}
+      </div>
+
+      ${p.ideas?.length ? `<div style="margin-top:18px">
+        <div class="fb-label" style="margin-bottom:10px">What you'll meet</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px">
+          ${p.ideas.map((i) => `<span class="fb-chip">${esc(i)}</span>`).join("")}
+        </div>
+      </div>` : ""}
+
+      ${p.prereq ? `<div class="fb-body-sm" style="margin-top:16px"><b>Assumed going in:</b> ${esc(p.prereq)}</div>` : ""}
+
+      ${p.links?.length ? `<div style="margin-top:18px">
+        <div class="fb-label" style="margin-bottom:10px">If this isn't enough</div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px">
+          ${p.links.map((l) => `<a class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px; text-decoration:none"
+            href="${l.url}" target="_blank" rel="noopener noreferrer">${esc(l.label)} <span style="color:var(--fb-muted)">· ${esc(l.note)}</span></a>`).join("")}
+        </div>
+      </div>` : ""}
+
+      <div class="fb-evidence">A rough model first is what makes reading comprehension rather than decoding
+        (Ausubel's advance organizers; Mayer's pre-training principle). The analogy carries its own limits
+        on purpose — an unbounded analogy is how a misconception gets installed. The links are SEARCHES
+        built from the topic title, not addresses the model invented, so none of them can be dead.</div>
+    ` : `<div class="fb-body-sm" style="margin-top:10px">${esc(p.gist)}</div>`}
+  </div>`;
+}
+
+function paintPrimer() {
+  const slot = $("rdPrimerSlot");
+  if (slot) slot.innerHTML = primerHTML();
+}
+
+window.togglePrimer = () => { PR.open = !PR.open; paintPrimer(); };
+
+window.makePrimer = async (force) => {
+  if (PR.busy || !PR.topicId) return;
+  PR.busy = true;
+  paintPrimer();
+  const res = await fetch(`/api/topics/${PR.topicId}/primer${force ? "?force=1" : ""}`, { method: "POST" })
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  PR.busy = false;
+  if (res) { PR.data = res; PR.open = true; }
+  paintPrimer();
+  if (!res) alert("Couldn't write the primer — the topic may have no stored page text.");
+};
+
+window.regenPrimer = () => {
+  if (!confirm("Replace this primer with a fresh one? (~$0.0003)")) return;
+  makePrimer(true);
+};
+
+/* Cached primers load with the topic; generating is always a button, so
+   opening a document can never quietly spend money. */
+async function loadPrimer(topicId) {
+  PR.topicId = topicId;
+  PR.data = null;
+  PR.busy = false;
+  PR.open = true;
+  if (!topicId) return;
+  PR.data = await fetch(`/api/topics/${topicId}/primer`)
+    .then((r) => r.ok ? r.json() : null).catch(() => null);
+  paintPrimer();
+}
+
 /* Continuous vertical scroll. Every page in the range gets its wrapper up
    front so scroll height is correct and the boxes have somewhere to live, but
    canvases PAINT LAZILY through an IntersectionObserver — a 100-page document
@@ -2473,6 +2586,13 @@ async function buildReaderPages() {
   host.innerHTML = "";
   host.onscroll = null;
   RD.io?.disconnect();
+
+  // the primer sits above page 1 — before you read is the only place it helps
+  const slot = document.createElement("div");
+  slot.id = "rdPrimerSlot";
+  slot.className = "fb-primer-slot";
+  host.appendChild(slot);
+  paintPrimer();
 
   const nums = [];
   for (let p = RD.start; p <= RD.end; p++) nums.push(p);
