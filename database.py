@@ -291,6 +291,13 @@ def init_db():
     """)
 
     # migrations for pre-existing databases
+    # how a blackout was measured: 'norm' = stored as drawn (0-1 coords);
+    # 'text' = snapped to the word rects under the drag at creation. The mode
+    # is decided per BOX when it is drawn and never recomputed — recomputing
+    # would let a box silently change behaviour when the renderer changes.
+    cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('occlusions') WHERE name='mode'")
+    if cursor.fetchone()["n"] == 0:
+        cursor.execute("ALTER TABLE occlusions ADD COLUMN mode TEXT NOT NULL DEFAULT 'norm'")
     # what a pdf IS: lecture notes, a tutorial paper, or its answers. Notes are
     # the default so every existing row keeps behaving exactly as before.
     cursor.execute("SELECT COUNT(*) AS n FROM pragma_table_info('pdfs') WHERE name='kind'")
@@ -677,10 +684,13 @@ def get_annotation_counts():
 
 # ---------------------------------------------------------------- occlusions
 
-def save_occlusion(pdf_id, page_number, x, y, w, h):
+def save_occlusion(pdf_id, page_number, x, y, w, h, mode="norm"):
     """One blackout box over a page, coords normalized 0-1 relative to the
     rendered page box (so they survive any render width). Clamped server-side;
-    boxes smaller than 0.5% in either dimension are rejected as accidental."""
+    boxes smaller than 0.5% in either dimension are rejected as accidental.
+    mode='text' marks a box that was snapped to the words under the drag."""
+    if mode not in ("norm", "text"):
+        mode = "norm"
     x = max(0.0, min(1.0, float(x)))
     y = max(0.0, min(1.0, float(y)))
     w = max(0.0, min(1.0 - x, float(w)))
@@ -690,9 +700,9 @@ def save_occlusion(pdf_id, page_number, x, y, w, h):
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO occlusions (pdf_id, page_number, x, y, w, h, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (pdf_id, int(page_number), x, y, w, h, now_iso()))
+        INSERT INTO occlusions (pdf_id, page_number, x, y, w, h, created_at, mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (pdf_id, int(page_number), x, y, w, h, now_iso(), mode))
     occ_id = cursor.lastrowid
     conn.commit()
     conn.close()

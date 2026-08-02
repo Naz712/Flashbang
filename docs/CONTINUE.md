@@ -48,11 +48,14 @@ in three parts (`4915b3c` `c076e0a` `19a9648`), Analytics (`ea2862c`), Cards
 CSS block. The four motion moments exist in the token layer and are mostly wired
 (5/5 reveal, report-in, week dots, ingest topic list).
 
-**Remaining: phase 6b — hybrid blackout measurement.** Agreed design: decide mode
-per BOX at creation (does the drawn rect intersect pdf.js word rects?), store the
-mode never recompute it, reuse the ingest sparse-text threshold, `occlusions` gains a
-`mode` column defaulting to `norm` (no backfill needed). Settled — build, don't
-re-discuss.
+**Phase 6b DONE — the design system is COMPLETE.** Hybrid blackouts: mode
+decided per BOX at creation (drag intersects pdf.js word rects → 'text': one
+box per line, snapped to exactly the words covered; no words → 'norm': stored
+as drawn). Text positions are fixed in PDF space and pages scale
+proportionally, so snapped-once normalized coords sit on their words at every
+width — no ResizeObserver needed (that machinery was for an HTML-reflow
+reader; ours is canvas). Mode stored, never recomputed. The 4th motion moment
+(ingest topic list staggering in) is wired — all four now live.
 
 Rules with teeth: colour = mastery or the one cobalt action, never decoration; every
 bar ships with its number; the em dash guards RETRIEVAL not card existence (0% with
@@ -78,7 +81,6 @@ carries its evidence line; no shadows; nothing rotated; only 5/5 animates.
 ## Open threads
 
 - **Push.** Sessions keep ending ahead of origin.
-- **6b** (above), then the design system is done.
 - **Review volume:** 4 timed answers logged; the personal sec/card baseline needs 6,
   calibration needs confidence-tagged answers, fluency needs 6. Two real sessions
   with the confidence buttons close all three. 17 RB2302 cards come due tomorrow.

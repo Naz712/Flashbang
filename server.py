@@ -1000,13 +1000,26 @@ def study_report(course_id):
                                for r in applied]})
 
 
+def _pdf_file(pdf):
+    """Resolve a pdf row to a real file. The stored path is absolute, so a
+    moved or renamed project folder strands every row — the uploads folder
+    travels with the app, so fall back to it by filename before giving up."""
+    if pdf and pdf["file_path"] and os.path.exists(pdf["file_path"]):
+        return pdf["file_path"]
+    if pdf:
+        local = os.path.join(UPLOAD_DIR, os.path.basename(pdf["file_path"] or pdf["filename"]))
+        if os.path.exists(local):
+            return local
+    return None
+
+
 @app.get("/api/pdf/<int:pdf_id>")
 def serve_pdf(pdf_id):
     """The original PDF file, for the in-app page viewer."""
-    pdf = get_pdf(pdf_id)
-    if pdf is None or not pdf["file_path"] or not os.path.exists(pdf["file_path"]):
+    path = _pdf_file(get_pdf(pdf_id))
+    if path is None:
         return jsonify({"error": "file not available"}), 404
-    return send_file(pdf["file_path"], mimetype="application/pdf")
+    return send_file(path, mimetype="application/pdf")
 
 
 @app.get("/api/pdf/<int:pdf_id>/text")
@@ -1229,7 +1242,8 @@ def annotations_delete(ann_id):
 @app.get("/api/occlusions/<int:pdf_id>")
 def occlusions_list(pdf_id):
     return jsonify([{"id": r["id"], "page": r["page_number"],
-                     "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]}
+                     "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"],
+                     "mode": r["mode"] if "mode" in r.keys() else "norm"}
                     for r in get_occlusions(pdf_id)])
 
 
@@ -1242,7 +1256,8 @@ def occlusions_create():
     try:
         occ_id = save_occlusion(pdf_id, body.get("page_number"),
                                 body.get("x"), body.get("y"),
-                                body.get("w"), body.get("h"))
+                                body.get("w"), body.get("h"),
+                                mode=body.get("mode", "norm"))
     except (TypeError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"id": occ_id})

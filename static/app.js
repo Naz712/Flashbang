@@ -37,6 +37,7 @@ const S = {
   courseTab: "notes",   // course page rail: notes | tutorials | elsewhere
   nblmText: "",         // course page: pasted NotebookLM report (survives re-renders)
   nblmMsg: null,        // last apply result line
+  ingested: null,       // finished-ingest previews, shown until dismissed
   cardTopics: [],       // topics for the move-to select
 };
 
@@ -1303,7 +1304,7 @@ function renderHome() {
       <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
         onclick="pickPdfs()" title="Upload PDFs — they segment into topics and save automatically">＋ Add PDFs</button>
     </div>
-    ${S.ingesting ? ingestBanner() : ""}
+    ${S.ingesting ? ingestBanner() : ingestedCard()}
     ${recap}
     <div class="fb-course-grid">${cards || `<div class="fb-card"><div class="fb-body">No courses yet. Add a PDF and Flashbang will read it, split it into topics with time estimates, and file them here.</div></div>`}</div>
     ${nudge}`;
@@ -1318,6 +1319,32 @@ function visionToggle() {
 }
 
 window.setForceVision = (on) => { S.forceVision = !!on; render(); };
+
+/* the fourth motion moment: ingest finished, the topic list builds in.
+   A PDF becoming topics is the app's best trick — the stagger is the one
+   place that transformation is allowed to show off. */
+function ingestedCard() {
+  if (!S.ingested?.length) return "";
+  let i = 0;
+  return `<div class="fb-card fb-card--key">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+      <span class="fb-label">Ingested — what your PDFs became</span>
+      <button class="fb-icon-btn" title="Dismiss" onclick="dismissIngested()">✕</button>
+    </div>
+    ${S.ingested.map((f) => `
+      <div class="fb-doc-name" style="margin:10px 0 6px">${esc(f.filename)}</div>
+      ${f.topics.map((t) => `
+        <div class="fb-topic-row fb-anim-topic" style="--i:${i++}">
+          <span class="fb-dot" style="background:${t.kind === "general" ? "var(--fb-hairline)" : "var(--fb-accent)"}"></span>
+          <span style="flex:1; min-width:0" class="fb-topic-title">${esc(t.title)}</span>
+          <span class="fb-data" style="color:var(--fb-muted); flex:none">p.${t.page_start}–${t.page_end} · ~${fmtMin(t.est_minutes)}</span>
+        </div>`).join("")}`).join("")}
+    <div class="fb-evidence">Minute estimates come from page density — sparse slides read faster than dense
+      text, and equations slower still. Fix any bad split with ✎ Split on the course page.</div>
+  </div>`;
+}
+
+window.dismissIngested = () => { S.ingested = null; render(); };
 
 function ingestBanner() {
   return `<div class="fb-card fb-card--sm fb-card--key" style="display:flex; align-items:center; gap:14px">
@@ -1584,7 +1611,7 @@ function renderCoursePage() {
       <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
         onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
     </div>
-    ${S.ingesting ? ingestBanner() : ""}
+    ${S.ingesting ? ingestBanner() : ingestedCard()}
     <div style="flex:none">${band}</div>
     <div class="fb-course-split">
       <div class="fb-crail">
@@ -2388,6 +2415,70 @@ function renderAnnBoxes(wrap, page) {
   });
 }
 
+/* ------------------------------------------------ hybrid blackout snapping
+   The mode is decided per BOX at the moment it is drawn, and stored:
+   - the drag intersects word rects  -> 'text': one box per LINE, snapped to
+     exactly the words covered. A wrapped phrase becomes two tight boxes
+     instead of one union rect covering everything between its fragments.
+   - it doesn't (diagram, margin, scanned page) -> 'norm': stored as drawn.
+   Text positions are FIXED in PDF page space and our pages scale
+   proportionally, so a box snapped once in normalized coords sits on its
+   words at every width — no re-measurement, ever. Snapping happens at
+   creation only; a stored box never changes behaviour later. */
+
+async function pageWordRects(n) {
+  if (RD.wordRects?.[n] !== undefined) return RD.wordRects[n];
+  RD.wordRects = RD.wordRects || {};
+  const doc = pdfDocCache[RD.pdfId];
+  if (!doc || RD.mode !== "pdf") return (RD.wordRects[n] = null);
+  try {
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    if (base.rotation % 360 !== 0) return (RD.wordRects[n] = null);  // rotated: fall back
+    const tc = await page.getTextContent();
+    const rects = [];
+    for (const it of tc.items) {
+      if (!it.str || !it.str.trim() || !it.width || !it.height) continue;
+      // transform[4],[5] = baseline origin in page space; y flips to top-left
+      rects.push({ x: it.transform[4] / base.width,
+                   y: 1 - (it.transform[5] + it.height) / base.height,
+                   w: it.width / base.width,
+                   h: it.height / base.height });
+    }
+    return (RD.wordRects[n] = rects.length ? rects : null);
+  } catch { return (RD.wordRects[n] = null); }
+}
+
+async function snapBlackout(pageN, box) {
+  const rects = await pageWordRects(pageN);
+  if (!rects) return [{ ...box, mode: "norm" }];
+  const hit = rects.filter((r) =>
+    r.x < box.x + box.w && r.x + r.w > box.x &&
+    r.y < box.y + box.h && r.y + r.h > box.y);
+  if (!hit.length) return [{ ...box, mode: "norm" }];
+  // group into lines by vertical centre — items on one line share a baseline
+  const lines = [];
+  for (const r of hit.sort((a, b) => (a.y - b.y) || (a.x - b.x))) {
+    const cy = r.y + r.h / 2;
+    const line = lines.find((L) => Math.abs(L.cy - cy) < Math.max(L.h, r.h) * 0.6);
+    if (line) {
+      line.x0 = Math.min(line.x0, r.x); line.x1 = Math.max(line.x1, r.x + r.w);
+      line.y0 = Math.min(line.y0, r.y); line.y1 = Math.max(line.y1, r.y + r.h);
+      line.h = Math.max(line.h, r.h);
+      line.cy = (line.y0 + line.y1) / 2;
+    } else {
+      lines.push({ x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h, h: r.h, cy });
+    }
+  }
+  const PX = 0.004, PY = 0.003;   // breathing room so descenders stay covered
+  return lines.map((L) => ({
+    x: Math.max(0, L.x0 - PX), y: Math.max(0, L.y0 - PY),
+    w: Math.min(1, L.x1 + PX) - Math.max(0, L.x0 - PX),
+    h: Math.min(1, L.y1 + PY) - Math.max(0, L.y0 - PY),
+    mode: "text",
+  }));
+}
+
 function wireDrawing(wrap) {
   if (wrap.dataset.wired) return;
   wrap.dataset.wired = "1";
@@ -2419,15 +2510,22 @@ function wireDrawing(wrap) {
       document.removeEventListener("mouseup", up);
       if (box.w < 0.01 || box.h < 0.01) { ghost.remove(); return; }   // a click, not a drag
       if (mode === "blackout") {
+        const pageN = +wrap.dataset.page;
+        // snap to the words under the drag when there are any; keep the
+        // drawn rect when there aren't. The ghost stays up while we measure
+        // so the box never appears to vanish and reappear.
+        const snapped = await snapBlackout(pageN, box);
         ghost.remove();
-        const res = await fetch("/api/occlusions", { method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pdf_id: BO.pdfId, page_number: +wrap.dataset.page, ...box }) });
-        if (!res.ok) return;
-        const { id } = await res.json();
-        const saved = { id, page: +wrap.dataset.page, ...box };
-        BO.boxes.push(saved);
-        renderBox(wrap, saved);
+        for (const b of snapped) {
+          const res = await fetch("/api/occlusions", { method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pdf_id: BO.pdfId, page_number: pageN, ...b }) });
+          if (!res.ok) continue;
+          const { id } = await res.json();
+          const saved = { id, page: pageN, ...b };
+          BO.boxes.push(saved);
+          renderBox(wrap, saved);
+        }
       } else {
         // the box stays as a dashed outline until the comment is saved
         AN.pending = { page: +wrap.dataset.page, box, ghost };
@@ -2483,6 +2581,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) =
   RD.mode = null;
   RD.textPages = null;
   RD.backView = S.view === "reader" ? RD.backView : S.view;   // where ‹ returns to
+  RD.wordRects = {};   // word-rect cache is per document
   S.view = "reader";
   render();
 
@@ -2960,7 +3059,14 @@ async function uploadPdfs(files) {
                                force_vision: S.forceVision }) })
         .then((r) => r.ok ? r.json() : null);
       if (!res) S.ingesting.failed.push(file.name);
-      else if (res.course_id) { course_id = res.course_id; course_name = null; }
+      else {
+        if (res.course_id) { course_id = res.course_id; course_name = null; }
+        if (res.preview?.topics?.length) {
+          (S.ingested = S.ingested || []).push({
+            filename: file.name, topics: res.preview.topics,
+            hours: res.preview.est_total_hours });
+        }
+      }
     } catch { S.ingesting.failed.push(file.name); }
     S.ingesting.done += 1;
   }

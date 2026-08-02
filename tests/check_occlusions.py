@@ -48,6 +48,17 @@ for bad in [(0.5, 0.5, 0.001, 0.2), (0.5, 0.5, 0.2, 0.0), (1.0, 0.5, 0.5, 0.2)]:
 database.delete_occlusion(occ2)
 assert [r["id"] for r in database.get_occlusions(pdf_id)] == [occ3, occ1]
 
+# ---- hybrid measurement mode: stored per box at creation, never recomputed
+mid = database.save_occlusion(pdf_id, 1, 0.1, 0.1, 0.2, 0.05, mode="text")
+rows = {r["id"]: r for r in database.get_occlusions(pdf_id)}
+assert rows[mid]["mode"] == "text", "text mode round-trips"
+nid = database.save_occlusion(pdf_id, 1, 0.4, 0.4, 0.1, 0.1)
+rows = {r["id"]: r for r in database.get_occlusions(pdf_id)}
+assert rows[nid]["mode"] == "norm", "mode defaults to norm"
+bid = database.save_occlusion(pdf_id, 1, 0.6, 0.6, 0.1, 0.1, mode="detached")
+rows = {r["id"]: r for r in database.get_occlusions(pdf_id)}
+assert rows[bid]["mode"] == "norm", "an unknown mode collapses to norm, never stored raw"
+
 # --- pdf delete cascades to its boxes
 database.delete_pdf(pdf_id)
 assert database.get_occlusions(pdf_id) == [], "boxes must die with their pdf"
