@@ -575,6 +575,43 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-primer-breaks { margin-top: 14px; padding-top: 12px; border-top: 1.5px solid var(--fb-hairline);
   font-size: 12.5px; line-height: 1.6; color: var(--fb-slate); }
 
+/* ---------------- fixed shells: the PANE scrolls, the page never does ----
+   The app-shell pattern Review and the reader already use, extended to the
+   course page and Cards. A whole-page scroll on a working screen buries the
+   controls; a pane scroll keeps the vitals and the rail always in reach. */
+.fb-fixed { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.fb-fixed-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  gap: var(--fb-gap-grid); max-width: var(--fb-content); width: 100%;
+  margin: 0 auto; padding: 28px 48px 24px; }
+
+/* course page: a small section rail (Notes / Tutorials / NotebookLM) beside
+   one scrolling pane — same selected-state language as the nav rail */
+.fb-course-split { flex: 1; min-height: 0; display: flex; gap: var(--fb-gap-grid); }
+.fb-crail { flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px;
+  padding-top: 2px; }
+.fb-crail-item { display: flex; align-items: center; gap: 10px; border: none; background: none;
+  border-left: 2px solid transparent; color: var(--fb-slate); font-family: var(--fb-sans);
+  font-size: var(--fb-body-sm); font-weight: 500; cursor: pointer; padding: 9px 10px;
+  width: 100%; text-align: left; white-space: nowrap; }
+.fb-crail-item:hover { color: var(--fb-ink); }
+.fb-crail-item--on { color: var(--fb-ink); font-weight: 600; border-left-color: var(--fb-accent); }
+.fb-crail-n { margin-left: auto; font-family: var(--fb-mono); font-size: 10px; font-weight: 600;
+  color: var(--fb-muted); }
+.fb-crail-item--on .fb-crail-n { color: var(--fb-ink); }
+.fb-course-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--fb-gap-grid); padding: 2px 4px 12px 2px; }
+@media (max-width: 900px) {
+  .fb-course-split { flex-direction: column; }
+  .fb-crail { width: auto; flex-direction: row; overflow-x: auto; }
+  .fb-crail-item { width: auto; border-left: none; border-bottom: 2px solid transparent; }
+  .fb-crail-item--on { border-bottom-color: var(--fb-accent); }
+}
+
+/* cards: the split fills the shell; each pane scrolls on its own */
+.fb-cards-fill { flex: 1; min-height: 0; }
+.fb-cards-fill > #cardList { overflow-y: auto; min-height: 0; max-height: 100%; padding-right: 2px; }
+.fb-cards-fill > #cardEditor { overflow-y: auto; min-height: 0; max-height: 100%; }
+
 /* cards, list pane: a row is a mastery square, the question clamped to two
    lines, and its schedule. Selected takes the 2px cobalt left rule and the page
    tint — the same selected-state language the nav rail uses. */
@@ -595,7 +632,7 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 
 /* review, deck state: a 320px rail of decks, today's card beside it */
 .fb-review-home { flex: 1; min-height: 0; display: flex; gap: var(--fb-gap-grid);
-  padding: 40px 48px 48px; overflow-y: auto; }
+  padding: 40px 48px 48px; overflow: hidden; }   /* the rail and the panel scroll, not the page */
 @media (max-width: 900px) {
   .fb-review-home { flex-direction: column; padding: 32px 24px 40px; }
   .fb-review-home > div:first-child { width: auto; }

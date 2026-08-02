@@ -34,6 +34,7 @@ const S = {
   importPreview: null,  // {cards, source} from the dry-run parse
   cards: [],            // cards screen data
   cardSel: null,        // cards screen: which card the editor is showing
+  courseTab: "notes",   // course page rail: notes | tutorials | elsewhere
   nblmText: "",         // course page: pasted NotebookLM report (survives re-renders)
   nblmMsg: null,        // last apply result line
   cardTopics: [],       // topics for the move-to select
@@ -336,12 +337,12 @@ function renderReviewHome() {
   const mins = Math.max(1, Math.round(dealing * b.sec_per_card / 60));
 
   home.innerHTML = `
-    <div style="flex:none; width:var(--fb-rail); display:flex; flex-direction:column; gap:10px">
+    <div style="flex:none; width:var(--fb-rail); display:flex; flex-direction:column; gap:10px; min-height:0; overflow-y:auto">
       <span class="fb-label">Decks</span>
       ${decks || `<div class="fb-card fb-card--sm"><div class="fb-body-sm">No decks yet — add PDFs from Home.</div></div>`}
     </div>
-    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--fb-gap-grid)">
-      <div class="fb-card fb-card--key">
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--fb-gap-grid); min-height:0; overflow-y:auto">
+      <div class="fb-card fb-card--key" style="flex:none">
         <div class="fb-label" style="margin-bottom:16px">Today's review</div>
         <div class="fb-numeral">${st.dueTotal}<small> cards due</small></div>
         <div class="fb-body-sm" style="margin-top:14px">${st.dueTotal === 0
@@ -1334,6 +1335,7 @@ window.openCourse = (courseId) => {
   S.readSel = new Set();
   S.editSplit = null;
   TUT.filter = { kind: null, value: null };
+  S.courseTab = "notes";
   render();
   loadTutorials();
 };
@@ -1524,20 +1526,11 @@ function renderCoursePage() {
         in the reader's sidebar.</div>`}
   </div>`;
 
-  $("courseInner").innerHTML = `
-    <div style="display:flex; align-items:center; gap:16px">
-      <div class="fb-crumbs">
-        <button class="fb-crumb" onclick="goHome()">Courses</button>
-        <span class="fb-crumb-sep">›</span>
-        <span class="fb-crumb fb-crumb--on">${esc(c.name)}</span>
-      </div>
-      <span style="flex:1"></span>
-      ${visionToggle()}
-      <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
-        onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
-    </div>
-    ${S.ingesting ? ingestBanner() : ""}
-    ${band}
+  /* Three sections behind a small rail — Notes (documents + reading),
+     Tutorials, and the NotebookLM round-trip — with ONE scrolling pane.
+     The header row and the metrics band stay fixed above it: the vitals
+     are always in reach, and the page itself never scrolls. */
+  const notesPane = `
     <div>
       <div class="fb-section-head" style="margin-bottom:18px">
         <span class="fb-label">Documents &amp; topics · click a topic to read</span>
@@ -1547,9 +1540,9 @@ function renderCoursePage() {
         : `<div class="fb-card"><div class="fb-body-sm">Nothing in this course yet. Hit ＋ Add PDFs and
             Flashbang will read, split and file them for you.</div></div>`}
     </div>
-    ${reading}
-    <div id="tutorialsInner"></div>
+    ${reading}`;
 
+  const nblmPane = `
     <div class="fb-card">
       <div class="fb-section-head" style="margin-bottom:14px">
         <span class="fb-label">Studied elsewhere · NotebookLM</span><span class="fb-rule"></span>
@@ -1572,8 +1565,47 @@ function renderCoursePage() {
         projection stays measured from cards only.</div>
     </div>`;
 
-  renderTutorials();
+  const tab = S.courseTab || "notes";
+  const nQ = TUT.questions.length;
+  const railItem = (key, label, count) => `
+    <button class="fb-crail-item${tab === key ? " fb-crail-item--on" : ""}" onclick="setCourseTab('${key}')">
+      ${label}${count ? `<span class="fb-crail-n">${count}</span>` : ""}
+    </button>`;
+
+  $("courseInner").innerHTML = `
+    <div style="display:flex; align-items:center; gap:16px; flex:none">
+      <div class="fb-crumbs">
+        <button class="fb-crumb" onclick="goHome()">Courses</button>
+        <span class="fb-crumb-sep">›</span>
+        <span class="fb-crumb fb-crumb--on">${esc(c.name)}</span>
+      </div>
+      <span style="flex:1"></span>
+      ${visionToggle()}
+      <button class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px"
+        onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
+    </div>
+    ${S.ingesting ? ingestBanner() : ""}
+    <div style="flex:none">${band}</div>
+    <div class="fb-course-split">
+      <div class="fb-crail">
+        ${railItem("notes", "Notes", docs.length)}
+        ${railItem("tutorials", "Tutorials", nQ ? `${nQ}q` : (TUT.list.length || ""))}
+        ${railItem("elsewhere", "NotebookLM", "")}
+      </div>
+      <div class="fb-course-pane" id="coursePane">
+        ${tab === "tutorials" ? `<div id="tutorialsInner"></div>`
+          : tab === "elsewhere" ? nblmPane
+          : notesPane}
+      </div>
+    </div>`;
+
+  if (tab === "tutorials") renderTutorials();
 }
+
+window.setCourseTab = (t) => {
+  S.courseTab = t;
+  renderCoursePage();
+};
 
 /* ---- assistant bubble: a scoped agent, only when you open it ---- */
 window.toggleAsst = () => {
@@ -1874,7 +1906,7 @@ function renderCardsScreen() {
     </div>
     ${importBox}
     ${newCardBox}
-    <div class="fb-cards-split">
+    <div class="fb-cards-split fb-cards-fill">
       <div id="cardList" style="display:flex; flex-direction:column"></div>
       <div id="cardEditor"></div>
     </div>`;
@@ -2080,10 +2112,10 @@ function render() {
   $("navDue").textContent = st.dueTotal;
   $("navDue").style.display = st.dueTotal ? "" : "none";
   $("homeScreen").style.display = S.view === "home" ? "block" : "none";
-  $("courseScreen").style.display = S.view === "course" ? "block" : "none";
+  $("courseScreen").style.display = S.view === "course" ? "flex" : "none";
   $("studyScreen").style.display = S.view === "study" ? "flex" : "none";
   $("progressScreen").style.display = S.view === "progress" ? "block" : "none";
-  $("cardsScreen").style.display = S.view === "cards" ? "block" : "none";
+  $("cardsScreen").style.display = S.view === "cards" ? "flex" : "none";
   $("readerScreen").style.display = S.view === "reader" ? "flex" : "none";
   // review screen: decks until a session starts, the chat while it runs, then
   // the report — three states, one on screen at a time
@@ -2991,7 +3023,9 @@ async function loadTutorials() {
   ]);
   TUT.list = tuts?.tutorials || [];
   TUT.questions = qs?.questions || [];
-  renderTutorials();
+  // repaint the course page, not just the list — the rail carries the counts
+  if (S.view === "course") renderCoursePage();
+  else renderTutorials();
 }
 
 window.copyStudyPrompt = async () => {
@@ -3104,6 +3138,10 @@ function renderTutorials() {
 
   const match = (q) => f.kind === "flag" ? q.flagged
     : f.kind === "topic" ? (q.topics || []).some((t) => t.id === f.value) : true;
+  /* A filter answers "show me these questions" — so show THEM. Matching
+     tutorials open themselves; tutorials with nothing to show disappear
+     instead of sitting there as empty shells to click through. */
+  const filtered = !!f.kind;
 
   const questionRow = (q) => `
     <div class="fb-q-row${q.flagged ? " fb-q-row--flagged" : ""}">
@@ -3152,8 +3190,8 @@ function renderTutorials() {
     ${filterBar}
     ${TUT.list.length ? TUT.list.map((t) => {
       const qs = all.filter((q) => q.tutorial_id === t.id).filter(match);
-      const open = TUT.open.has(t.id);
-      const hidden = all.filter((q) => q.tutorial_id === t.id).length - qs.length;
+      if (filtered && !qs.length) return "";
+      const open = filtered || TUT.open.has(t.id);
       return `<div class="fb-card fb-card--sm" style="margin-bottom:12px">
         <div style="display:flex; align-items:center; gap:12px; cursor:pointer" onclick="toggleTutorial(${t.id})">
           <span style="flex:none; width:14px; color:var(--fb-muted); font-family:var(--fb-mono); font-size:11px">${open ? "▾" : "▸"}</span>
@@ -3171,11 +3209,11 @@ function renderTutorials() {
         </div>
         ${open ? `<div style="margin-top:12px">
           ${qs.length ? qs.map(questionRow).join("")
-            : `<div class="fb-body-sm">${t.n_questions ? "No questions match this filter." : "No questions were found in this file."}</div>`}
-          ${hidden > 0 ? `<div class="fb-data" style="font-size:10.5px; color:var(--fb-muted); padding-top:10px">${hidden} hidden by the filter</div>` : ""}
+            : `<div class="fb-body-sm">No questions were found in this file.</div>`}
         </div>` : ""}
       </div>`;
-    }).join("")
+    }).join("") + (filtered && !all.some(match)
+      ? `<div class="fb-card"><div class="fb-body-sm">Nothing matches this filter.</div></div>` : "")
     : `<div class="fb-card"><div class="fb-body-sm">No tutorials yet. Add a problem sheet and it splits into
         individual questions, each tagged with the topics from your own notes — so when a topic goes weak you
         can pull up the questions that test it.</div></div>`}`;

@@ -87,9 +87,10 @@
     <div id="homeInner" class="fb-col"></div>
   </div>
 
-  <!-- one course: the metrics band across the top, documents below -->
-  <div id="courseScreen" class="fb-screen" style="display:none">
-    <div id="courseInner" class="fb-col"></div>
+  <!-- one course: vitals fixed on top, a section rail, and a PANE that
+       scrolls — the page itself never does -->
+  <div id="courseScreen" class="fb-fixed" style="display:none">
+    <div id="courseInner" class="fb-fixed-col"></div>
   </div>
 
   <!-- analytics: six tabbed sections on the bento grid -->
@@ -98,8 +99,8 @@
   </div>
 
   <!-- cards: list left, an editor that never moves when you pick another -->
-  <div id="cardsScreen" class="fb-screen" style="display:none">
-    <div id="cardsInner" class="fb-col" style="gap:20px"></div>
+  <div id="cardsScreen" class="fb-fixed" style="display:none">
+    <div id="cardsInner" class="fb-fixed-col" style="gap:20px"></div>
   </div>
 
   <!-- reader: a screen, not a modal. Continuous scroll, two collapsible rails. -->
