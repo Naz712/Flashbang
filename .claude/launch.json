@@ -5,7 +5,7 @@
       "name": "flashbang-main",
       "runtimeExecutable": "C:\\Users\\Nazzoom\\Desktop\\Flashbang-main\\flashbang\\Scripts\\python.exe",
       "runtimeArgs": [
-        "server.py"
+        "C:\\Users\\Nazzoom\\Desktop\\Flashbang-main\\server.py"
       ],
       "port": 5002
     }

@@ -1,10 +1,14 @@
 import json
+import os
 import sqlite3
 from datetime import datetime, timedelta
 import fsrs_adapter   # scheduler: FSRS @ desired_retention=0.95 (see /reference for the eval journey)
 import vector_store    # frameworks fork: Chroma replaces JSON embeddings + cosine
 
-DB_PATH = "flashbang.db"
+# Anchored to THIS FILE, not the working directory. A cwd-relative path means
+# a server launched from anywhere else silently creates a fresh empty database
+# and studies against it — the worst failure mode is one that doesn't error.
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flashbang.db")
 
 
 def get_conn():
