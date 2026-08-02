@@ -482,6 +482,20 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-bubble-bot .md-head, .fb-gcard-body .md-head { font-weight: 700; margin: 8px 0 4px; color: var(--fb-ink); }
 .fb-bubble-bot .md-gap, .fb-gcard-body .md-gap { height: 7px; }
 
+/* cards, list pane: a row is a mastery square, the question clamped to two
+   lines, and its schedule. Selected takes the 2px cobalt left rule and the page
+   tint — the same selected-state language the nav rail uses. */
+.fb-card-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
+  cursor: pointer; border-left: 2px solid transparent; border-radius: var(--fb-r-button);
+  background: var(--fb-canvas); }
+.fb-card-row + .fb-card-row { margin-top: 2px; }
+.fb-card-row:hover { background: var(--fb-page); }
+.fb-card-row--on { border-left-color: var(--fb-accent); background: var(--fb-page); }
+.fb-card-row:focus-visible { outline: var(--fb-focus); outline-offset: var(--fb-focus-offset); }
+.fb-card-dot { flex: none; width: 7px; height: 7px; border-radius: 2px; margin-top: 5px; }
+.fb-card-q { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; font-size: 12.5px; line-height: 1.45; color: var(--fb-ink); }
+
 /* review, report state: the sheet takes the screen the transcript had */
 .fb-review-report { flex: 1; min-height: 0; overflow-y: auto; padding: 40px 48px 48px; }
 @media (max-width: 900px) { .fb-review-report { padding: 32px 24px 40px; } }
@@ -657,13 +671,9 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .recap-num { font-family: 'IBM Plex Mono', monospace; font-size: 17px; font-weight: 600; }
 .recap-lbl { font-size: 10px; color: #8A8F9C; margin-top: 2px; }
 /* progress */
-.progress-wrap { flex: 1; min-height: 0; overflow-y: auto; }
-.progress { max-width: 1160px; margin: 0 auto; padding: 22px 26px 40px; display: flex;
-  flex-direction: column; gap: 14px; box-sizing: border-box; }
 .section-head { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
 .section-head .mono-label { letter-spacing: 2.2px; }
 .section-head .rule { flex: 1; height: 1px; background: #E3E3DE; }
-.week-day .lbl { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; color: #B0B4BE; }
 .course-card { border-radius: 14px; background: #fff; border: 1px solid #E3E3DE;
   box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 18px 20px; }
 .course-head { display: flex; align-items: center; gap: 11px; margin-bottom: 15px; }
@@ -698,30 +708,11 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .nudge { border-radius: 12px; background: #1C1E26; color: #E8E8E4; padding: 13px 16px;
   font-size: 11.5px; line-height: 1.6; }
 /* calibration chart */
-.cal-key { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5C616E; }
 /* recent sessions */
-.sess-row { display: flex; align-items: center; gap: 9px; }
 /* study metrics — heatmap / funnel / hardest cards */
-.hm-grid { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
 /* sweet-spot meter + exam chip */
-.sweet-track { position: relative; height: 8px; border-radius: 4px; background: #ECECE8; margin-top: 9px; }
 .exam-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 10px;
   border-radius: 999px; background: #F4F4F1; border: 1px solid #E3E3DE; white-space: nowrap; }
-/* sort/filter selects */
-.sort-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; color: #1C1E26;
-  background: #fff; border: 1px solid #E3E3DE; border-radius: 8px; padding: 5px 8px; cursor: pointer; }
-.sort-select:hover { border-color: #B0B4BE; }
-/* cards editor screen */
-.cardedit { border-radius: 12px; background: #fff; border: 1px solid #E3E3DE;
-  box-shadow: 0 1px 2px rgba(16,18,24,.04); padding: 13px 16px; display: flex;
-  flex-direction: column; gap: 8px; }
-.cardedit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.cardedit textarea { width: 100%; box-sizing: border-box; border: 1px solid #ECECE8;
-  border-radius: 8px; padding: 8px 11px; font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 12.5px; line-height: 1.55; resize: vertical; background: #FBFBF9; color: #1C1E26; }
-.cardedit textarea:focus { outline: none; border-color: #0072B2; background: #fff; }
-.cardedit .ce-q { font-weight: 600; }
-.ce-save:not(:disabled) { border-color: #1C1E26; background: #1C1E26; color: #fff; }
 .ce-save:disabled { opacity: .45; cursor: default; }
 /* slash-command palette */
 .cmd-palette { margin-bottom: 8px; border-radius: 12px; background: #fff; border: 1px solid #E3E3DE;

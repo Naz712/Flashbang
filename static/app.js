@@ -33,6 +33,7 @@ const S = {
   importText: "",       // survives re-renders
   importPreview: null,  // {cards, source} from the dry-run parse
   cards: [],            // cards screen data
+  cardSel: null,        // cards screen: which card the editor is showing
   cardTopics: [],       // topics for the move-to select
 };
 
@@ -1735,7 +1736,27 @@ async function loadCards() {
   ]);
   S.cards = cards;
   S.cardTopics = topics;
+  // keep the editor on the same card across a reload where that card survives;
+  // otherwise open the first, so the right pane is never pointlessly empty
+  if (!cards.some((c) => c.id === S.cardSel)) S.cardSel = cards.length ? cards[0].id : null;
   renderCardsScreen();
+}
+
+/* topics grouped under a bold header per source pdf (optgroup renders bold).
+   Module scope, not inside renderCardsScreen: the editor pane re-renders on
+   its own and needs to build the same select. */
+function groupedTopicOptions(topics, selectedId) {
+  const pdfName = {};
+  (S.state?.libCourses || []).forEach((c) => c.pdfs.forEach((p) => { pdfName[p.pdf_id] = p.filename; }));
+  const groups = new Map();
+  topics.forEach((t) => {
+    if (!groups.has(t.pdf_id)) groups.set(t.pdf_id, []);
+    groups.get(t.pdf_id).push(t);
+  });
+  return [...groups.entries()].map(([pid, list]) => `
+    <optgroup label="${esc(pdfName[pid] || `document ${pid}`)}">
+      ${list.map((t) => `<option value="${t.id}" ${selectedId === t.id ? "selected" : ""}>${esc(t.title)}</option>`).join("")}
+    </optgroup>`).join("");
 }
 
 function renderCardsScreen() {
@@ -1750,80 +1771,48 @@ function renderCardsScreen() {
     .flatMap((c) => c.pdfs);
   const pdfOpts = [`<option value="">All documents</option>`,
     ...coursePdfs.map((p) => `<option value="${p.pdf_id}" ${f.pdf_id === p.pdf_id ? "selected" : ""}>${esc(p.filename)}</option>`)];
-  // topics grouped under a bold header per source pdf (optgroup renders bold)
-  const pdfName = {};
-  st.libCourses.forEach((c) => c.pdfs.forEach((p) => { pdfName[p.pdf_id] = p.filename; }));
-  const groupedTopicOptions = (topics, selectedId) => {
-    const groups = new Map();
-    topics.forEach((t) => {
-      if (!groups.has(t.pdf_id)) groups.set(t.pdf_id, []);
-      groups.get(t.pdf_id).push(t);
-    });
-    return [...groups.entries()].map(([pid, list]) => `
-      <optgroup label="${esc(pdfName[pid] || `document ${pid}`)}">
-        ${list.map((t) => `<option value="${t.id}" ${selectedId === t.id ? "selected" : ""}>${esc(t.title)}</option>`).join("")}
-      </optgroup>`).join("");
-  };
-
   const pdfTopics = S.cardTopics.filter((t) => !f.pdf_id || t.pdf_id === f.pdf_id);
   const topicOpts = [`<option value="">All topics</option>`,
     groupedTopicOptions(pdfTopics, f.topic_id)];
 
-  const rows = S.cards.map((c) => {
-    const due = (c.next_review || "").slice(0, 10);
-    const moveOpts = groupedTopicOptions(S.cardTopics, c.topic_id);
-    return `
-    <div class="cardedit" data-id="${c.id}">
-      <div class="cardedit-head">
-        <span class="mono" style="font-size:10px; color:#8A8F9C">#${c.id} · ${esc(c.course_name)}</span>
-        <select class="sort-select ce-topic" title="Move to topic">${moveOpts}</select>
-        <span class="mono" style="font-size:10px; color:#8A8F9C">interval ${c.interval_days}d · due ${due}</span>
-        <span style="flex:1"></span>
-        <button class="ce-save conf-btn" disabled>Save</button>
-        <button class="ce-del icon-btn" title="Delete card">🗑</button>
-      </div>
-      <textarea class="ce-q" rows="2">${esc(c.question)}</textarea>
-      <textarea class="ce-a" rows="3">${esc(c.answer)}</textarea>
-    </div>`;
-  }).join("");
-
   // new-card form: topic select (grouped by pdf, defaults to the active filter)
   const newCardBox = S.showNewCard ? `
-    <div class="cardedit" id="newCard" style="border-color:#0072B2">
-      <div class="cardedit-head">
-        <span class="mono" style="font-size:10px; letter-spacing:1.4px; color:#005A8E; font-weight:600">NEW CARD</span>
-        <select class="sort-select" id="ncTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
+    <div class="fb-card fb-card--key fb-editor" id="newCard">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <span class="fb-label">New card</span>
+        <select class="fb-select" id="ncTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
         <span style="flex:1"></span>
-        <button class="conf-btn" id="ncCreate" style="border-color:#1C1E26; background:#1C1E26; color:#fff">Create</button>
-        <button class="icon-btn" id="ncCancel" title="Cancel">✕</button>
+        <button class="fb-btn" style="padding:6px 12px; font-size:11.5px" id="ncCreate">Create</button>
+        <button class="fb-icon-btn" id="ncCancel" title="Cancel">✕</button>
       </div>
-      <textarea class="ce-q" id="ncQ" rows="2" placeholder="Question…"></textarea>
-      <textarea class="ce-a" id="ncA" rows="3" placeholder="Answer…"></textarea>
-      <div style="display:flex; align-items:center; gap:10px">
-        <span style="font-size:10.5px; color:#8A8F9C">Files under the chosen topic — its PDF and course link automatically. First review: tomorrow.</span>
-        <span id="ncMsg" style="font-size:10.5px; color:#D55E00; font-weight:600"></span>
+      <textarea id="ncQ" rows="2" placeholder="Question…"></textarea>
+      <textarea id="ncA" rows="3" placeholder="Answer…"></textarea>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <span class="fb-body-sm">Files under the chosen topic — its PDF and course link automatically. First review: tomorrow.</span>
+        <span id="ncMsg" class="fb-data" style="font-size:11px; color:var(--fb-red)"></span>
       </div>
     </div>` : "";
 
   // paste-import panel (NotebookLM output, Anki exports, hand lists)
   const ip = S.importPreview;
-  const previewRows = ip && ip.cards.length ? ip.cards.slice(0, 8).map((c, i) => `
-    <div style="display:flex; gap:8px; font-size:11.5px; line-height:1.5; padding:6px 0; border-top:1px dashed #ECECE8">
-      <span class="mono" style="color:#8A8F9C; flex:none">${i + 1}.</span>
-      <span style="flex:1"><b>${esc(c.question)}</b><br>${esc(c.answer)}</span>
-    </div>`).join("") + (ip.cards.length > 8 ? `<div style="font-size:10.5px; color:#8A8F9C; padding-top:6px">…and ${ip.cards.length - 8} more</div>` : "") : "";
+  const previewRows = ip && ip.cards.length ? `<div style="margin-top:4px">` + ip.cards.slice(0, 8).map((c, i) => `
+    <div style="display:flex; gap:10px; font-size:12px; line-height:1.55; padding:9px 0; border-top:1.5px solid var(--fb-hairline)">
+      <span class="fb-data" style="color:var(--fb-muted); flex:none">${i + 1}.</span>
+      <span style="flex:1"><b>${esc(c.question)}</b><br><span style="color:var(--fb-slate)">${esc(c.answer)}</span></span>
+    </div>`).join("") + (ip.cards.length > 8
+      ? `<div class="fb-data" style="font-size:11px; color:var(--fb-muted); padding-top:8px">…and ${ip.cards.length - 8} more</div>` : "") + `</div>` : "";
   const importBox = S.showImport ? `
-    <div class="cardedit" id="importCard" style="border-color:#009E73">
-      <div class="cardedit-head">
-        <span class="mono" style="font-size:10px; letter-spacing:1.4px; color:#00794F; font-weight:600">IMPORT CARDS</span>
-        <select class="sort-select" id="imTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
+    <div class="fb-card fb-card--key fb-editor" id="importCard">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <span class="fb-label">Import cards</span>
+        <select class="fb-select" id="imTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
         <span style="flex:1"></span>
-        <button class="conf-btn" id="imPreview">Preview</button>
-        <button class="conf-btn" id="imInsert" ${ip && ip.cards.length ? `style="border-color:#1C1E26; background:#1C1E26; color:#fff"` : "disabled"}>Add ${ip ? ip.cards.length : 0} cards</button>
-        <button class="icon-btn" id="imCancel" title="Close">✕</button>
+        <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px" id="imPreview">Preview</button>
+        <button class="fb-btn" style="padding:6px 12px; font-size:11.5px" id="imInsert" ${ip && ip.cards.length ? "" : "disabled"}>Add ${ip ? ip.cards.length : 0} cards</button>
+        <button class="fb-icon-btn" id="imCancel" title="Close">✕</button>
       </div>
-      <textarea class="ce-a" id="imText" rows="6" placeholder="Paste flashcards here — NotebookLM output, Q:/A: pairs, or one card per line with a TAB, ' :: ', ';;' or '|' between question and answer.">${esc(S.importText)}</textarea>
-      <div style="font-size:10.5px; color:${ip && ip.source === "ai" ? "#8A6100" : "#8A8F9C"}" id="imMsg">${
+      <textarea id="imText" rows="6" placeholder="Paste flashcards here — NotebookLM output, Q:/A: pairs, or one card per line with a TAB, ' :: ', ';;' or '|' between question and answer.">${esc(S.importText)}</textarea>
+      <div class="fb-body-sm" id="imMsg">${
         ip ? (ip.cards.length
           ? `${ip.cards.length} card${ip.cards.length === 1 ? "" : "s"} ${ip.source === "ai" ? "AI-parsed — read them before adding" : "parsed"} · they file under the chosen topic, first review tomorrow`
           : "Nothing parsed — check the format or add Q:/A: markers.")
@@ -1832,18 +1821,26 @@ function renderCardsScreen() {
     </div>` : "";
 
   inner.innerHTML = `
-    <div class="section-head"><span class="mono-label">CARDS</span><div class="rule"></div>
-      <span class="mono" style="font-size:10.5px; color:#8A8F9C">${S.cards.length} shown</span>
-      <button id="importBtn" class="conf-btn">⇪ Import</button>
-      <button id="newCardBtn" class="conf-btn">+ New card</button></div>
+    <div class="fb-section-head">
+      <span class="fb-label">Cards</span><span class="fb-rule"></span>
+      <span class="fb-data" style="color:var(--fb-muted); font-size:11px">${S.cards.length} shown</span>
+      <button id="importBtn" class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px">⇪ Import</button>
+      <button id="newCardBtn" class="fb-btn fb-btn--ghost" style="padding:8px 14px; font-size:12px">＋ New card</button>
+    </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap">
-      <select id="cfCourse" class="sort-select">${courseOpts.join("")}</select>
-      <select id="cfPdf" class="sort-select">${pdfOpts.join("")}</select>
-      <select id="cfTopic" class="sort-select">${topicOpts.join("")}</select>
+      <select id="cfCourse" class="fb-select">${courseOpts.join("")}</select>
+      <select id="cfPdf" class="fb-select">${pdfOpts.join("")}</select>
+      <select id="cfTopic" class="fb-select">${topicOpts.join("")}</select>
     </div>
     ${importBox}
     ${newCardBox}
-    ${rows || `<div class="card" style="color:#8A8F9C; font-size:12.5px">No cards match this filter — generate some from the Study chat ("make cards for &lt;topic&gt;"), or use + New card.</div>`}`;
+    <div class="fb-cards-split">
+      <div id="cardList" style="display:flex; flex-direction:column"></div>
+      <div id="cardEditor"></div>
+    </div>`;
+
+  renderCardList();
+  renderCardEditor();
 
   $("newCardBtn").onclick = () => { S.showNewCard = !S.showNewCard; renderCardsScreen(); };
   $("importBtn").onclick = () => { S.showImport = !S.showImport; renderCardsScreen(); };
@@ -1915,36 +1912,116 @@ function renderCardsScreen() {
     loadCards();
   };
 
-  inner.querySelectorAll(".cardedit").forEach((box) => {
-    const id = +box.dataset.id;
-    const original = S.cards.find((c) => c.id === id);
-    const saveBtn = box.querySelector(".ce-save");
-    const changed = () =>
-      box.querySelector(".ce-q").value !== original.question ||
-      box.querySelector(".ce-a").value !== original.answer ||
-      +box.querySelector(".ce-topic").value !== original.topic_id;
-    box.addEventListener("input", () => { saveBtn.disabled = !changed(); });
-    box.querySelector(".ce-topic").addEventListener("change", () => { saveBtn.disabled = !changed(); });
-
-    saveBtn.onclick = async () => {
-      saveBtn.textContent = "Saving…";
-      await fetch(`/api/cards/${id}`, { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: box.querySelector(".ce-q").value,
-          answer: box.querySelector(".ce-a").value,
-          topic_id: +box.querySelector(".ce-topic").value,
-        }) });
-      saveBtn.textContent = "Saved ✓";
-      setTimeout(() => loadCards(), 500);
-    };
-    box.querySelector(".ce-del").onclick = async () => {
-      if (!confirm("Delete this card permanently?")) return;
-      await fetch(`/api/cards/${id}`, { method: "DELETE" });
-      loadCards();
-    };
-  });
 }
+
+/* The list. Colour here is INTERVAL MATURITY, not retention — there is no
+   per-card recall probability to show, and the interval sits in the same row
+   so the square never travels without its number. */
+const CARD_MATURITY = (days, reps) => !reps ? { hue: "var(--fb-hairline)", label: "new" }
+  : days < 7 ? { hue: "var(--fb-red)", label: "learning" }
+  : days < 21 ? { hue: "var(--fb-yellow)", label: "young" }
+  : { hue: "var(--fb-green)", label: "mature" };
+
+function renderCardList() {
+  const list = $("cardList");
+  if (!list) return;
+  if (!S.cards.length) {
+    list.innerHTML = `<div class="fb-card fb-card--sm"><div class="fb-body-sm">No cards match this filter —
+      make some from a topic's ⚡ Cards button on a course page, or use ＋ New card.</div></div>`;
+    return;
+  }
+  list.innerHTML = S.cards.map((c) => {
+    const m = CARD_MATURITY(c.interval_days, c.repetitions);
+    const due = c.next_review
+      ? new Date(c.next_review).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—";
+    const on = S.cardSel === c.id;
+    return `<div class="fb-card-row${on ? " fb-card-row--on" : ""}" data-id="${c.id}" role="button" tabindex="0"
+        onclick="selectCard(${c.id})" onkeydown="if(event.key==='Enter')selectCard(${c.id})">
+      <span class="fb-card-dot" style="background:${m.hue}" title="${m.label} · interval ${c.interval_days}d"></span>
+      <span style="flex:1; min-width:0">
+        <span class="fb-card-q">${esc(c.question)}</span>
+        <span class="fb-doc-meta" style="display:block">${esc(c.topic_title)} · ${c.interval_days}d · due ${due}</span>
+      </span>
+    </div>`;
+  }).join("");
+}
+
+/* The editor. It never moves when you pick another card — that steadiness is
+   the whole reason for the two-pane split, so selecting re-renders THIS pane
+   and the list's selected class, never the screen. */
+function renderCardEditor() {
+  const box = $("cardEditor");
+  if (!box) return;
+  const c = S.cards.find((x) => x.id === S.cardSel);
+  if (!c) {
+    box.innerHTML = `<div class="fb-card"><div class="fb-body-sm">Pick a card on the left to edit it.
+      The editor stays put as you move between cards.</div></div>`;
+    return;
+  }
+  const due = (c.next_review || "").slice(0, 10);
+  box.innerHTML = `<div class="fb-card fb-editor">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <span class="fb-data" style="color:var(--fb-muted); font-size:11px">#${c.id} · ${esc(c.course_name)}</span>
+      <span style="flex:1"></span>
+      <span class="fb-chip">interval ${c.interval_days}d</span>
+      <span class="fb-chip">due ${due}</span>
+    </div>
+    <div>
+      <div class="fb-label" style="margin-bottom:8px">Question</div>
+      <textarea class="ce-q" rows="3">${esc(c.question)}</textarea>
+    </div>
+    <div>
+      <div class="fb-label" style="margin-bottom:8px">Answer</div>
+      <textarea class="ce-a" rows="5">${esc(c.answer)}</textarea>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <select class="fb-select ce-topic" title="Move to topic">${groupedTopicOptions(S.cardTopics, c.topic_id)}</select>
+      <span style="flex:1"></span>
+      <button class="fb-btn ce-save" style="padding:8px 16px" disabled>Save</button>
+      <button class="fb-icon-btn ce-del" title="Delete card permanently">Delete</button>
+    </div>
+    ${fbEvidence("Editing the wording never resets the schedule — interval, due date and FSRS state are left exactly as they were, because a typo fix is not a failed recall.")}
+  </div>`;
+
+  const saveBtn = box.querySelector(".ce-save");
+  const changed = () =>
+    box.querySelector(".ce-q").value !== c.question ||
+    box.querySelector(".ce-a").value !== c.answer ||
+    +box.querySelector(".ce-topic").value !== c.topic_id;
+  box.addEventListener("input", () => { saveBtn.disabled = !changed(); });
+  box.querySelector(".ce-topic").addEventListener("change", () => { saveBtn.disabled = !changed(); });
+
+  saveBtn.onclick = async () => {
+    saveBtn.textContent = "Saving…";
+    const body = {
+      question: box.querySelector(".ce-q").value,
+      answer: box.querySelector(".ce-a").value,
+      topic_id: +box.querySelector(".ce-topic").value,
+    };
+    const res = await fetch(`/api/cards/${c.id}`, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) { saveBtn.textContent = "Failed — retry"; return; }
+    Object.assign(c, body);          // keep the row and the dirty check in step
+    saveBtn.textContent = "Saved ✓";
+    saveBtn.disabled = true;
+    renderCardList();                // the question may have changed in the list
+    setTimeout(() => { if (saveBtn.isConnected) saveBtn.textContent = "Save"; }, 1600);
+  };
+  box.querySelector(".ce-del").onclick = async () => {
+    if (!confirm("Delete this card permanently?")) return;
+    await fetch(`/api/cards/${c.id}`, { method: "DELETE" });
+    S.cardSel = null;
+    loadCards();
+  };
+}
+
+window.selectCard = (id) => {
+  S.cardSel = id;
+  // only the row classes and the editor change — the screen does not re-render
+  document.querySelectorAll("#cardList .fb-card-row").forEach((r) =>
+    r.classList.toggle("fb-card-row--on", +r.dataset.id === id));
+  renderCardEditor();
+};
 
 /* ---------------------------------------------------------------- shell */
 
