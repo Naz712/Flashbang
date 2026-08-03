@@ -135,15 +135,17 @@ function gradeSection(label, text, kind = "plain") {
   if (!text) return "";
   const m = GMARK[kind] || GMARK.plain;
   const hook = kind === "hook";
-  return `<div style="display:grid; grid-template-columns:18px 1fr; gap:14px; padding:14px 24px;
-      ${hook ? "border-top:1.5px solid var(--fb-hairline)" : ""}">
-    <span style="width:18px; height:18px; border-radius:4px; background:${m.fill};
+  /* compact: the whole grade card must fit one screen (Naz), so sections are
+     one tight row each — small marker, small type, minimal padding */
+  return `<div style="display:grid; grid-template-columns:14px 1fr; gap:10px; padding:7px 16px;
+      ${hook ? "border-top:1.5px solid var(--fb-hairline); padding-top:9px" : ""}">
+    <span style="width:14px; height:14px; border-radius:3px; background:${m.fill};
       border:1.5px solid ${m.border}; display:flex; align-items:center; justify-content:center;
-      font-size:11px; font-weight:700; color:var(--fb-ink); margin-top:2px">${m.glyph}</span>
+      font-size:9px; font-weight:700; color:var(--fb-ink); margin-top:2px">${m.glyph}</span>
     <div style="min-width:0">
-      <div class="fb-label" style="margin-bottom:6px">${label}</div>
-      <div style="font-size:13.5px; line-height:1.6; color:${hook ? "var(--fb-ink)" : "var(--fb-slate)"};
-        font-weight:${hook ? 600 : 400}">${esc(text)}</div>
+      <span class="fb-label" style="font-size:9px; margin-right:8px">${label}</span><span
+        style="font-size:12.5px; line-height:1.5; color:${hook ? "var(--fb-ink)" : "var(--fb-slate)"};
+        font-weight:${hook ? 600 : 400}">${esc(text)}</span>
     </div>
   </div>`;
 }
@@ -153,34 +155,14 @@ function gradeSection(label, text, kind = "plain") {
    consequence of the grade is one alignment rather than two bars to compare.
    A shortened interval is information, not a telling-off: nothing here is red. */
 function gradeSchedule(sc) {
-  const from = Math.max(0, sc.old_interval || 0), to = Math.max(0, sc.new_interval || 0);
-  const max = Math.max(from, to, 1);
-  const nowPct = to / max * 100, wasPct = from / max * 100;
-  const tick = (pct, text, strong) => `<span style="position:absolute; ${pct > 92
-      ? "right:0" : `left:${pct}%; transform:translateX(-50%)`}; white-space:nowrap;
-    color:var(--fb-${strong ? "ink" : "muted"}); font-weight:${strong ? 600 : 400}">${text}</span>`;
-  const note = to === from ? `Same interval as before — the grade held it where it was.`
-    : to > from ? `${to} days instead of ${from}. Recalling it cleanly pushes the card further out — that is the whole consequence of this grade.`
-    : `${to} day${to === 1 ? "" : "s"} instead of ${from}. A partial answer pulls the card back in — that is the whole consequence of this grade.`;
-  return `<div style="margin:0 24px; padding:16px 0 20px; border-top:1.5px solid var(--fb-hairline)">
-    <div class="fb-label" style="margin-bottom:10px">Next review</div>
-    <div style="display:flex; align-items:baseline; gap:9px; margin-bottom:16px">
-      <span style="font-family:var(--fb-mono); font-size:26px; font-weight:700; letter-spacing:-1px; line-height:1">in ${to} day${to === 1 ? "" : "s"}</span>
-      ${sc.next_review ? `<span class="fb-data" style="font-size:13px; color:var(--fb-muted)">· ${esc(sc.next_review)}</span>` : ""}
-    </div>
-    <div style="position:relative; height:22px; margin-bottom:8px">
-      <span style="position:absolute; left:0; right:0; top:9px; height:3px; background:var(--fb-hairline); border-radius:2px"></span>
-      <span style="position:absolute; left:0; width:${nowPct}%; top:9px; height:3px; background:var(--fb-ink); border-radius:2px"></span>
-      <span style="position:absolute; left:0; top:4px; width:3px; height:13px; background:var(--fb-ink)"></span>
-      <span style="position:absolute; left:calc(${wasPct}% - 1.5px); top:4px; width:3px; height:13px; background:var(--fb-hairline)"></span>
-      <span style="position:absolute; left:calc(${nowPct}% - 1.5px); top:0; width:3px; height:21px; background:var(--fb-ink)"></span>
-    </div>
-    <div style="position:relative; height:14px; font-family:var(--fb-mono); font-size:10px; letter-spacing:.6px; text-transform:uppercase">
-      <span style="position:absolute; left:0; color:var(--fb-muted)">today</span>
-      ${tick(wasPct, `${from}d · was`, false)}
-      ${tick(nowPct, `${to}d · now`, true)}
-    </div>
-    <div class="fb-body-sm" style="margin-top:14px">${note}</div>
+  /* One line, no diagram. The ghost-tick track, the postponed-to date and the
+     consequence sentence were removed at Naz's request — the interval alone
+     carries the signal, and the card must fit one screen. */
+  const to = Math.max(0, sc.new_interval || 0);
+  return `<div style="margin:0 16px; padding:8px 0 10px; border-top:1.5px solid var(--fb-hairline);
+      display:flex; align-items:baseline; gap:10px">
+    <span class="fb-label">Next review</span>
+    <span style="font-family:var(--fb-mono); font-size:15px; font-weight:700">in ${to} day${to === 1 ? "" : "s"}</span>
   </div>`;
 }
 
@@ -206,7 +188,7 @@ function renderMsg(m) {
         + (m.calibration ? `<div class="fb-gcard-meta">${esc(m.calibration)}</div>` : "")
       : `<div class="fb-gcard-body">${md(m.text)}</div>`;
     return `<div class="fb-row-bot"><div class="fb-gcard ${good ? "fb-gcard--correct" : "fb-gcard--partial"}${m.grade === 5 ? " fb-anim-grade5" : ""}">
-      <div style="display:flex; align-items:center; gap:12px; padding:18px 24px 4px">
+      <div style="display:flex; align-items:center; gap:10px; padding:12px 16px 6px">
         <span class="fb-pill">${pill}</span>
         <span class="fb-body-sm" style="color:var(--fb-ink); font-weight:600; font-size:14px">${verdict}</span>
         <span style="flex:1"></span>
@@ -1555,8 +1537,9 @@ function renderCoursePage() {
 
   /* Three sections behind a small rail — Notes (documents + reading),
      Tutorials, and the NotebookLM round-trip — with ONE scrolling pane.
-     The header row and the metrics band stay fixed above it: the vitals
-     are always in reach, and the page itself never scrolls. */
+     Only the header row stays fixed. The metrics band scrolls WITH the pane
+     (Naz: one scroll should buy the documents/tutorials the whole screen) —
+     the band is a glance on entry, not chrome worth 230px forever. */
   const notesPane = `
     <div>
       <div class="fb-section-head" style="margin-bottom:18px">
@@ -1612,7 +1595,6 @@ function renderCoursePage() {
         onclick="pickPdfs()" title="Upload PDFs straight into ${esc(c.name)}">＋ Add PDFs</button>
     </div>
     ${S.ingesting ? ingestBanner() : ingestedCard()}
-    <div style="flex:none">${band}</div>
     <div class="fb-course-split">
       <div class="fb-crail">
         ${railItem("notes", "Notes", docs.length)}
@@ -1620,6 +1602,7 @@ function renderCoursePage() {
         ${railItem("elsewhere", "NotebookLM", "")}
       </div>
       <div class="fb-course-pane" id="coursePane">
+        ${band}
         ${tab === "tutorials" ? `<div id="tutorialsInner"></div>`
           : tab === "elsewhere" ? nblmPane
           : notesPane}
