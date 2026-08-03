@@ -8,6 +8,7 @@ card generation), 'fast' for cheap calls (grading, routing)."""
 
 import os
 import json
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -90,6 +91,31 @@ def _require_provider():
             "OPENAI_API_KEY=... (or ANTHROPIC_API_KEY=...) and restart the app.")
 
 
+# Transient-failure retry. The SDKs already retry quick blips internally
+# (2 tries, sub-second backoff); this outer layer adds slower attempts so a
+# rate-limited batch — e.g. the 9-call segmentation of a 242-page deck —
+# waits out the window instead of failing the whole ingest.
+LLM_RETRIES = int(os.getenv("FB_LLM_RETRIES", "3"))
+_sleep = time.sleep  # tests swap this out
+
+
+def _is_transient(exc):
+    if getattr(exc, "status_code", None) in (429, 500, 502, 503, 529):
+        return True
+    return type(exc).__name__ in ("APIConnectionError", "APITimeoutError",
+                                  "RateLimitError", "InternalServerError")
+
+
+def _with_retries(make_call):
+    for attempt in range(LLM_RETRIES):
+        try:
+            return make_call()
+        except Exception as e:
+            if attempt == LLM_RETRIES - 1 or not _is_transient(e):
+                raise
+            _sleep(2 * 2 ** attempt)
+
+
 # Published list prices, USD per 1M tokens (input, output). These drive the
 # spend tracker, which is therefore an ESTIMATE from token counts — the
 # provider's dashboard is the source of truth for what you were actually
@@ -142,17 +168,17 @@ def complete_text(prompt, fast=False, max_tokens=1000, purpose=None):
     _require_provider()
     model = FAST_MODEL if fast else MAIN_MODEL
     if PROVIDER == "anthropic":
-        response = anthropic_client().messages.create(
+        response = _with_retries(lambda: anthropic_client().messages.create(
             model=model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}])
+            messages=[{"role": "user", "content": prompt}]))
         usage = getattr(response, "usage", None)
         _record(purpose, model, getattr(usage, "input_tokens", 0),
                 getattr(usage, "output_tokens", 0))
         return response.content[0].text, response.stop_reason == "max_tokens"
     else:
-        response = openai_client().chat.completions.create(
+        response = _with_retries(lambda: openai_client().chat.completions.create(
             model=model, max_completion_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}])
+            messages=[{"role": "user", "content": prompt}]))
         usage = getattr(response, "usage", None)
         _record(purpose, model, getattr(usage, "prompt_tokens", 0),
                 getattr(usage, "completion_tokens", 0))

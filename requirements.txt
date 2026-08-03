@@ -1,8 +1,7 @@
-anthropic
+﻿anthropic
 openai
 python-dotenv
 pypdf
-streamlit
 numpy
 flask
 fsrs
@@ -11,3 +10,4 @@ langchain
 langgraph
 langchain-openai
 langchain-anthropic
+waitress

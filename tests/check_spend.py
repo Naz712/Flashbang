@@ -85,5 +85,40 @@ assert pages_needing_vision(sample) == [1, 2], "only sparse pages by default"
 assert pages_needing_vision(sample, force_vision=True) == [1, 2, 3], "forced = every page"
 assert pages_needing_vision([], force_vision=True) == []
 
+# --- transient-retry layer: 429/5xx-style failures retry, logic errors don't
+import llm_utils
+llm_utils._sleep = lambda s: None   # no real waiting in tests
+
+class Boom(Exception):
+    def __init__(self, status=None):
+        self.status_code = status
+
+calls = {"n": 0}
+def flaky():
+    calls["n"] += 1
+    if calls["n"] < 3:
+        raise Boom(429)
+    return "ok"
+assert llm_utils._with_retries(flaky) == "ok" and calls["n"] == 3
+
+def always_down():
+    raise Boom(503)
+try:
+    llm_utils._with_retries(always_down)
+    assert False, "must raise once retries are exhausted"
+except Boom:
+    pass
+
+calls["n"] = 0
+def logic_error():
+    calls["n"] += 1
+    raise ValueError("bad prompt")
+try:
+    llm_utils._with_retries(logic_error)
+    assert False, "non-transient errors must surface immediately"
+except ValueError:
+    pass
+assert calls["n"] == 1, "non-transient errors must not retry"
+
 os.unlink(tmp.name)
 print("check_spend: ALL PASSED")
