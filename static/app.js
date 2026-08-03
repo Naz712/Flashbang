@@ -2597,8 +2597,7 @@ window.openTopic = async (pdfId, pageStart, pageEnd, encTitle, topicId = null) =
 
   try {
     if (!window.pdfjsLib) throw new Error("pdf.js unavailable");
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdf.worker.min.js";
     if (!pdfDocCache[pdfId]) {
       pdfDocCache[pdfId] = await pdfjsLib.getDocument(`/api/pdf/${pdfId}`).promise;
     }
