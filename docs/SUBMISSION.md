@@ -1,148 +1,164 @@
 # Flashbang — Launchpad AI Challenge write-up
 
 *Final. Every number below is a measurement from the app's own spend tracker,
-test logs, or timed runs on real course material, re-read on 2026-08-03 —
-where something is an estimate, it says so. Appendix B maps each claim to
-where a judge can check it.*
+test logs, or timed runs on real course material. Where something is an
+estimate, it says so. Appendix B maps each claim to where a judge can check
+it.*
 
 ## 1. Problem
 
-The evidence-backed study practices — retrieval practice over re-reading,
-spaced repetition, pre-reading scaffolds, calibrated self-testing — live in
-separate tools that don't share data:
+My old study loop: upload the lecture deck to Claude or NotebookLM and ask
+for an explanation. It works for one session. When the chat ends the
+evidence evaporates: nothing records what I covered, what I could recall
+unaided, or whether I am on pace.
 
-- Anki schedules, but you type every card.
-- NotebookLM generates, but nothing comes back at the right time.
-- Lecture PDFs, tutorial sheets and flashcards never meet.
+Existing tools each hold one piece. Claude and NotebookLM: explanation,
+no memory, no schedule. Anki: scheduling, but every card is typed by hand,
+and my modules' notes vary too much in format to keep up. PDFs, tutorial
+sheets and flashcards never meet, so "am I on track" has no answer.
 
-The practical failure: you re-read notes (feels productive, isn't), go into
-new topics cold, and discover at the exam which topics were weak.
+The insight that shaped the design: an AI chat makes passive study feel
+more productive while making the loop worse. Explanation is consumption;
+retrieval, answering unaided at the right time, is what builds memory.
+Flashbang therefore supports those tools instead of replacing them: the
+model inside never explains during study. It deals, grades my typed
+retrieval, and reschedules. Explanation goes to the tools that do it best;
+the graded evidence always comes home.
 
-Success criteria, set before building:
-
-1. One loop from PDF to scheduled retrieval, no manual transcription.
-2. Every derived number traceable to a measurement — an app that lies about
-   your readiness is worse than no app.
-3. Under $1/week running cost for a five-module load, on my own API key.
+Success criteria, set before building: one loop from any module's PDF to
+scheduled retrieval, no manual transcription; every readiness number
+traceable to a measurement, since an app that lies about readiness is worse
+than no app; under $1 a week for five modules on my own key.
 
 ## 2. Approach
 
+**A hub, not another chat.** Claude and NotebookLM are better tutors than
+anything I could rebuild, so Flashbang owns what they cannot: the schedule
+and the evidence. A session report compiles my gaps into a tutor prompt for
+Claude; an examiner prompt embeds question ids so NotebookLM's graded reply
+parses back for $0. In app tutoring, the alternative, re buys explanation.
+
 **The defining decision was removing the agents.** The first build ran four
-LangGraph agents and a router. Measurement showed they added cost and latency
-at the interaction layer and no value: reviewing is dealing due cards — a
-`SELECT`; ingesting is a pipeline; card generation is a button. In the
-rebuild the server deals, buttons act, and exactly one model call happens per
-graded answer (fast tier, structured teaching feedback). One scoped assistant
-remains, in a corner bubble, for library edits and search.
+LangGraph agents and a router; measurement showed they added cost and
+latency and no value. Reviewing is dealing due cards, a database query;
+ingesting is a pipeline; card generation is a button. Now the server deals,
+buttons act, and one fast tier call grades each answer, at roughly one
+hundredth of the old session cost. Anki style self grading is free but
+loses typed retrieval, teaching feedback and calibration data.
 
-**Model calls only where formats genuinely vary:** segmenting arbitrary
-lecture decks; splitting tutorial sheets whose numbering differs per module.
-Everything else is deterministic and $0 — report parsing, answer retrieval by
-page, search over local embeddings. Tutorial questions are tagged with my own
-topic **ids** echoed from a supplied list, never free text, because free-text
-tags can't join back to the notes.
+**Model calls only where formats genuinely vary**: segmenting arbitrary
+decks, splitting tutorial sheets whose numbering differs per module. Regex,
+the alternative, breaks per module by design. Tags echo my own topic ids
+from a supplied list, never free text, which cannot join back to the notes.
+Everything else is deterministic and $0.
 
-**Alternatives ruled out, with reasons:**
+**Scheduling is FSRS, not invented.** My hand rolled SM-2 lost to the FSRS
+library on my own reviews; FSRS stayed, re tuned after its default
+intervals exploded. Memory research ships as a library; mine would be
+complexity as decoration.
 
-- **pymupdf4llm** extraction — benchmarks favour it; on my slide decks it
-  dropped equations. Tested, rejected, uninstalled.
-- **AI-drawn primer diagrams** — built, measured at $0.0004–0.0117, not good
-  enough to teach. Removed; the primer's analogy stayed text.
-- **Raster image generation** — cannot render correct labels; ~130× the cost
-  of the primer it would decorate.
-- **Scheduling tutorial questions like cards** — long-form grading cost; a
-  filterable practice pool matched the actual need.
+**Left out on purpose.** AI drawn primer diagrams: built, measured at
+$0.0004 to $0.0117, not good enough to teach, removed. Raster diagrams:
+wrong labels at 130 times the cost. Scheduling tutorial questions like
+cards: grading cost a filterable pool avoids. One tell: autocomplete exists
+everywhere except the review answer box, where autofill would manufacture
+fake retention evidence.
 
 ## 3. Evidence
 
-All figures are from the in-app spend tracker (per-call token logs × list
-prices) and timed runs on real course material.
+All figures come from the in app spend tracker. Samples are small and I say
+so: one student's real workload, not a benchmark.
 
-- **Grading a typed answer:** $0.00022 (tracker unit cost), 2.5–3.6 s —
-  structured feedback (what you had / the gap / model answer / memory hook)
-  plus an FSRS reschedule.
-- **Review pace is measured, not assumed.** The app refused to show a
-  per-card pace until six timed answers existed — the label read
-  "(assumed)". After real sessions on 2–3 Aug it flipped to the measured
-  median: **53 s/card** against the 84 s I had assumed. The gate did its
-  job: my assumption was 58% high.
-- **Ingesting a 242-page lecture deck:** $0.17, ~4 min → 41 topics with
-  contiguous page ranges. The boilerplate stripper removed 37% of extracted
-  text (a nav strip on all 242 pages): 179,687 → 111,757 chars, measured
-  before/after.
-- **Splitting six tutorial sheets:** $0.32 total (~$0.05/sheet), 6–29 s
-  each → 79 leaf questions (3(a)/3(b) separate), 74 auto-tagged; inline
-  solutions excluded; answer pages located for all 79.
-- **Pre-reading primer:** $0.0003, 4–13 s, cached thereafter.
-- **Total, all-time, everything** (3 courses, 19 documents, 6 tutorials, 42
-  logged calls): **$0.75**.
-- **Baseline:** the pre-rebuild agent loop cost ~100× more per review
-  session — the comparison that drove the de-agenting.
-- **Correctness:** 12 offline suites (scheduling maths, decay, parsers,
-  sanitisation, cascades), all passing as of this write-up, plus one live
-  ingestion suite; 92 commits, each message stating what it proves.
+**Grading a typed answer:** $0.00022, 2.5 to 3.6 seconds, structured
+feedback plus an FSRS reschedule.
+
+**Review pace is measured, not assumed.** The app hid pace until six timed
+answers existed. Real sessions on 2 and 3 August flipped it to measured: 53
+seconds per card against the 84 assumed, 58 percent high.
+
+**A real 242 page deck:** $0.17, about 4 minutes, 41 topics. The
+boilerplate stripper removed 37 percent of extracted text: 179,687
+characters down to 111,757.
+
+**Six real tutorial sheets:** $0.32 total, 6 to 29 seconds each, 79 leaf
+questions, 74 auto tagged. Edge cases counted, not hidden: 5 of 79 tags
+needed a hand pass; inline solutions excluded; answer pages found for all
+79.
+
+**Everything loaded**, 3 courses, 19 documents, 6 tutorials, 42 calls:
+**$0.75**.
+
+**Baseline:** the agent loop cost roughly 100 times more per session. That
+build is frozen on its own branch with its spend logs.
+
+**Correctness:** 12 offline suites, all passing at head, plus one live
+ingestion suite. They rerun without an API key; every commit message states
+what it proves.
 
 ## 4. Constraints
 
-- **Cost is a first-class feature.** Every model call logs
-  purpose/model/tokens/cost; Analytics shows all-time, 7-day, and unit
-  costs. Projected load ~$0.05 per study day — **under $1/week for five
-  modules** (~$10–15/semester) versus $60–120/yr for the nearest
-  subscription tool.
-- **Latency.** Every interactive action is under ~4 s. Token-heavy quizzing
-  exports to NotebookLM via a generated examiner prompt with embedded
-  question ids; its graded report parses back in locally for $0. External
-  evidence decays like a first recall and can only raise a displayed
-  score — never the FSRS schedule or exam projection.
-- **Reliability.** Extraction falls back to vision for sparse pages; mangled
-  equations fall back to the rendered page itself; a moved install directory
-  cannot strand the database or files.
-- **Honesty gates.** Metrics that lack data say so: a course whose cards
-  were never reviewed shows an em dash, not 0%, and every derived number
-  carries its evidence line.
+**The cost curve, not just the chosen point:** $0 for deterministic paths;
+$0.0002 for fast tier grading; $0.17 for main tier segmentation; $0.0004 to
+$0.0117 for the failed AI diagrams; 130 times that for raster; 100 times
+the session cost for agents. Each feature sits at the cheapest point that
+meets its need.
+
+**Cost.** About $0.05 per study day, under $1 a week for five modules,
+versus $60 to $120 a year for the nearest subscription tool.
+
+**Latency.** Interactive actions land under about 4 seconds. Token heavy
+quizzing exports to NotebookLM and parses back for $0; it can only raise a
+displayed score, never the FSRS schedule.
+
+**Reliability and honesty.** Vision fallback for sparse pages; the rendered
+page for mangled equations; a moved install cannot strand the database.
+Metrics lacking data say so: never reviewed cards show an em dash, not a
+fake 0 percent.
 
 ## 5. Honesty & Trajectory
 
-**Where it breaks today:**
+**Where it breaks today.**
 
-1. Equation *text* mangles in extraction — the model reads around it and the
-   page image is the fallback, but topic titles with maths can be ugly.
-2. Topic tagging has vocabulary gaps — questions saying "tokens" missed a
-   topic titled "Encoding"; 5 of 79 needed a hand pass.
-3. Confidence calibration is still gated — only 2 confidence-tagged answers
-   exist, so those bands stay empty.
-4. Single-user, no sync — by design, but a real limit.
+1. Equation text mangles in extraction; the page image is the fallback, but
+   titles with maths can be ugly.
+2. Tagging has vocabulary gaps: questions saying "tokens" missed a topic
+   titled "Encoding"; 5 of 79 needed a hand pass.
+3. Calibration is gated: only 2 confidence tagged answers exist, so those
+   bands stay empty.
+4. Single user, no sync: by design, but a real limit.
 
-**Since the draft:** the review-pace baseline went from assumed to measured
-(above); the app now runs on my own Zo Computer machine as a supervised,
-login-gated service, so the loop survives my laptop being off; the
-NotebookLM tutor prompt was rebuilt around grounded citations.
+**Negative results I kept:** the agent build, measured and dismantled; AI
+diagrams, built and removed; pymupdf4llm, which dropped equations,
+rejected; my SM-2 scheduler, which lost to FSRS. Each is in the repo, not
+hidden.
 
-**Next:** a calendar automation writing study blocks from the read-only
-`/api/plan.json` feed, a Telegram nudge, and an off-machine database
-backup — each ends in an OAuth consent only I can click; a trial of a
-sponsored free-model endpoint (the hook exists, untested); then a semester
-of dogfooding across five modules — the only evaluation that counts.
+**With two more weeks:** turn on the calendar automation fed by the app's
+read only plan feed; trial the sponsored free model endpoint, hooked,
+untested; log enough confidence tagged answers to unlock calibration; begin
+the semester of dogfooding, the only evaluation that counts.
 
 ---
 
 ## Appendix A — submission checklist
 
-- [ ] Repo: `github.com/Naz712/Flashbang` is **private** — either flip to
-      public or grant judge access before submitting.
-- [ ] Demo video ≤3 min — script in `docs/DEMO_SCRIPT.md`, needs recording.
-- [ ] This write-up: paste into the submission form.
-- [ ] Profile: intro + message to judges + resume.
+1. Repo: `github.com/Naz712/Flashbang` is private. Flip to public or grant
+   judge access before submitting.
+2. Demo video, 3 minutes maximum. Script in `docs/DEMO_SCRIPT.md`, needs
+   recording.
+3. This write-up: paste into the submission form.
+4. Profile: intro, message to judges, resume.
 
 ## Appendix B — where each claim can be checked
 
-| Claim | Evidence in the repo/app |
+| Claim | Evidence in the repo or app |
 |---|---|
-| $0.75 all-time; unit costs | Analytics → SPEND tab; `api_spend` rows (42 calls, per-purpose breakdown) |
-| 53 s/card measured (84 s assumed before) | `/api/state` → `budget.sec_per_card`; timed rows in the answer log |
-| 242-page deck → 41 topics, $0.17 | spend rows purpose=`segmentation`; RB2302 course page |
-| 37% boilerplate stripped (179,687 → 111,757 chars) | commit `d698a5c` and its logged before/after |
-| 6 sheets → 79 questions, 74 auto-tagged | spend rows purpose=`tutorial split`; Tutorials screen; commit `7730612` |
-| 12 offline suites pass | `tests/check_*.py` run logs in `TESTING.md`; run them — no API key needed |
-| ~100× de-agenting saving | frozen original build (branch `master`) with its own spend logs, side-by-side |
+| $0.75 all time and unit costs | Analytics SPEND tab; `api_spend` rows with per purpose breakdown |
+| 53 s per card measured, 84 s assumed before | `/api/state` budget block; timed rows in the answer log |
+| 242 page deck to 41 topics for $0.17 | spend rows, purpose segmentation; RB2302 course page |
+| 37 percent boilerplate stripped | commit `d698a5c` and its logged before and after counts |
+| 6 sheets to 79 questions, 74 auto tagged | spend rows, purpose tutorial split; Tutorials screen; commit `7730612` |
+| 12 offline suites pass | `tests/check_*.py`; run them, no API key needed |
+| 100 times de-agenting saving | the frozen original build on branch `master`, with its own spend logs |
 | External reviews never touch scheduling | `check_external.py`; commit `1243762` |
+| SM-2 versus FSRS comparison | the A/B battery in `TESTING.md` |
+| Autocomplete absent from the answer box | `static/app.js`, assistant input versus review input |
