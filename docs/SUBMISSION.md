@@ -1,14 +1,15 @@
 # Flashbang — Launchpad AI Challenge write-up
 
-*Draft. Word count (pillar sections): ~940. Numbers in this document are
-measurements from the app's own spend tracker and test logs, not estimates —
-where something is an estimate, it says so.*
+*Final. Every number below is a measurement from the app's own spend tracker,
+test logs, or timed runs on real course material, re-read on 2026-08-03 —
+where something is an estimate, it says so. Appendix B maps each claim to
+where a judge can check it.*
 
 ## 1. Problem
 
 Students own a broken study loop. The evidence-backed practices — retrieval
 practice over re-reading, spaced repetition, pre-reading scaffolds, calibrated
-self-testing — exist in separate tools that don't share data: Anki schedules
+self-testing — live in separate tools that don't share data: Anki schedules
 but you type every card; NotebookLM generates but nothing comes back at the
 right time; lecture PDFs, tutorial sheets and flashcards never meet. The
 practical failure is concrete: you re-read notes (feels productive, isn't),
@@ -17,8 +18,8 @@ go into new topics cold, and discover at the exam which topics were weak.
 Success criteria, set before building: (1) one loop from PDF to scheduled
 retrieval with no manual transcription; (2) every derived number traceable to
 a measurement — an app that lies about your readiness is worse than no app;
-(3) total running cost under $1/week for a five-module load, on the student's
-own API key.
+(3) total running cost under $1/week for a five-module load, on my own API
+key.
 
 ## 2. Approach
 
@@ -29,17 +30,17 @@ is a `SELECT`; ingesting is a pipeline; card generation is a button. The
 rebuilt system is de-agented — the server deals, buttons act, and exactly one
 model call happens per graded answer (fast tier, structured teaching
 feedback). One scoped assistant remains, in a corner bubble, for library
-edits and search. Sessions became roughly two orders of magnitude cheaper.
+edits and search.
 
 Model calls are reserved for where formats genuinely vary (segmenting
 arbitrary lecture decks; splitting tutorial sheets whose numbering schemes
 differ per module); everything else is deterministic (report parsing, answer
 retrieval by page, search over local embeddings — $0). Tutorial questions are
-tagged with the student's own topic **ids** echoed from a supplied list,
-never free text, because free-text tags can't join back to the notes.
+tagged with my own topic **ids** echoed from a supplied list, never free
+text, because free-text tags can't join back to the notes.
 
 Alternatives ruled out, with reasons: **pymupdf4llm** for extraction
-(benchmarks favour it; on our actual slide decks it dropped equations
+(benchmarks favour it; on my actual slide decks it dropped equations
 outright — tested, rejected, uninstalled). **AI-drawn diagrams** for topic
 primers (built, measured at $0.0004–0.0117, judged not good enough to teach —
 removed; the primer's analogy stayed text). **Raster image generation**
@@ -49,27 +50,33 @@ cost; a filterable practice pool matched the actual need).
 
 ## 3. Evidence
 
-All figures below are from the in-app spend tracker (per-call token logs ×
-list prices) and timed runs on real course material.
+All figures are from the in-app spend tracker (per-call token logs × list
+prices) and timed runs on real course material.
 
-- **Grading a typed answer:** $0.0003, 2.5–3.6 s, with structured feedback
-  (what you had / the gap / model answer / memory hook) and an FSRS
-  reschedule.
+- **Grading a typed answer:** $0.00022 per answer (tracker unit cost),
+  2.5–3.6 s, with structured feedback (what you had / the gap / model answer /
+  memory hook) and an FSRS reschedule.
+- **Review pace is measured, not assumed.** The app refused to show a
+  per-card pace until six timed answers existed — the label read "(assumed)".
+  After real review sessions on 2–3 Aug it flipped to the measured median:
+  **53 s/card**, against the 84 s I had assumed. The honesty gate did its
+  job: my assumption was 58% high.
 - **Ingesting a real 242-page lecture deck:** $0.17, ~4 min → 41 topics with
   contiguous page ranges. A boilerplate stripper removed 37% of extracted
   text (a nav strip repeated on all 242 pages) — measured before/after:
   179,687 → 111,757 chars.
-- **Splitting a real tutorial sheet:** ~$0.05, 6–29 s. Six sheets → 79 leaf
-  questions (3(a)/3(b) separate), 74 auto-tagged to note topics; inline
-  solutions detected and excluded from question text, answer pages located
+- **Splitting six real tutorial sheets:** $0.32 total (~$0.05/sheet),
+  6–29 s each → 79 leaf questions (3(a)/3(b) separate), 74 auto-tagged to
+  note topics; inline solutions detected and excluded; answer pages located
   for all 79.
 - **Pre-reading primer:** $0.0003, 4–13 s, cached thereafter.
-- **Total to load three courses (18 documents, 6 tutorials, primers,
-  everything):** $0.75.
+- **Total, all-time, everything** (3 courses, 19 documents, 6 tutorials, 42
+  logged model calls): **$0.75**.
 - **Baseline:** the pre-rebuild agent loop cost ~100× more per review
   session — the comparison that drove the de-agenting.
-- **Correctness:** 12 offline test suites (scheduling maths, decay,
-  parsers, sanitisation, cascade behaviour) run before every commit.
+- **Correctness:** 12 offline test suites (scheduling maths, decay, parsers,
+  sanitisation, cascade behaviour) — all passing as of this write-up — plus
+  one live ingestion suite; 92 commits, each message stating what it proves.
 
 ## 4. Constraints
 
@@ -77,16 +84,16 @@ Cost is a first-class feature: every model call logs purpose/model/tokens/
 cost, and Analytics has a SPEND band showing all-time, 7-day, and unit costs
 (per graded answer, per card generated). Projected load: ~$0.05 per study
 day; **under $1/week for five modules** (~$10–15/semester) versus $60–120/yr
-for the nearest subscription tool. Latency: every interactive action is
-under ~4 s; the token-heavy quizzing can be exported to NotebookLM (a
-generated examiner prompt; its graded report parses back in locally for $0).
-Reliability: extraction falls back to vision for sparse pages; equations that
-mangle in text extraction fall back to the rendered page itself; a moved
-install directory cannot strand the database or files (both anchored, with
-filename fallback). Honesty gates: metrics that lack data say so — the
-per-card pace label reads "(assumed — needs 6 timed answers)" until the
-median is real, and a course whose cards were never reviewed shows an em
-dash, not 0%.
+for the nearest subscription tool. Latency: every interactive action is under
+~4 s; token-heavy quizzing exports to NotebookLM via a generated examiner
+prompt with embedded question ids, and its graded report parses back in
+locally for $0 — external evidence decays like a first recall and can only
+raise a displayed score, never the FSRS schedule or exam projection. Reliability: extraction falls back to vision for sparse pages;
+equations that mangle in text extraction fall back to the rendered page
+itself; a moved install directory cannot strand the database or files.
+Honesty gates: metrics that lack data say so — a course whose cards were
+never reviewed shows an em dash, not 0%, and every derived number carries its
+evidence line.
 
 ## 5. Honesty & Trajectory
 
@@ -94,15 +101,21 @@ Where it breaks today: (1) equation *text* is mangled by extraction — the
 model reads around it and the page image is the fallback, but topic titles
 containing maths can be ugly; (2) topic tagging has vocabulary gaps
 (questions saying "tokens" missed a topic titled "Encoding" — 5 of 79 needed
-a hand pass); (3) the personal baselines are gated on data that doesn't exist
-yet (4 of 6 timed answers logged); (4) single-user, desktop-only, no sync —
-by design, but a real limit.
+a hand pass); (3) confidence calibration is still gated — only 2
+confidence-tagged answers exist, so those bands stay empty;
+(4) single-user with no sync — by design, but a real limit.
 
-Next: two real review sessions to unlock the measured baselines; deploy the
-current build to a personal server (Zo) with a calendar automation writing
-study blocks from `/api/plan.json`; trial a sponsored free-model endpoint
-(the provider hook exists, untested); then a semester of dogfooding across
-five modules — the only evaluation that counts.
+Since the draft: the review-pace baseline went from assumed to measured
+(above); the app now runs on my own Zo Computer machine as a supervised,
+login-gated service, so the loop survives my laptop being off; the NotebookLM
+tutor prompt was rebuilt around grounded citations.
+
+Next: a calendar automation writing study blocks from the app's read-only
+`/api/plan.json` feed, a Telegram nudge, and an off-machine database
+backup — each ends in an OAuth consent only I can click; a trial of a
+sponsored free-model endpoint (the provider hook exists, untested); then a
+semester of dogfooding across five modules — the only evaluation that
+counts.
 
 ---
 
@@ -111,5 +124,18 @@ five modules — the only evaluation that counts.
 - [ ] Repo: `github.com/Naz712/Flashbang` is **private** — either flip to
       public or grant judge access before submitting.
 - [ ] Demo video ≤3 min — script in `docs/DEMO_SCRIPT.md`, needs recording.
-- [ ] This write-up: trim/adjust voice, paste into the submission form.
+- [ ] This write-up: paste into the submission form.
 - [ ] Profile: intro + message to judges + resume.
+
+## Appendix B — where each claim can be checked
+
+| Claim | Evidence in the repo/app |
+|---|---|
+| $0.75 all-time; unit costs | Analytics → SPEND tab; `api_spend` rows (42 calls, per-purpose breakdown) |
+| 53 s/card measured (84 s assumed before) | `/api/state` → `budget.sec_per_card`; timed rows in the answer log |
+| 242-page deck → 41 topics, $0.17 | spend rows purpose=`segmentation`; RB2302 course page |
+| 37% boilerplate stripped (179,687 → 111,757 chars) | commit `d698a5c` and its logged before/after |
+| 6 sheets → 79 questions, 74 auto-tagged | spend rows purpose=`tutorial split`; Tutorials screen; commit `7730612` |
+| 12 offline suites pass | `tests/check_*.py` run logs in `TESTING.md`; run them — no API key needed |
+| ~100× de-agenting saving | frozen original build (branch `master`) with its own spend logs, side-by-side |
+| External reviews never touch scheduling | `check_external.py`; commit `1243762` |
