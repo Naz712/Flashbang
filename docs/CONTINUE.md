@@ -11,9 +11,15 @@ the remote disagrees.
   5001) — the original hand-rolled build, kept for the A/B story. Do not develop here.
 - **Remote:** private repo `github.com/Naz712/Flashbang` (push regularly — sessions
   have ended 19 commits ahead).
-- **Deployed:** `https://flashbang-nazzoom.zo.computer` — badly out of date, predates
-  the de-agenting. Updating means asking Zo's agent to swap the hosted-service slot to
-  SSH, scp, swap back.
+- **Deployed (2026-08-03): `https://flashbang-nazzoom.zo.computer` — CURRENT.**
+  Login-gated (Zo account only), registered as a SUPERVISED service so it survives
+  sleeps/reboots. Lives at `/home/workspace/flashbang-main` on the Zo machine, own
+  venv, db + all uploads + chroma present. ONE COMMIT BEHIND: server.py there
+  predates the tutor-prompt rewrite (640ca88) — update by replacing that file and
+  restarting the service. The deploy path: Zo's agent can open an SSH tunnel
+  (zo-ssh-setup skill; local key ~/.ssh/zo_ed25519 is authorized) but the free
+  plan's single service slot means the tunnel and the website can't both run —
+  the website occupies it now. Naz handles Zo manually from here (their call).
 
 ## What the app is
 
@@ -81,11 +87,16 @@ carries its evidence line; no shadows; nothing rotated; only 5/5 animates.
 ## Open threads
 
 - **Push.** Sessions keep ending ahead of origin.
-- **Review volume:** 4 timed answers logged; the personal sec/card baseline needs 6,
-  calibration needs confidence-tagged answers, fluency needs 6. Two real sessions
-  with the confidence buttons close all three. 17 RB2302 cards come due tomorrow.
-- **Zo deploy is stale** and the Launchpad demo recording never happened (deadline
-  was Aug 2).
+- **Review volume: the baseline is now MEASURED** — sec_per_card = 53 (was the 84s
+  assumption), because Naz ran real sessions on 2026-08-02/03. Calibration still
+  needs confidence-tagged answers.
+- **Zo integrations pending, Naz doing manually:** Calendar automation (reads
+  http://localhost:5002/api/plan.json ON the machine — no public URL needed),
+  Telegram nudge (/api/state), Drive db backup. Each ends in an OAuth consent
+  only Naz can click. The Launchpad demo recording still hasn't happened;
+  submission drafts live in docs/SUBMISSION.md + docs/DEMO_SCRIPT.md, and
+  docs/REPORT_PROMPT.md is the paste-into-a-new-chat prompt for finishing the
+  write-up (it orders a re-measurement of stale numbers first).
 - Agnes/GMI free models: the hook exists (`OPENAI_BASE_URL` + model env vars in
   .env), untested — needs the model names from their docs and one cheap trial.
 
