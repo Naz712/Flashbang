@@ -1321,12 +1321,4 @@ def focus():
 if __name__ == "__main__":
     # frameworks fork: 5002 by default so it can run beside the original (5001);
     # 0.0.0.0 + PORT env make it deployable (e.g. on a Zo Computer machine)
-    port = int(os.getenv("PORT", 5002))
-    try:
-        # production WSGI server; threads let the reader fetch page slices in
-        # parallel (db connections are per-call, so this is safe)
-        from waitress import serve
-        print(f"Flashbang serving on http://localhost:{port} (waitress)")
-        serve(app, host="0.0.0.0", port=port, threads=8)
-    except ImportError:
-        app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5002)), debug=False)

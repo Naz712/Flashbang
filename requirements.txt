@@ -10,4 +10,3 @@ langchain
 langgraph
 langchain-openai
 langchain-anthropic
-waitress
