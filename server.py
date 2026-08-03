@@ -432,10 +432,39 @@ def _build_session_report(session_id=None):
     courses = sorted({r["course_name"] for r in rows})
     acc = session["accuracy"]
 
-    lines = [f"I just finished a {session['kind']} flashcard session on {', '.join(courses)}: "
-             f"{len(rows)} cards" + (f", {round(acc)}% recall." if acc is not None else ".")]
+    # The tutor prompt, structured on the practices that measurably help:
+    # role first (register/depth calibration), INSTRUCTIONS BEFORE DATA (long
+    # inputs bury trailing instructions), an explicit reply-format contract
+    # (length caps stop rambling), grounding directives aimed at NotebookLM's
+    # source-grounded architecture (cite pages; admit absence rather than
+    # invent), and one-question-at-a-time pacing — so the follow-up quiz is
+    # retrieval practice, not a dump. The gap lines mean the tutor repairs the
+    # diagnosed confusion instead of re-teaching whole topics.
+    lines = [
+        f"You are my tutor for {', '.join(courses)}. I just finished a graded "
+        f"flashcard session: {len(rows)} cards"
+        + (f", {round(acc)}% recall." if acc is not None else ".")
+        + " Your job is to repair the specific gaps listed under MISSED below.",
+        "",
+        "HOW TO TEACH ME (in this order):",
+        "1. One short section per missed item (under ~150 words each):",
+        "   - Explain the underlying concept simply. If sources are loaded in this "
+        "notebook, ground the explanation in them and cite the source and page; "
+        "if a concept is not in the sources, say so plainly rather than inventing.",
+        "   - My grader diagnosed what I was missing — target THAT confusion. "
+        "Do not re-teach the whole topic.",
+        "   - Where missed concepts relate to each other, connect them.",
+        "   - End the section with ONE memorable hook, bolded, one line.",
+        "2. Then quiz me: three fresh questions testing the same ideas from "
+        "different angles. Ask ONE AT A TIME and wait for my answer before the "
+        "next. Grade my answers honestly — partial credit is fine, flattery is "
+        "not; I revise from these judgements.",
+        "",
+        f"MY SESSION: {session['kind']} on {', '.join(courses)}, {len(rows)} cards"
+        + (f", {round(acc)}% recall." if acc is not None else "."),
+    ]
     if missed:
-        lines += ["", "Cards I missed or only partly got:"]
+        lines += ["", "MISSED:"]
         for i, r in enumerate(missed, 1):
             lines.append(f"{i}. [{r['filename']} p.{r['page_start']}-{r['page_end']} · {r['topic_title']}] "
                          f"Q: {r['question']}")
@@ -445,11 +474,8 @@ def _build_session_report(session_id=None):
             if r["confidence"]:
                 lines.append(f"   (I felt {r['confidence']} before answering)")
     if passed:
-        lines += ["", "For context, I answered these correctly:"]
+        lines += ["", "ANSWERED CORRECTLY (context only — do not re-teach these):"]
         lines += [f"- {r['question']}" for r in passed]
-    lines += ["", "Please coach me on the missed items: 1) explain each underlying concept simply and "
-                  "connect them to each other, 2) give me one memorable hook per concept, 3) then quiz "
-                  "me with three fresh questions that test the same ideas from different angles."]
     # RETRIEVAL-WEIGHTED recall, reported alongside `accuracy` rather than
     # instead of it: accuracy counts cards that passed and is what every other
     # panel and every stored session already means. Marks count the grades
