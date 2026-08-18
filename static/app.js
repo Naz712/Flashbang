@@ -286,7 +286,7 @@ function renderReviewHome() {
      zero rather than hidden: a course you owe nothing on is information, and a
      row that changes shape between states is harder to scan. No course colour —
      in this system colour means mastery and nothing else. */
-  const deckRow = (lead, name, due, title, onclick, indented) => `
+  const deckRow = (lead, name, due, title, onclick, indented, cramCards, cramClick) => `
     <div style="display:flex; align-items:center; gap:10px; ${indented
       ? "padding:8px 0 8px 22px; border-top:1.5px solid var(--fb-hairline)" : "cursor:pointer"}"
       ${indented ? "" : `onclick="toggleDeck(${lead.id})"`}>
@@ -295,18 +295,24 @@ function renderReviewHome() {
         ? "font-size:12.5px; color:var(--fb-slate)" : "font-size:13.5px; font-weight:600"};
         overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${esc(name)}">${esc(name)}</span>
       <span class="fb-chip${due ? " fb-chip--due" : ""}"${due ? "" : ` style="color:var(--fb-muted)"`}>${due} due</span>
+      <button class="fb-btn fb-btn--ghost" style="padding:4px 9px; font-size:11px; flex:none" ${cramCards ? "" : "disabled"}
+        title="Cram: all ${cramCards} cards here, shuffled — ignores the schedule; grades still count"
+        onclick="event.stopPropagation(); ${cramClick}">Cram</button>
       <button class="fb-btn" style="padding:4px 9px; font-size:11px; flex:none" ${due ? "" : "disabled"}
         title="${title}" onclick="event.stopPropagation(); ${onclick}">▶</button>
     </div>`;
 
+  const cardsIn = (pdfs) => pdfs.reduce((n, p) => n + p.topics.reduce((m, t) => m + t.cards_total, 0), 0);
   const decks = st.libCourses.map((c) => {
     const open = S.deckOpen.has(c.id);
     return `<div class="fb-card fb-card--sm" style="padding:12px 14px">
       ${deckRow({ id: c.id, caret: open ? "▾" : "▸" }, c.name, c.dueCount,
-        "Review this course's due cards", `startReviewSession({ course_id: ${c.id} })`, false)}
+        "Review this course's due cards", `startReviewSession({ course_id: ${c.id} })`, false,
+        cardsIn(c.pdfs), `startReviewSession({ course_id: ${c.id} }, 'cram')`)}
       ${open && c.pdfs.length ? `<div style="margin-top:10px; display:flex; flex-direction:column">
         ${c.pdfs.map((p) => deckRow(null, p.filename.replace(/\.pdf$/i, ""), p.due,
-          "Review this document's due cards", `startReviewSession({ pdf_id: ${p.pdf_id} })`, true)).join("")}
+          "Review this document's due cards", `startReviewSession({ pdf_id: ${p.pdf_id} })`, true,
+          cardsIn([p]), `startReviewSession({ pdf_id: ${p.pdf_id} }, 'cram')`)).join("")}
       </div>` : ""}
       ${open && !c.pdfs.length ? `<div class="fb-body-sm" style="margin-top:10px; padding-left:22px">No documents in this course yet.</div>` : ""}
     </div>`;
@@ -1410,7 +1416,10 @@ function renderCoursePage() {
       ${bandMetric("Due now", s.due, "", `
         <div class="fb-body-sm" style="margin-top:10px">of ${s.cards} card${s.cards === 1 ? "" : "s"} in this course</div>
         <button class="fb-btn fb-btn--block" style="margin-top:14px" ${s.due ? "" : "disabled"}
-          onclick="startReviewSession({ course_id: ${c.id} })">▶ Review</button>`)}
+          onclick="startReviewSession({ course_id: ${c.id} })">▶ Review</button>
+        <button class="fb-btn fb-btn--ghost fb-btn--block" style="margin-top:8px" ${s.cards ? "" : "disabled"}
+          title="All ${s.cards} cards, shuffled — ignores the schedule; grades still count"
+          onclick="startReviewSession({ course_id: ${c.id} }, 'cram')">Cram all</button>`)}
 
       ${bandMetric("Time invested", c.timeSpent, "", `
         <div class="fb-body-sm" style="margin-top:10px">on flashcards</div>
@@ -1488,7 +1497,9 @@ function renderCoursePage() {
             </span>
             ${t.cards_due ? `<span class="fb-chip fb-chip--due">${t.cards_due} due</span>` : ""}
             ${general ? `<span class="fb-chip" style="color:var(--fb-muted); font-size:10px; letter-spacing:.8px; text-transform:uppercase">info</span>`
-              : t.cards_total ? `<span class="fb-data" style="color:var(--fb-muted); flex:none">${t.cards_total} cards</span>`
+              : t.cards_total ? `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
+                  title="Cram: all ${t.cards_total} cards on this topic, shuffled — ignores the schedule; grades still count"
+                  onclick="event.stopPropagation(); startReviewSession({ topic_id: ${t.id} }, 'cram')">Cram ${t.cards_total}</button>`
               : `<button class="fb-btn fb-btn--ghost" style="padding:5px 10px; font-size:11px; flex:none"
                   title="Generate flashcards for this topic (~$0.05, ~30s)"
                   onclick="event.stopPropagation(); generateCards(${t.id}, this)">Make cards</button>`}
