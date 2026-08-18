@@ -6,7 +6,7 @@
 <title>Flashbang</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/app.css?v=20260803c">
+<link rel="stylesheet" href="/static/app.css?v=20260803d">
 </head>
 <body>
 <div class="shell">
@@ -152,8 +152,11 @@
     <span class="fb-label">Assistant</span>
     <span style="flex:1"></span>
     <span class="asst-hint">library · notes · stats · planning</span>
+    <button class="fb-btn fb-btn--ghost" id="asstPromptsBtn" style="padding:5px 10px; font-size:11px"
+      onclick="toggleAsstPrompts()" title="Every prompt the app can generate, one click to copy">⧉ Prompts</button>
     <button class="fb-icon-btn" onclick="toggleAsst()" title="Close">✕</button>
   </div>
+  <div id="asstPrompts" class="asst-prompts" style="display:none"></div>
   <div id="asstScroll" class="asst-scroll"></div>
   <div class="asst-foot">
     <div id="asstSuggest" class="asst-suggest" style="display:none"></div>
@@ -169,6 +172,6 @@
 <!-- reader: a screen, not a modal — reading is a sit-down task -->
 
 <script src="/static/vendor/pdf.min.js?v=20260803"></script>
-<script src="/static/app.js?v=20260803c"></script>
+<script src="/static/app.js?v=20260803d"></script>
 </body>
 </html>

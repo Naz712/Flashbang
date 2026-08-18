@@ -348,8 +348,13 @@ function renderReviewHome() {
           <span class="fb-bar-pct">${st.best.pct.toFixed(0)}%</span>
         </div>
         <div class="fb-body-sm">The lowest retention you own among cards that are due. Most in need of a rep.</div>
-        <button class="fb-btn fb-btn--ghost fb-btn--block" style="margin-top:18px"
-          onclick="startReviewSession({ topic_id: ${st.best.topic_id} })">Review just this topic</button>
+        <div style="display:flex; gap:8px; margin-top:18px">
+          <button class="fb-btn fb-btn--ghost" style="flex:1"
+            onclick="startReviewSession({ topic_id: ${st.best.topic_id} })">Review just this topic</button>
+          <button class="fb-btn fb-btn--ghost" style="flex:1"
+            title="Every card on this topic, shuffled — ignores the schedule; grades still count"
+            onclick="startReviewSession({ topic_id: ${st.best.topic_id} }, 'cram')">Cram it</button>
+        </div>
       </div>` : ""}
     </div>`;
 }
@@ -1645,6 +1650,83 @@ window.toggleAsst = () => {
     }
     $("asstInput").focus();
   }
+};
+
+/* ---- assistant prompt shelf: every prompt the app can generate, copied in
+   one click, no navigating. The flashcard and examiner prompts are built
+   deterministically ($0); the tutor prompt is one small tailoring call and
+   its row says so. ---- */
+window.toggleAsstPrompts = () => {
+  const box = $("asstPrompts");
+  if (box.style.display !== "none") { box.style.display = "none"; return; }
+  const st = S.state;
+  const courseId = S.courseId ?? st?.currentCourse?.id ?? st?.libCourses?.[0]?.id;
+  const course = st?.libCourses?.find((c) => c.id === courseId);
+  const on = course ? ` · ${esc(course.name)}` : "";
+  box.innerHTML = `
+    <div class="fb-label" style="margin-bottom:2px">Copy a prompt</div>
+    <button class="fb-btn fb-btn--ghost asst-prompt-row" onclick="asstCopyPrompt('cards', this)">
+      Flashcards — cards that paste straight into Import${on}</button>
+    <button class="fb-btn fb-btn--ghost asst-prompt-row" onclick="asstCopyPrompt('examiner', this)">
+      NotebookLM examiner — quiz me, its report pastes back${on}</button>
+    <button class="fb-btn fb-btn--ghost asst-prompt-row" onclick="asstCopyPrompt('tutor', this)">
+      Tutor — repair my last session's gaps (one small call)</button>`;
+  box.style.display = "block";
+};
+
+window.asstCopyPrompt = async (kind, btn) => {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Building…";
+  let text = null, fail = null;
+  try {
+    const st = S.state;
+    const courseId = S.courseId ?? st?.currentCourse?.id ?? st?.libCourses?.[0]?.id;
+    if (kind === "cards") {
+      const course = st?.libCourses?.find((c) => c.id === courseId);
+      text = `Create flashcards from the source material${course ? ` for my course "${course.name}"` : ""}.
+
+Card rules: one fact per card; questions that force recall, never yes/no; short precise answers; each card must make sense on its own.
+
+Output ONLY plain text, one card per line, in exactly this format:
+Question :: Answer
+
+No numbering, no headers, no markdown, no commentary before or after.`;
+    } else if (kind === "examiner") {
+      if (!courseId) fail = "No course yet.";
+      else {
+        const j = await fetch(`/api/courses/${courseId}/study_prompt`)
+          .then((r) => r.json()).catch(() => null);
+        text = j?.text;
+        if (!text) fail = j?.error || "Couldn't build it.";
+      }
+    } else if (kind === "tutor") {
+      const rep = await fetch("/api/session_report")
+        .then((r) => r.ok ? r.json() : null).catch(() => null);
+      if (!rep?.session_id) fail = "No ended session with graded answers yet.";
+      else {
+        const r = await fetch("/api/tutor_prompt", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: rep.session_id }) })
+          .then((x) => x.ok ? x.json() : null).catch(() => null);
+        text = r?.text;
+        if (!text) fail = "Couldn't build the prompt.";
+      }
+    }
+    if (text) {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = "Copied ✓";
+      setTimeout(() => {
+        const box = $("asstPrompts");
+        if (box) box.style.display = "none";
+        btn.textContent = orig;
+        btn.disabled = false;
+      }, 1200);
+      return;
+    }
+  } catch { fail = "Clipboard blocked — click the page once and retry."; }
+  btn.textContent = fail || "Failed";
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2400);
 };
 
 /* ---- name autocomplete for the assistant box ----

@@ -868,3 +868,7 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 .fb-ingest-fill { height:100%; background:var(--fb-accent); border-radius:2px; transition:width .2s }
 .fb-ingest-fill--indet { width:30%; animation:fb-ingest-slide 1.4s ease-in-out infinite }
 @keyframes fb-ingest-slide { 0% { margin-left:-30% } 100% { margin-left:100% } }
+
+/* ---- assistant prompt shelf */
+.asst-prompts { padding:10px 14px; border-bottom:1.5px solid var(--fb-hairline) }
+.asst-prompt-row { display:block; width:100%; text-align:left; margin-top:6px; padding:8px 10px; font-size:12px; line-height:1.4 }
