@@ -860,3 +860,11 @@ a:hover{color:var(--fb-accent-hover);text-decoration-color:var(--fb-accent-hover
 /* upload progress */
 .up-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.25); overflow: hidden; }
 .up-fill { height: 100%; width: 0%; border-radius: 3px; background: #fff; transition: width .15s linear; }
+
+/* ---- ingest progress: determinate while the file uploads, a moving band
+   while the model reads and splits. A wait affordance, not a data bar, so
+   it is the one bar allowed to ship without a number in the split phase. */
+.fb-ingest-track { height:4px; background:var(--fb-hairline); border-radius:2px; overflow:hidden; margin-top:12px }
+.fb-ingest-fill { height:100%; background:var(--fb-accent); border-radius:2px; transition:width .2s }
+.fb-ingest-fill--indet { width:30%; animation:fb-ingest-slide 1.4s ease-in-out infinite }
+@keyframes fb-ingest-slide { 0% { margin-left:-30% } 100% { margin-left:100% } }

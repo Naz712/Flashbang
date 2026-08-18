@@ -1329,11 +1329,19 @@ function ingestedCard() {
 window.dismissIngested = () => { S.ingested = null; render(); };
 
 function ingestBanner() {
-  return `<div class="fb-card fb-card--sm fb-card--key" style="display:flex; align-items:center; gap:14px">
-    <span class="fb-label">Ingesting</span>
-    <span class="fb-body-sm" style="flex:1; color:var(--fb-ink)">${esc(S.ingesting.current)} —
-      reading, splitting into topics, saving.</span>
-    <span class="fb-data" style="color:var(--fb-muted)">${S.ingesting.done + 1} of ${S.ingesting.total}</span>
+  const ing = S.ingesting;
+  const splitting = ing.phase !== "upload";
+  const pct = ing.pct || 0;
+  return `<div class="fb-card fb-card--sm fb-card--key">
+    <div style="display:flex; align-items:center; gap:14px">
+      <span class="fb-label">Ingesting</span>
+      <span class="fb-body-sm" style="flex:1; color:var(--fb-ink)">${esc(ing.current)} —
+        ${splitting ? "reading, splitting into topics, saving. Big decks take a few minutes." : "uploading…"}</span>
+      <span class="fb-data" style="color:var(--fb-muted)">${splitting ? "" : `${pct}% · `}${ing.done + 1} of ${ing.total}</span>
+    </div>
+    <div class="fb-ingest-track">
+      <div class="fb-ingest-fill${splitting ? " fb-ingest-fill--indet" : ""}"${splitting ? "" : ` style="width:${pct}%"`}></div>
+    </div>
   </div>`;
 }
 
@@ -1391,7 +1399,7 @@ function renderCoursePage() {
       ${bandMetric("Due now", s.due, "", `
         <div class="fb-body-sm" style="margin-top:10px">of ${s.cards} card${s.cards === 1 ? "" : "s"} in this course</div>
         <button class="fb-btn fb-btn--block" style="margin-top:14px" ${s.due ? "" : "disabled"}
-          onclick="startReviewSession({ course_id: ${c.id} })">▶ Review this course</button>`)}
+          onclick="startReviewSession({ course_id: ${c.id} })">▶ Review</button>`)}
 
       ${bandMetric("Time invested", c.timeSpent, "", `
         <div class="fb-body-sm" style="margin-top:10px">on flashcards</div>
@@ -3028,13 +3036,20 @@ async function uploadPdfs(files) {
       "Read the images on EVERY page?\n\nUse this for slide decks whose content lives in "
       + "diagrams — a vision model reads each page as a picture. Slower, and roughly "
       + "$0.11 per 8 pages (a 40-slide deck ≈ $0.55).")) return;
-  S.ingesting = { done: 0, total: pdfs.length, current: "", failed: [] };
+  S.ingesting = { done: 0, total: pdfs.length, current: "", failed: [],
+                  phase: "upload", pct: 0 };
   render();
   for (const file of pdfs) {
     S.ingesting.current = file.name;
+    S.ingesting.phase = "upload";
+    S.ingesting.pct = 0;
     render();
     try {
-      const up = await xhrUpload(file, () => {});
+      const up = await xhrUpload(file, (pct) => {
+        if (S.ingesting && pct !== S.ingesting.pct) { S.ingesting.pct = pct; render(); }
+      });
+      S.ingesting.phase = "split";
+      render();
       const res = await fetch("/api/ingest_auto", { method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: up.path, course_id, course_name,
