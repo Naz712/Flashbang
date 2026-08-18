@@ -67,11 +67,15 @@ def strip_boilerplate(pages, threshold=0.6, min_pages=8):
     return pages
 
 
-def extract_pages(pdf_path):
-    """pypdf first pass. Returns [{'page_number', 'text', 'extractor'}], 1-based."""
+def extract_pages(pdf_path, on_progress=None):
+    """pypdf first pass. Returns [{'page_number', 'text', 'extractor'}], 1-based.
+    `on_progress(done, total)` fires per page for the ingest banner."""
     reader = PdfReader(pdf_path)
+    total = len(reader.pages)
     pages = []
     for i, page in enumerate(reader.pages, start=1):
+        if on_progress:
+            on_progress(i - 1, total)
         text = (page.extract_text() or "").strip()
         pages.append({"page_number": i, "text": text, "extractor": "pypdf"})
     return strip_boilerplate(pages)
@@ -203,7 +207,7 @@ def pages_needing_vision(pages, force_vision=False):
     return [p["page_number"] for p in pages if len(p["text"]) < SPARSE_THRESHOLD]
 
 
-def read_pdf(pdf_path, course_id, force_vision=False, kind="notes"):
+def read_pdf(pdf_path, course_id, force_vision=False, kind="notes", on_progress=None):
     """Register the pdf, extract every page (pypdf + vision fallback for sparse
     pages), persist to pdf_pages. Returns ingestion stats.
 
@@ -213,7 +217,7 @@ def read_pdf(pdf_path, course_id, force_vision=False, kind="notes"):
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    pages = extract_pages(pdf_path)
+    pages = extract_pages(pdf_path, on_progress=on_progress)
     pdf_id = create_pdf(course_id, os.path.basename(pdf_path),
                         file_path=os.path.abspath(pdf_path), total_pages=len(pages),
                         kind=kind)

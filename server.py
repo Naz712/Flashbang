@@ -786,7 +786,9 @@ def ingest_auto():
         course_id = existing["id"] if existing else create_course(name)
     try:
         INGEST_PROGRESS[path] = {"stage": "reading pages", "done": 0, "total": 0}
-        result = read_pdf(path, course_id, force_vision=bool(body.get("force_vision")))
+        result = read_pdf(path, course_id, force_vision=bool(body.get("force_vision")),
+                          on_progress=lambda done, total: INGEST_PROGRESS.update(
+                              {path: {"stage": "reading pages", "done": done, "total": total}}))
         pdf_id = result["pdf_id"]
         proposal = propose_topics(pdf_id, on_progress=lambda done, total: INGEST_PROGRESS.update(
             {path: {"stage": "splitting into topics", "done": done, "total": total}}))
