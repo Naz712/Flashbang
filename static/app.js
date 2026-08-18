@@ -14,6 +14,7 @@ const S = {
   asstSuggest: [],      // assistant input: current name suggestions
   asstSuggestIdx: -1,   // highlighted suggestion
   docOpen: new Set(),   // expanded documents on the course page
+  docSeeded: null,      // course whose first doc was auto-opened (once, on entry)
   anaTab: 0,            // analytics: which of the six sections is on screen
   reviewView: "decks",  // review screen: "decks" picker | "chat" live | "report"
   report: null,         // the ended session's report, once it replaces the chat
@@ -1378,7 +1379,12 @@ function renderCoursePage() {
   const rd = st.reading || { by_pdf: [], notes_by_pdf: {} };
   const courseInfo = st.courses.find((x) => x.id === c.id);
   const docs = [...c.pdfs].sort((a, b) => a.pdf_id - b.pdf_id);   // upload order
-  if (!S.docOpen.size && docs.length) S.docOpen.add(docs[0].pdf_id);
+  // open the first document once per course visit — not on every render, or
+  // collapsing the last open document would instantly re-open it
+  if (S.docSeeded !== S.courseId && !S.docOpen.size && docs.length) {
+    S.docOpen.add(docs[0].pdf_id);
+  }
+  S.docSeeded = S.courseId;
 
   /* ---- the band: four numbers across the top, so the documents below get the
      full width. The evidence line sits under a hairline INSIDE the card — the
