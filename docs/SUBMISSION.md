@@ -69,12 +69,12 @@ fake retention evidence.
 All figures come from the in app spend tracker. Samples are small and I say
 so: one student's real workload, not a benchmark.
 
-**Grading a typed answer:** $0.00022, 2.5 to 3.6 seconds, structured
+**Grading a typed answer:** $0.00023, 2.5 to 3.6 seconds, structured
 feedback plus an FSRS reschedule.
 
 **Review pace is measured, not assumed.** The app hid pace until six timed
-answers existed. Real sessions on 2 and 3 August flipped it to measured: 53
-seconds per card against the 84 assumed, 58 percent high.
+answers existed. Real sessions on 2 and 3 August flipped it to measured: 51
+seconds per card against the 84 assumed, 65 percent high.
 
 **A real 242 page deck:** $0.17, about 4 minutes, 41 topics. The
 boilerplate stripper removed 37 percent of extracted text: 179,687
@@ -85,8 +85,8 @@ questions, 74 auto tagged. Edge cases counted, not hidden: 5 of 79 tags
 needed a hand pass; inline solutions excluded; answer pages found for all
 79.
 
-**Everything loaded**, 3 courses, 19 documents, 6 tutorials, 42 calls:
-**$0.75**.
+**Everything loaded**, 4 courses, 24 documents, 6 tutorials, 86 calls:
+**$1.06**.
 
 **Baseline:** the agent loop cost roughly 100 times more per session. That
 build is frozen on its own branch with its spend logs.
@@ -123,7 +123,7 @@ fake 0 percent.
    titles with maths can be ugly.
 2. Tagging has vocabulary gaps: questions saying "tokens" missed a topic
    titled "Encoding"; 5 of 79 needed a hand pass.
-3. Calibration is gated: only 2 confidence tagged answers exist, so those
+3. Calibration is gated: only 3 confidence tagged answers exist, so those
    bands stay empty.
 4. Single user, no sync: by design, but a real limit.
 
@@ -141,8 +141,8 @@ the semester of dogfooding, the only evaluation that counts.
 
 ## Appendix A — submission checklist
 
-1. Repo: `github.com/Naz712/Flashbang` is private. Flip to public or grant
-   judge access before submitting.
+1. Repo: `github.com/Naz712/Flashbang` — confirm it is public (the switch
+   needs a GitHub Mobile approval to finish).
 2. Demo video, 3 minutes maximum. Script in `docs/DEMO_SCRIPT.md`, needs
    recording.
 3. This write-up: paste into the submission form.
@@ -152,8 +152,8 @@ the semester of dogfooding, the only evaluation that counts.
 
 | Claim | Evidence in the repo or app |
 |---|---|
-| $0.75 all time and unit costs | Analytics SPEND tab; `api_spend` rows with per purpose breakdown |
-| 53 s per card measured, 84 s assumed before | `/api/state` budget block; timed rows in the answer log |
+| $1.06 all time and unit costs | Analytics SPEND tab; `llm_calls` rows with per purpose breakdown |
+| 51 s per card measured, 84 s assumed before | `/api/state` budget block; timed rows in the answer log |
 | 242 page deck to 41 topics for $0.17 | spend rows, purpose segmentation; RB2302 course page |
 | 37 percent boilerplate stripped | commit `d698a5c` and its logged before and after counts |
 | 6 sheets to 79 questions, 74 auto tagged | spend rows, purpose tutorial split; Tutorials screen; commit `7730612` |

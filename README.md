@@ -22,8 +22,8 @@ Challenge. The full write-up is in [docs/SUBMISSION.md](docs/SUBMISSION.md).
   there, paste the graded reply back. It parses locally for $0 and can only
   raise a displayed score, never the schedule.
 - **Analytics** — six tabs with honesty gates: metrics that lack data say
-  so, and a SPEND band shows exactly what the app has cost ($0.75 total to
-  load three real courses).
+  so, and a SPEND band shows exactly what the app has cost ($1.06 total to
+  load four real courses).
 
 The design premise: Claude and NotebookLM are better tutors than anything
 worth rebuilding, so the app supports them instead of replacing them. It

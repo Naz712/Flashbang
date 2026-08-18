@@ -43,8 +43,9 @@ Answer ›.
 Show the copy-prompt card, then paste a prepared reply, Apply — bars move,
 "ext" marker. "Study anywhere; graded evidence comes home, decaying like a
 first recall — it never touches the exam projection." Flip to Analytics →
-SPEND tab. "Every claim in this video is on this screen: $0.75 total to load
-three courses. The app bills itself honestly."
+SPEND tab. "Every claim in this video is on this screen: about a dollar
+total to load four courses. The app bills itself honestly." (Say whatever
+the tab shows that day — it was $1.06 on 18 Aug.)
 
 **2:45–3:00 · Close.**
 "Feature-complete, twelve test suites, under a dollar a week for five
