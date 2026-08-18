@@ -1903,6 +1903,8 @@ function renderCardsScreen() {
         <span class="fb-label">Import cards</span>
         <select class="fb-select" id="imTopic">${groupedTopicOptions(S.cardTopics, f.topic_id)}</select>
         <span style="flex:1"></span>
+        <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px" id="imNlm"
+          title="Copy a prompt for NotebookLM (or any AI) that returns cards in the exact format this box parses for free">⧉ Copy prompt</button>
         <button class="fb-btn fb-btn--ghost" style="padding:6px 12px; font-size:11.5px" id="imPreview">Preview</button>
         <button class="fb-btn" style="padding:6px 12px; font-size:11.5px" id="imInsert" ${ip && ip.cards.length ? "" : "disabled"}>Add ${ip ? ip.cards.length : 0} cards</button>
         <button class="fb-icon-btn" id="imCancel" title="Close">✕</button>
@@ -1943,6 +1945,25 @@ function renderCardsScreen() {
   if (S.showImport) {
     $("imText").oninput = (e) => { S.importText = e.target.value; S.importPreview = null; };
     $("imCancel").onclick = () => { S.showImport = false; S.importPreview = null; renderCardsScreen(); };
+    $("imNlm").onclick = async () => {
+      // the prompt names the selected topic so the cards come back scoped to it
+      const title = $("imTopic").selectedOptions?.[0]?.textContent?.trim();
+      const text = `Create flashcards from the source material${title ? ` on "${title}"` : ""}.
+
+Card rules: one fact per card; questions that force recall, never yes/no; short precise answers; each card must make sense on its own.
+
+Output ONLY plain text, one card per line, in exactly this format:
+Question :: Answer
+
+No numbering, no headers, no markdown, no commentary before or after.`;
+      try {
+        await navigator.clipboard.writeText(text);
+        $("imNlm").textContent = "Copied ✓";
+        setTimeout(() => { const b = $("imNlm"); if (b) b.textContent = "⧉ Copy prompt"; }, 2400);
+      } catch {
+        alert("Clipboard blocked — click the page once, then try again.");
+      }
+    };
     $("imPreview").onclick = async () => {
       const topic_id = +$("imTopic").value;
       S.importText = $("imText").value;
