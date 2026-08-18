@@ -318,10 +318,12 @@ def _normalize_ranges(topics, first_page, last_page):
     return [t for t in topics if t["page_start"] <= last_page]
 
 
-def segment_topics(pdf_id, course_name):
+def segment_topics(pdf_id, course_name, on_progress=None):
     """Segment a pdf's stored pages into topics with time estimates.
     Chunks long documents on page boundaries; same-titled boundary topics are
-    merged mechanically (page ranges extended, minutes summed)."""
+    merged mechanically (page ranges extended, minutes summed).
+    `on_progress(done, total)` is called per chunk so the UI can show a real
+    fraction instead of a spinner."""
     pages = get_pdf_pages(pdf_id)
     if not pages:
         raise ValueError(f"No stored pages for pdf {pdf_id} — call read_pdf first")
@@ -342,7 +344,9 @@ def segment_topics(pdf_id, course_name):
 
     all_topics = []
     carry_over = None
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
+        if on_progress:
+            on_progress(idx, len(chunks))
         chunk_text = "\n\n".join(f"=== PAGE {p['page_number']} ===\n{p['text']}" for p in chunk)
         page_range = (chunk[0]["page_number"], chunk[-1]["page_number"])
         prompt = _segmentation_prompt(chunk_text, course_name, page_range, carry_over)
@@ -363,7 +367,7 @@ def segment_topics(pdf_id, course_name):
     return _normalize_ranges(all_topics, pages[0]["page_number"], pages[-1]["page_number"])
 
 
-def propose_topics(pdf_id):
+def propose_topics(pdf_id, on_progress=None):
     """Agent entry point: segmentation + estimates for user review. Saves NOTHING —
     the agent shows the proposal and only save_topics persists it after approval."""
     pdf = get_pdf(pdf_id)
@@ -372,7 +376,7 @@ def propose_topics(pdf_id):
     from database import get_courses
     course_name = next((c["name"] for c in get_courses() if c["id"] == pdf["course_id"]), "Unknown")
 
-    topics = segment_topics(pdf_id, course_name)
+    topics = segment_topics(pdf_id, course_name, on_progress=on_progress)
     total_minutes = sum(t["est_minutes"] for t in topics)
     return {
         "pdf_id": pdf_id,

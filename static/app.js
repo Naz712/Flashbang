@@ -1336,11 +1336,11 @@ function ingestBanner() {
     <div style="display:flex; align-items:center; gap:14px">
       <span class="fb-label">Ingesting</span>
       <span class="fb-body-sm" style="flex:1; color:var(--fb-ink)">${esc(ing.current)} —
-        ${splitting ? "reading, splitting into topics, saving. Big decks take a few minutes." : "uploading…"}</span>
-      <span class="fb-data" style="color:var(--fb-muted)">${splitting ? "" : `${pct}% · `}${ing.done + 1} of ${ing.total}</span>
+        ${splitting ? `${ing.stage || "reading pages"}. Big decks take a few minutes.` : "uploading…"}</span>
+      <span class="fb-data" style="color:var(--fb-muted)">${splitting && !ing.stage ? "" : `${pct}% · `}${ing.done + 1} of ${ing.total}</span>
     </div>
     <div class="fb-ingest-track">
-      <div class="fb-ingest-fill${splitting ? " fb-ingest-fill--indet" : ""}"${splitting ? "" : ` style="width:${pct}%"`}></div>
+      <div class="fb-ingest-fill${splitting && !ing.stage ? " fb-ingest-fill--indet" : ""}"${splitting && !ing.stage ? "" : ` style="width:${pct}%"`}></div>
     </div>
   </div>`;
 }
@@ -3044,17 +3044,35 @@ async function uploadPdfs(files) {
     S.ingesting.phase = "upload";
     S.ingesting.pct = 0;
     render();
+    let poll = null;
     try {
       const up = await xhrUpload(file, (pct) => {
         if (S.ingesting && pct !== S.ingesting.pct) { S.ingesting.pct = pct; render(); }
       });
       S.ingesting.phase = "split";
+      S.ingesting.pct = 0;
+      S.ingesting.stage = null;
       render();
+      // the server reports which segmentation chunk it is on — a real
+      // fraction, not a spinner. Poll it while the ingest request runs.
+      poll = setInterval(async () => {
+        try {
+          const p = await fetch(`/api/ingest_progress?path=${encodeURIComponent(up.path)}`)
+            .then((r) => r.json());
+          if (S.ingesting && p.stage) {
+            S.ingesting.stage = p.stage;
+            S.ingesting.pct = p.total ? Math.round(p.done / p.total * 100) : 0;
+            render();
+          }
+        } catch { /* progress is cosmetic — never fail the ingest over it */ }
+      }, 1500);
       const res = await fetch("/api/ingest_auto", { method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: up.path, course_id, course_name,
                                force_vision: S.forceVision }) })
         .then((r) => r.ok ? r.json() : null);
+      clearInterval(poll);
+      poll = null;
       if (!res) S.ingesting.failed.push(file.name);
       else {
         if (res.course_id) { course_id = res.course_id; course_name = null; }
@@ -3065,6 +3083,7 @@ async function uploadPdfs(files) {
         }
       }
     } catch { S.ingesting.failed.push(file.name); }
+    if (poll) clearInterval(poll);
     S.ingesting.done += 1;
   }
   const failed = S.ingesting.failed;

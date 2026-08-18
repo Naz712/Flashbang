@@ -760,6 +760,14 @@ def review_end():
 
 # ---------------------------------------------------------------- button ingest
 
+INGEST_PROGRESS = {}   # upload path -> {"stage", "done", "total"}; polled by the banner
+
+
+@app.get("/api/ingest_progress")
+def ingest_progress():
+    return jsonify(INGEST_PROGRESS.get(request.args.get("path") or "", {}))
+
+
 @app.post("/api/ingest_auto")
 def ingest_auto():
     """The whole ingest pipeline behind one button: read pages → segment →
@@ -776,10 +784,15 @@ def ingest_auto():
             return jsonify({"error": "course_id or course_name required"}), 400
         existing = next((c for c in get_courses() if c["name"].lower() == name.lower()), None)
         course_id = existing["id"] if existing else create_course(name)
-    result = read_pdf(path, course_id, force_vision=bool(body.get("force_vision")))
-    pdf_id = result["pdf_id"]
-    proposal = propose_topics(pdf_id)
-    save_topics(pdf_id, proposal["topics"])
+    try:
+        INGEST_PROGRESS[path] = {"stage": "reading pages", "done": 0, "total": 0}
+        result = read_pdf(path, course_id, force_vision=bool(body.get("force_vision")))
+        pdf_id = result["pdf_id"]
+        proposal = propose_topics(pdf_id, on_progress=lambda done, total: INGEST_PROGRESS.update(
+            {path: {"stage": "splitting into topics", "done": done, "total": total}}))
+        save_topics(pdf_id, proposal["topics"])
+    finally:
+        INGEST_PROGRESS.pop(path, None)
     return jsonify({"preview": _ingest_preview(pdf_id), "course_id": course_id})
 
 
