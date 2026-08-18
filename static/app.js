@@ -1320,7 +1320,7 @@ function ingestedCard() {
         <div class="fb-topic-row fb-anim-topic" style="--i:${i++}">
           <span class="fb-dot" style="background:${t.kind === "general" ? "var(--fb-hairline)" : "var(--fb-accent)"}"></span>
           <span style="flex:1; min-width:0" class="fb-topic-title">${esc(t.title)}</span>
-          <span class="fb-data" style="color:var(--fb-muted); flex:none">p.${t.page_start}–${t.page_end} · ~${fmtMin(t.est_minutes)}</span>
+          <span class="fb-data" style="color:var(--fb-muted); flex:none">p.${t.pages} · ~${fmtMin(t.est_minutes)}</span>
         </div>`).join("")}`).join("")}
     <div class="fb-evidence">Minute estimates come from page density — sparse slides read faster than dense
       text, and equations slower still. Fix any bad split with ✎ Split on the course page.</div>
